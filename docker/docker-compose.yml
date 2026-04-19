@@ -1,0 +1,71 @@
+# ══════════════════════════════════════════════════════════════
+# NEXYA Backend — Docker Compose Dev
+# Usage : docker compose -f docker/docker-compose.yml up -d
+# ══════════════════════════════════════════════════════════════
+
+services:
+  # ── PostgreSQL 16 + pgvector (DB principale + vector search) ──
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: nexya-postgres
+    environment:
+      POSTGRES_DB: nexya
+      POSTGRES_USER: nexya
+      POSTGRES_PASSWORD: nexya_dev
+      # Dev local Windows : bug connu libpq + Py 3.14 + SCRAM sur host Windows.
+      # On active "trust" uniquement pour les connexions host locales en dev.
+      # En prod (Linux), SCRAM fonctionne normalement — on n'active PAS cette option.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      # Host:container — on mappe sur 5433 côté host car un PostgreSQL natif
+      # Windows (service postgresql-x64-16) occupe déjà 5432. Docker écoute
+      # donc sur 5433, le natif reste sur 5432 sans conflit.
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexya -d nexya"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Redis 7 (sessions, cache, rate limit, annulation SSE) ─────
+  redis:
+    image: redis:7-alpine
+    container_name: nexya-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ── MinIO (stockage fichiers compatible S3) ───────────────────
+  minio:
+    image: minio/minio
+    container_name: nexya-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: nexya_minio
+      MINIO_ROOT_PASSWORD: nexya_minio_secret
+    ports:
+      - "9000:9000"       # API S3
+      - "9001:9001"       # Console web admin
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

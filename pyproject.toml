@@ -1,0 +1,71 @@
+[project]
+name = "nexya-backend"
+version = "0.1.0"
+description = "NEXYA AI Assistant — Production API (FastAPI + SSE)"
+requires-python = ">=3.12"
+authors = [{ name = "Loth Ivan Ngassa Yimga", email = "ngassayimgal@gmail.com" }]
+
+dependencies = [
+    # ── Web framework ──────────────────────────────────────────
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
+
+    # ── Database ───────────────────────────────────────────────
+    "sqlalchemy[asyncio]>=2.0,<3",
+    "psycopg[binary]>=3.2,<4",         # PostgreSQL async driver (remplace asyncpg — stable sur Py 3.14)
+    "alembic>=1.14,<2",               # Migrations
+
+    # ── Cache / sessions ───────────────────────────────────────
+    "redis>=5.2,<6",                   # Redis async (aioredis unifié)
+
+    # ── Configuration ──────────────────────────────────────────
+    "pydantic-settings>=2.6,<3",
+    "python-dotenv>=1.0,<2",
+
+    # ── Auth ───────────────────────────────────────────────────
+    "bcrypt>=4.2,<6",                  # Hash mots de passe (usage direct, sans passlib)
+    "PyJWT>=2.9,<3",                   # JWT RS256 encode/decode
+    "cryptography>=44.0,<45",          # Backend RSA pour PyJWT
+    "email-validator>=2.0,<3",         # Validation Pydantic EmailStr
+
+    # ── Logging ────────────────────────────────────────────────
+    "structlog>=24.1,<25",
+
+    # ── IA — Gemini (Vertex AI, déjà utilisé) ─────────────────
+    "google-genai>=1.0,<2",
+    "google-cloud-aiplatform>=1.40,<2",
+
+    # ── Workers (tâches asynchrones + cron) ────────────────────
+    "arq>=0.26,<1",                    # Worker Redis — cleanup, Prompt Scheduler
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9",
+    "pytest-asyncio>=0.24,<1",
+    "httpx>=0.27,<1",                  # TestClient async
+    "ruff>=0.8,<1",                    # Linter + formatter
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["tests*", "docker*", "migrations*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "TCH"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

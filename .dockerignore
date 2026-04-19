@@ -1,0 +1,65 @@
+# ══════════════════════════════════════════════════════════════
+# NEXYA Backend — Contexte de build Docker
+# Tout ce qui match ici n'est PAS envoyé au daemon Docker.
+# ══════════════════════════════════════════════════════════════
+
+# Secrets / environnement
+.env
+.env.*
+*.pem
+!public.pem.example
+!private.pem.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+ENV/
+
+# Tests — exclus de l'image de prod (gardés accessibles pour CI en `target: builder`)
+tests/
+test_*.py
+conftest.py
+
+# Outils de dev
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+*.md
+!README.md
+docs/
+
+# Docker lui-même (évite la récursion + inutile dans l'image)
+docker/
+.dockerignore
+Dockerfile
+docker-compose*.yml
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Données locales
+*.db
+*.sqlite
+*.log
+logs/
+dumps/
