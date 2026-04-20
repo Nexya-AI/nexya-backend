@@ -27,3 +27,7 @@ Thumbs.db
 
 # Models (stored in models_local/ at repo root)
 *.gguf
+
+# Personal / internal — pas pour partage public
+CLAUDE.md
+COURS_FASTAPI.md
