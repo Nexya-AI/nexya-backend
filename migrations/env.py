@@ -25,6 +25,7 @@ from app.core.database.base import Base
 # ── Importer TOUS les modèles ORM ici pour que Base.metadata les connaisse ──
 # Sans ces imports, autogenerate ne détecte aucune table.
 from app.features.auth.models import DeviceToken, RefreshToken, User  # noqa: F401
+from app.features.chat.models import AbuseReport, Conversation, Message  # noqa: F401
 
 config = context.config
 

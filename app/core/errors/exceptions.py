@@ -114,6 +114,24 @@ class RateLimitIPException(NexYaException):
         )
 
 
+class RateLimitAbuseException(NexYaException):
+    """Quota user-scoped dépassé sur les signalements d'abus.
+
+    Code distinct de `RATE_LIMIT_IP` : un signalement est toujours authentifié
+    et lié à un user. Le frontend doit distinguer « l'IP est pénalisée »
+    (brute-force auth) de « l'utilisateur signale trop » (anti-spam du
+    mécanisme de modération lui-même).
+    """
+
+    def __init__(self, retry_after: int = 3600) -> None:
+        super().__init__(
+            code="RATE_LIMIT_ABUSE",
+            message="Trop de signalements récents. Réessayez plus tard.",
+            status_code=429,
+            data={"retry_after": retry_after},
+        )
+
+
 # ══════════════════════════════════════════════════════════════
 # LLM / IA — 402 / 503
 # ══════════════════════════════════════════════════════════════
@@ -171,6 +189,43 @@ class ResourceNotFoundException(NexYaException):
             code="RESOURCE_NOT_FOUND",
             message=f"{resource} introuvable.",
             status_code=404,
+        )
+
+
+class DuplicateReportException(NexYaException):
+    """Un user a déjà signalé ce message (UNIQUE `(user_id, message_id)` violé).
+
+    Retour HTTP 409 : le Flutter affiche un toast « déjà signalé » et garde
+    l'UI cohérente (pas d'erreur rouge alarmante pour un double-tap utilisateur).
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            code="DUPLICATE_REPORT",
+            message="Vous avez déjà signalé ce message.",
+            status_code=409,
+        )
+
+
+# ══════════════════════════════════════════════════════════════
+# VALIDATION MÉTIER — 422
+# ══════════════════════════════════════════════════════════════
+
+class ValidationException(NexYaException):
+    """Erreur de validation métier levée par un service.
+
+    Distincte de l'erreur Pydantic globale (qui utilise aussi le code
+    VALIDATION_ERROR mais est levée AVANT le service, au niveau du parseur
+    de requête). Utiliser cette exception pour des invariants métier
+    rejetés en cours de traitement — ex. curseur de pagination malformé,
+    combinaison de champs incohérente.
+    """
+
+    def __init__(self, message: str = "Données invalides.") -> None:
+        super().__init__(
+            code="VALIDATION_ERROR",
+            message=message,
+            status_code=422,
         )
 
 
