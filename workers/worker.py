@@ -21,6 +21,7 @@ from app.config import settings
 from app.core.database.postgres import dispose_engine
 from app.core.observability import configure_logging
 from workers.auth_tasks import cleanup_refresh_tokens
+from workers.chat_tasks import generate_conversation_title
 
 log = structlog.get_logger()
 
@@ -42,8 +43,10 @@ class WorkerSettings:
 
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
 
-    # Tâches appelables explicitement par `enqueue_job("cleanup_refresh_tokens")`
-    functions = [cleanup_refresh_tokens]
+    # Tâches appelables explicitement par `enqueue_job("<name>")`.
+    # `generate_conversation_title` est déclenché par le router chat quand
+    # le placeholder assistant est finalisé sur le 2ᵉ échange complet.
+    functions = [cleanup_refresh_tokens, generate_conversation_title]
 
     # Crons — heure UTC. 03:17 évite le créneau 03:00 pile (tempête d'horaires
     # ronds sur toute l'infra) tout en restant en heure creuse.

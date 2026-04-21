@@ -146,7 +146,14 @@ async def _clear_cancel(session_id: str) -> None:
 
 @dataclass(slots=True)
 class StreamContext:
-    """Paramètres contextuels d'un stream — passés au StreamHandler."""
+    """Paramètres contextuels d'un stream — passés au StreamHandler.
+
+    `metrics` : si fourni, le StreamHandler l'enrichit au fil du stream au
+    lieu de créer le sien. Permet au caller (router Chat) de lire à la fin
+    le provider/model/usage/cost retenus et de finaliser le Message ORM en
+    conséquence. Si None (par défaut), un StreamMetrics interne est créé
+    puis émis normalement.
+    """
 
     expert_id: str | None
     user_messages: list[ChatMessage]
@@ -154,6 +161,7 @@ class StreamContext:
     trace_id: str
     session_id: str | None = None
     max_tokens: int | None = None
+    metrics: StreamMetrics | None = None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -193,7 +201,7 @@ class StreamHandler:
         """
         chain = self._router.build_chain(ctx.expert_id)
         started_at = time.monotonic()
-        metrics = StreamMetrics(
+        metrics = ctx.metrics or StreamMetrics(
             user_id=ctx.user_id,
             trace_id=ctx.trace_id,
             expert_id=ctx.expert_id,

@@ -17,17 +17,15 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 import structlog
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.ai.budget_tracker import get_budget_tracker
 from app.ai.moderation import close_moderation_service, get_moderation_service
-from app.ai.providers import ChatMessage as AiChatMessage
 from app.ai.providers import ImageGenerationRequest, ProviderError
-from app.ai.router import build_default_router
-from app.ai.streaming import StreamContext, StreamHandler, mark_cancelled
+from app.ai.runtime import get_ai_router, get_stream_handler
 from app.config import settings
 from app.core.auth.guards import get_current_user
 from app.core.database.postgres import check_db_connection, dispose_engine
@@ -38,6 +36,7 @@ from app.core.observability import TraceIdMiddleware, configure_logging
 from app.core.observability.trace import get_trace_id
 from app.features.auth.models import User
 from app.features.auth.router import router as auth_router
+from app.features.chat.router import router as chat_router
 from app.shared.schemas import NexyaResponse
 
 configure_logging()
@@ -47,19 +46,6 @@ log = structlog.get_logger()
 # ══════════════════════════════════════════════════════════════
 # LIFESPAN — Démarrage et arrêt propres
 # ══════════════════════════════════════════════════════════════
-
-_AI_ROUTER = None
-_STREAM_HANDLER: StreamHandler | None = None
-
-
-def get_stream_handler() -> StreamHandler:
-    """Retourne le singleton StreamHandler (router + retry + breakers)."""
-    global _AI_ROUTER, _STREAM_HANDLER
-    if _STREAM_HANDLER is None:
-        _AI_ROUTER = build_default_router()
-        _STREAM_HANDLER = StreamHandler(router=_AI_ROUTER)
-    return _STREAM_HANDLER
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -140,6 +126,7 @@ app.add_middleware(TraceIdMiddleware)
 # ══════════════════════════════════════════════════════════════
 
 app.include_router(auth_router)
+app.include_router(chat_router)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -189,108 +176,16 @@ async def health_alias() -> JSONResponse:
 
 
 # ══════════════════════════════════════════════════════════════
-# ENDPOINTS IA — chat streaming, stop, génération d'images
-# Ces endpoints passent par la Couche IA complète :
-#   moderation → budget → router → retry/breakers → streaming SSE.
-# Migreront vers features/chat/ et features/vision/ dans une PR dédiée
-# (extraction sans changement de comportement).
+# ENDPOINT IA — génération d'images
+# Migrera vers `features/vision/` dans une PR dédiée (extraction sans
+# changement de comportement). Les endpoints de chat (`/chat/stream`,
+# `/chat/stop`) ont été extraits dans `features/chat/router.py` au Lot 4.
 # ══════════════════════════════════════════════════════════════
-
-class ChatMessage(BaseModel):
-    role: str
-    content: str
-
-
-class ChatRequest(BaseModel):
-    message: str
-    history: list[ChatMessage] = []
-    expert_id: str | None = None
-    session_id: str | None = None
-
-
-class ChatStopRequest(BaseModel):
-    session_id: str
-
 
 class ImageRequest(BaseModel):
     prompt: str
     count: int = Field(default=1, ge=1, le=4)
     expert_id: str | None = "studio"
-
-
-@app.post("/chat/stream")
-async def chat_stream(
-    body: ChatRequest,
-    request: Request,
-    current_user: User = Depends(get_current_user),
-):
-    """Chat SSE streaming via la Couche IA (router + retry + fallback).
-
-    Contrat SSE :
-    - `event: chunk`     `{delta, finish_reason?, usage?}`
-    - `event: keepalive` (commentaire `:` toutes les 15s)
-    - `event: error`     `{code, message}` — codes NEXYA (LLM_UNAVAILABLE, STREAM_CANCELLED…)
-    - `event: done`      `{reason, duration_ms}` — toujours émis en dernier
-    """
-    user_id = str(current_user.id)
-    trace_id = get_trace_id() or uuid.uuid4().hex
-    session_id = body.session_id or uuid.uuid4().hex
-
-    # 1. Budget : cap absolu user/jour (pré-consommation du chat)
-    await get_budget_tracker().check_and_consume_chat(user_id)
-
-    # 2. Modération du prompt utilisateur (fail-open si clé absente)
-    decision = await get_moderation_service().check(
-        body.message, kind="input", user_id=user_id, trace_id=trace_id
-    )
-    if not decision.allowed:
-        return JSONResponse(
-            status_code=400,
-            content=NexyaResponse(
-                success=False,
-                error="Ta requête a été bloquée par le filtre de sécurité.",
-                code="CONTENT_FILTERED",
-            ).model_dump(mode="json"),
-        )
-
-    # 3. Construction du contexte pour le StreamHandler
-    ai_messages: list[AiChatMessage] = [
-        AiChatMessage(role=_coerce_role(h.role), content=h.content)
-        for h in body.history
-    ]
-    ai_messages.append(AiChatMessage(role="user", content=body.message))
-
-    ctx = StreamContext(
-        expert_id=body.expert_id,
-        user_messages=ai_messages,
-        user_id=user_id,
-        trace_id=trace_id,
-        session_id=session_id,
-    )
-
-    handler = get_stream_handler()
-
-    return StreamingResponse(
-        handler.stream(request, ctx),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-            "X-Session-Id": session_id,  # permet au client de rappeler /chat/stop
-        },
-    )
-
-
-@app.post("/chat/stop", response_model=NexyaResponse[dict])
-async def chat_stop(
-    body: ChatStopRequest,
-    current_user: User = Depends(get_current_user),
-):
-    """Pose la clé d'annulation Redis. Le stream actif côté serveur la lit
-    dans la seconde et coupe le flux proprement (SSE `error STREAM_CANCELLED` + `done`)."""
-    await mark_cancelled(body.session_id)
-    return NexyaResponse(success=True, data={"session_id": body.session_id, "cancelled": True})
 
 
 @app.post("/image/generate", response_model=NexyaResponse[dict])
@@ -317,9 +212,7 @@ async def image_generate(
         )
 
     # 3. Résolution via LlmRouter (defaults: studio → gemini-imagen)
-    handler = get_stream_handler()
-    assert _AI_ROUTER is not None
-    resolution = _AI_ROUTER.resolve_image(body.expert_id)
+    resolution = get_ai_router().resolve_image(body.expert_id)
 
     request = ImageGenerationRequest(
         prompt=body.prompt,
@@ -363,14 +256,3 @@ async def image_generate(
             "model": resolution.model,
         },
     )
-
-
-# ─── helpers locaux ──────────────────────────────────────────────
-
-def _coerce_role(role: str) -> str:
-    """Le frontend envoie parfois 'ai' pour assistant — on normalise."""
-    if role in ("user", "system", "assistant"):
-        return role
-    if role in ("ai", "bot", "model"):
-        return "assistant"
-    return "user"
