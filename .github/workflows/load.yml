@@ -1,0 +1,166 @@
+# NEXYA Backend — Load Tests k6 (Session N4 volet A)
+#
+# Trigger : workflow_dispatch (manuel) + optional schedule weekly.
+# Le job build l'image, lance docker-compose load, exécute le(s)
+# scenario(s) k6 sélectionné(s), upload artifacts (HTML+JSON).
+# Si threshold breach → fail job + ouverture issue auto.
+#
+# Pourquoi pas en pull_request : un run complet (6 scénarios) prend
+# ~25 min. Trop lourd à bloquer chaque PR. Ivan décide manuellement
+# (workflow_dispatch) ou via le cron weekly Sunday 4h UTC.
+
+name: Load Tests k6
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Scenario k6 (ou 'all')"
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - auth_burst
+          - chat_stream_concurrent
+          - files_upload_concurrent
+          - conversations_list_paginated
+          - metrics_endpoint
+          - mixed_workload
+  schedule:
+    # Weekly Sunday 4h UTC — suivi tendance perf, pas bloquant.
+    - cron: "0 4 * * 0"
+
+concurrency:
+  group: load-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  UV_VERSION: "0.5.14"
+
+jobs:
+  load-tests:
+    name: Load tests (k6 + docker-compose)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install backend deps (pour seed_dev)
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Generate JWT keys + bootstrap stack
+        run: |
+          mkdir -p tests/load/tmp
+          openssl genrsa -out tests/load/tmp/jwt_private.pem 2048
+          openssl rsa -in tests/load/tmp/jwt_private.pem \
+              -pubout -out tests/load/tmp/jwt_public.pem
+          # Skip bootstrap.sh (qui suppose docker compose local) — en
+          # CI on lance compose directement et on attend healthz.
+          cd tests/load/docker
+          docker compose -f docker-compose.load.yml up -d
+          # Wait healthz
+          for i in $(seq 1 90); do
+            if curl -fsS http://localhost:8000/healthz > /dev/null 2>&1; then
+              echo "✓ Backend healthy après ${i}s"
+              break
+            fi
+            if [ "$i" -eq 90 ]; then
+              echo "✗ Backend timeout"
+              docker compose -f docker-compose.load.yml logs backend | tail -50
+              exit 1
+            fi
+            sleep 1
+          done
+          # Migrations + seed
+          docker compose -f docker-compose.load.yml exec -T backend \
+              alembic upgrade head
+          docker compose -f docker-compose.load.yml exec -T backend \
+              python -m scripts.seed_dev || true
+
+      - name: Run k6 scenarios
+        id: k6
+        run: |
+          set +e
+          mkdir -p tests/load/reports
+          SCENARIO="${{ github.event.inputs.scenario || 'all' }}"
+          if [ "$SCENARIO" = "all" ]; then
+            SCENARIOS="auth_burst chat_stream_concurrent files_upload_concurrent conversations_list_paginated metrics_endpoint mixed_workload"
+          else
+            SCENARIOS="$SCENARIO"
+          fi
+          OVERALL_RC=0
+          TS=$(date -u +%Y%m%d_%H%M%S)
+          for s in $SCENARIOS; do
+            echo "▶▶▶ Scenario: $s"
+            BASE_URL=http://localhost:8000 k6 run \
+              --summary-export=tests/load/reports/${s}_${TS}_summary.json \
+              tests/load/scenarios/${s}.js
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              OVERALL_RC=1
+            fi
+          done
+          echo "overall_rc=${OVERALL_RC}" >> $GITHUB_OUTPUT
+          exit "$OVERALL_RC"
+        continue-on-error: true
+
+      - name: Teardown stack
+        if: always()
+        run: |
+          cd tests/load/docker
+          docker compose -f docker-compose.load.yml down -v --remove-orphans
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-reports
+          path: tests/load/reports/
+          retention-days: 30
+
+      - name: Open issue on threshold breach
+        if: steps.k6.outputs.overall_rc != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const today = new Date().toISOString().slice(0, 10);
+            const scenario = '${{ github.event.inputs.scenario || "scheduled-weekly" }}';
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🔻 Régression performance — load tests ${today}`,
+              body: [
+                `Threshold breach détecté sur les load tests k6.`,
+                ``,
+                `**Scenario** : ${scenario}`,
+                `**Run** : [${context.runId}](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+                ``,
+                `Voir l'artifact \`load-reports\` du run pour les détails p50/p95/p99 par scénario.`,
+              ].join("\n"),
+              labels: ["load-regression", "priority/medium"]
+            });
+
+      - name: Fail job if breach
+        if: steps.k6.outputs.overall_rc != '0'
+        run: exit 1

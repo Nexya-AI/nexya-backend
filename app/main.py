@@ -16,27 +16,67 @@ from contextlib import asynccontextmanager
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+import base64 as _base64
+
 import structlog
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.budget_tracker import get_budget_tracker
+from app.ai.fcm import get_fcm_provider
 from app.ai.moderation import close_moderation_service, get_moderation_service
 from app.ai.providers import ImageGenerationRequest, ProviderError
 from app.ai.runtime import get_ai_router, get_stream_handler
+from app.ai.tools.planner_tools import register_planner_tools
 from app.config import settings
 from app.core.auth.guards import get_current_user
-from app.core.database.postgres import check_db_connection, dispose_engine
+from app.core.database.postgres import check_db_connection, dispose_engine, engine, get_db
 from app.core.database.redis import check_redis_connection, close_redis_pool
-from app.core.errors.exceptions import LlmUnavailableException, NexYaException
+from app.core.errors.exceptions import (
+    LlmUnavailableException,
+    NexYaException,
+    PlanRequiredException,
+)
 from app.core.errors.handlers import register_exception_handlers
-from app.core.observability import TraceIdMiddleware, configure_logging
+from app.core.observability import (
+    TraceIdMiddleware,
+    configure_logging,
+    otel_is_initialized,
+    prometheus_get_registry,
+    prometheus_is_initialized,
+    sentry_is_initialized,
+    setup_otel,
+    setup_prometheus,
+    setup_sentry,
+    shutdown_otel,
+    shutdown_sentry,
+    verify_scrape_token,
+)
 from app.core.observability.trace import get_trace_id
+from app.features.ai_models.router import router as ai_models_router
 from app.features.auth.models import User
 from app.features.auth.router import router as auth_router
 from app.features.chat.router import router as chat_router
+from app.features.files.router import router as files_router
+from app.features.images.watermark import (
+    WATERMARK_VERSION,
+    apply_nexya_watermark,
+)
+from app.features.library.router import router as library_router
+from app.features.library.service import LibraryService
+from app.features.memory.router import router as memory_router
+from app.features.notifications.router import router as notifications_router
+from app.features.planner.router import router as planner_router
+from app.features.projects.router import router as projects_router
+from app.features.rag.router import router as rag_router
+from app.features.helpdesk.router import router as helpdesk_router
+from app.features.rgpd.router import router as rgpd_router
+from app.features.suggestions.router import router as suggestions_router
+from app.features.vision.router import router as vision_router
+from app.features.voice.router import router as voice_router
 from app.shared.schemas import NexyaResponse
 
 configure_logging()
@@ -46,6 +86,7 @@ log = structlog.get_logger()
 # ══════════════════════════════════════════════════════════════
 # LIFESPAN — Démarrage et arrêt propres
 # ══════════════════════════════════════════════════════════════
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -60,6 +101,16 @@ async def lifespan(app: FastAPI):
     """
     log.info("nexya.startup", env=settings.env, debug=settings.debug)
 
+    # K1 — Observabilité prod, ordre d'init :
+    # 1) Sentry FIRST → capture les erreurs d'init des services suivants.
+    # 2) OTel ensuite → besoin de l'`app` FastAPI déjà créée pour
+    #    `FastAPIInstrumentor` + de l'`engine` SQLAlchemy.
+    # 3) Prometheus en dernier → init pure CPU, ne dépend de rien.
+    # Chaque setup est fail-safe : une exception ne crashe PAS le service.
+    setup_sentry(settings)
+    setup_otel(settings, app=app, db_engine=engine)
+    setup_prometheus(settings)
+
     # Vérification des services — non bloquant en dev
     db_ok = await check_db_connection()
     redis_ok = await check_redis_connection()
@@ -73,6 +124,10 @@ async def lifespan(app: FastAPI):
     get_stream_handler()
     get_moderation_service()
     get_budget_tracker()
+    # F2 — Initialisation du provider FCM (mock-first, warning si clé vide)
+    # + enregistrement des tools Planner dans le registry singleton.
+    get_fcm_provider()
+    register_planner_tools()
 
     if db_ok and redis_ok:
         log.info("nexya.startup.ready", services="all")
@@ -82,7 +137,9 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Arrêt propre
+    # Arrêt propre — flush observabilité avant les pools
+    await shutdown_otel()
+    await shutdown_sentry()
     await close_moderation_service()
     await dispose_engine()
     await close_redis_pool()
@@ -127,6 +184,19 @@ app.add_middleware(TraceIdMiddleware)
 
 app.include_router(auth_router)
 app.include_router(chat_router)
+app.include_router(projects_router)
+app.include_router(library_router)
+app.include_router(files_router)
+app.include_router(memory_router)
+app.include_router(rag_router)
+app.include_router(voice_router)
+app.include_router(vision_router)
+app.include_router(planner_router)
+app.include_router(notifications_router)
+app.include_router(rgpd_router)
+app.include_router(ai_models_router)
+app.include_router(suggestions_router)
+app.include_router(helpdesk_router)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -139,6 +209,7 @@ app.include_router(chat_router)
 #             Retourne 503 si DB ou Redis sont KO pour que K8s retire le pod
 #             du service jusqu'à rétablissement.
 # ══════════════════════════════════════════════════════════════
+
 
 @app.get("/healthz", response_model=NexyaResponse[dict])
 async def healthz() -> NexyaResponse[dict]:
@@ -176,26 +247,172 @@ async def health_alias() -> JSONResponse:
 
 
 # ══════════════════════════════════════════════════════════════
+# OBSERVABILITÉ K1 — /metrics (Prometheus) + /observability/status
+# ══════════════════════════════════════════════════════════════
+# /metrics : exposition Prometheus standard, format text/plain v0.0.4.
+#   Auth via header `X-Prometheus-Token` ou query `?token=...` comparé
+#   constant-time à `PROMETHEUS_SCRAPE_TOKEN`. En dev, token vide =
+#   ouvert avec warning au boot. En prod, token vide = refus de
+#   démarrer (model_validator de Settings).
+# /observability/status : JSON synthèse 3 piliers, auth identique.
+# ══════════════════════════════════════════════════════════════
+
+
+def _extract_scrape_token(request: Request) -> str | None:
+    """Récupère le token depuis le header `X-Prometheus-Token` OU
+    le query param `?token=...`. Header prioritaire."""
+    token = request.headers.get("X-Prometheus-Token")
+    if token:
+        return token
+    return request.query_params.get("token")
+
+
+@app.get(settings.prometheus_metrics_path, include_in_schema=False)
+async def metrics_endpoint(request: Request) -> Response:
+    """Expose les métriques Prometheus au format text/plain.
+
+    Le scraper externe (Prometheus standalone, Grafana Agent, etc.)
+    appelle cet endpoint en GET avec son token. La response est
+    lue ligne par ligne par Prometheus.
+    """
+    if not prometheus_is_initialized():
+        return Response(
+            content="# Prometheus disabled\n",
+            media_type="text/plain; charset=utf-8",
+            status_code=503,
+        )
+
+    provided = _extract_scrape_token(request)
+    if not verify_scrape_token(provided, settings.prometheus_scrape_token):
+        return Response(
+            content="Unauthorized\n",
+            media_type="text/plain; charset=utf-8",
+            status_code=401,
+        )
+
+    try:
+        from prometheus_client import generate_latest
+
+        registry = prometheus_get_registry()
+        payload = generate_latest(registry)
+        return Response(
+            content=payload,
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("prometheus.export_failed", error=str(exc))
+        return Response(
+            content="# export error\n",
+            media_type="text/plain; charset=utf-8",
+            status_code=500,
+        )
+
+
+@app.get("/observability/status", include_in_schema=False)
+async def observability_status(request: Request) -> JSONResponse:
+    """Synthèse JSON des 3 piliers — utile debug rapide en prod sans
+    avoir à scraper /metrics ou consulter les UIs externes."""
+    provided = _extract_scrape_token(request)
+    if not verify_scrape_token(provided, settings.prometheus_scrape_token):
+        return JSONResponse(
+            status_code=401,
+            content={"success": False, "error": "Unauthorized"},
+        )
+
+    return JSONResponse(
+        content={
+            "success": True,
+            "data": {
+                "otel": {
+                    "enabled": settings.otel_enabled,
+                    "initialized": otel_is_initialized(),
+                    "endpoint": settings.otel_exporter_otlp_endpoint,
+                    "service_name": settings.otel_service_name,
+                    "sampler_ratio": settings.otel_traces_sampler_ratio,
+                },
+                "sentry": {
+                    "enabled": bool(settings.sentry_dsn),
+                    "initialized": sentry_is_initialized(),
+                    "environment": settings.sentry_environment,
+                    "release": settings.app_version,
+                },
+                "prometheus": {
+                    "enabled": settings.prometheus_enabled,
+                    "initialized": prometheus_is_initialized(),
+                    "metrics_path": settings.prometheus_metrics_path,
+                    "token_protected": bool(settings.prometheus_scrape_token),
+                    "metrics_count": 13,
+                },
+            },
+        },
+    )
+
+
+# ══════════════════════════════════════════════════════════════
 # ENDPOINT IA — génération d'images
 # Migrera vers `features/vision/` dans une PR dédiée (extraction sans
 # changement de comportement). Les endpoints de chat (`/chat/stream`,
 # `/chat/stop`) ont été extraits dans `features/chat/router.py` au Lot 4.
 # ══════════════════════════════════════════════════════════════
 
+
 class ImageRequest(BaseModel):
     prompt: str
     count: int = Field(default=1, ge=1, le=4)
     expert_id: str | None = "studio"
+    # E4 — watermark visuel NEXYA par défaut (retirable Pro+surcoût).
+    remove_watermark: bool = False
+
+
+def _build_auto_library_title(prompt: str, idx: int, total: int) -> str:
+    """Compose un titre par défaut pour une image sauvée automatiquement.
+
+    - Tronque le prompt à 60 caractères (coupe sur un espace si possible).
+    - Ajoute `(N)` si `total > 1` pour distinguer les images d'une même
+      génération multiple (N de 1 à total).
+    - Fallback `Image générée YYYY-MM-DD HH:MM (N)` si prompt vide ou
+      uniquement whitespace.
+    """
+    base = (prompt or "").strip()
+    if base:
+        # Tronque proprement sur un espace pour ne pas couper un mot.
+        if len(base) > 60:
+            truncated = base[:60].rsplit(" ", 1)[0]
+            base = truncated if len(truncated) >= 20 else base[:60]
+    else:
+        from datetime import datetime as _dt
+
+        base = "Image générée " + _dt.utcnow().strftime("%Y-%m-%d %H:%M")
+    if total > 1:
+        return f"{base} ({idx + 1})"
+    return base
 
 
 @app.post("/image/generate", response_model=NexyaResponse[dict])
 async def image_generate(
     body: ImageRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Génération d'images via la Couche IA (moderation + budget + router → Imagen)."""
+    """Génération d'images via la Couche IA (moderation + budget + router → Imagen).
+
+    Session C3 — auto-save des images générées dans la Library :
+    chaque image retournée est automatiquement persistée via
+    `LibraryService.create_from_bytes(source='generated', ...)`. En cas
+    d'échec d'upload/INSERT, on log un warning mais on renvoie toujours
+    la réponse 200 au client — l'IA a déjà été payée, on ne pénalise
+    pas l'user. La réponse est enrichie avec `library_ids: list[str]`
+    pour que le Flutter puisse pointer directement dans la biblio.
+    """
     user_id = str(current_user.id)
     trace_id = get_trace_id() or uuid.uuid4().hex
+
+    # E4 — gate Pro pour retirer le watermark. Un Free qui demande
+    # `remove_watermark=True` reçoit 403 PLAN_REQUIRED avant tout appel
+    # LLM (économie facture). Le Pro passe, facture future différentielle
+    # préparée via metadata (voir wallet v2 dans mémoire).
+    if body.remove_watermark and not current_user.is_pro:
+        raise PlanRequiredException(feature="Image sans watermark")
 
     # 1. Budget image/jour (cost = nombre d'images demandées)
     await get_budget_tracker().check_and_consume_image(user_id, cost=body.count)
@@ -245,14 +462,86 @@ async def image_generate(
         raise LlmUnavailableException()
 
     log.info("image.generate.done", user_id=user_id, count=len(images))
+
+    # 4. E4 — Watermark + Auto-save Library (fail-safe jamais bloquant).
+    # Si `remove_watermark=False` (défaut), chaque image reçoit le
+    # watermark NEXYA avant retour au client ET persistance. Si
+    # `remove_watermark=True` (Pro seulement, gated plus haut), les
+    # images sortent sans watermark et le metadata Library trace le
+    # choix pour la future facturation différentielle (wallet v2).
+    # NOTE : `GeneratedImage` est frozen, on stocke les base64 finaux
+    # dans une liste parallèle au lieu de muter l'objet.
+    library_ids: list[str] = []
+    total = len(images)
+    apply_watermark = not body.remove_watermark
+    # Liste parallèle : base64 final (watermarké ou pas) par image.
+    final_b64_per_image: list[str] = [img.base64_data for img in images]
+
+    for idx, img in enumerate(images):
+        try:
+            data = _base64.b64decode(img.base64_data, validate=False)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "image.generate.library_decode_failed",
+                user_id=user_id,
+                trace_id=trace_id,
+                error=str(exc),
+            )
+            continue
+
+        has_watermark = False
+        if apply_watermark:
+            # Application watermark CPU-side Pillow. Fail-safe absolu :
+            # si ça crash, retour bytes originaux + `has_watermark=False`.
+            data, has_watermark = apply_nexya_watermark(data, img.mime_type)
+            if has_watermark:
+                # Re-encode base64 pour le client — l'image rendue au
+                # client contient le watermark incrusté.
+                final_b64_per_image[idx] = _base64.b64encode(data).decode()
+
+        try:
+            item = await LibraryService.create_from_bytes(
+                current_user,
+                db,
+                type_="image",
+                title=_build_auto_library_title(body.prompt, idx, total),
+                data=data,
+                mime_type=img.mime_type,
+                source="generated",
+                provider=resolution.provider.name,
+                model=resolution.model,
+                prompt=body.prompt,
+                metadata_json={
+                    "has_watermark": has_watermark,
+                    "watermark_version": (WATERMARK_VERSION if has_watermark else None),
+                    "no_watermark_was_requested": body.remove_watermark,
+                },
+            )
+            library_ids.append(str(item.id))
+        except Exception as exc:  # noqa: BLE001
+            # Fail-safe : log + on ne fait pas remonter l'erreur.
+            log.warning(
+                "image.generate.library_save_failed",
+                user_id=user_id,
+                trace_id=trace_id,
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+
     return NexyaResponse(
         success=True,
         data={
             "images": [
-                {"base64": img.base64_data, "mime_type": img.mime_type}
-                for img in images
+                {
+                    "base64": final_b64_per_image[idx],
+                    "mime_type": img.mime_type,
+                }
+                for idx, img in enumerate(images)
             ],
             "provider": resolution.provider.name,
             "model": resolution.model,
+            "library_ids": library_ids,
+            "watermark_applied": apply_watermark,
+            "watermark_version": (WATERMARK_VERSION if apply_watermark else None),
         },
     )

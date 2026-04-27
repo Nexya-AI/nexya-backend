@@ -756,6 +756,37 @@ class Settings(BaseSettings):
         description="Sanity check anti-corpus-vide (CI fail si < cette taille).",
     )
 
+    # ── Phase 18 — Crisp + Helpdesk (Session N4 volet B) ──────
+    # Escalation auto vers Crisp (chat support) quand un user Pro
+    # rencontre un incident critique (paiement, LLM down).
+    # Mock-first auto si CRISP_API_KEY ou CRISP_WEBSITE_ID vide.
+    crisp_website_id: str = Field(default="", description="ID du website Crisp.")
+    crisp_identifier: str = Field(
+        default="plugin",
+        description="Identifier Crisp (plugin_id ou user_id selon le mode).",
+    )
+    crisp_api_key: str = Field(default="", description="Clé API Crisp.")
+    crisp_escalation_enabled: bool = Field(
+        default=True,
+        description="Kill-switch global escalation Crisp (False = log seulement).",
+    )
+
+    # ── Tests de charge k6 (Session N4 volet A) ────────────────
+    # Plafonds de sanity pour éviter qu'un scenario k6 buggé ne lance
+    # 100 000 VUs et explose le runner. Lus côté `tests/load/run.sh`.
+    load_test_max_vus: int = Field(
+        default=100,
+        ge=1,
+        le=10_000,
+        description="Cap VUs simultanés (anti-runaway).",
+    )
+    load_test_default_duration_seconds: int = Field(
+        default=60,
+        ge=1,
+        le=3600,
+        description="Durée par défaut d'un scenario en secondes.",
+    )
+
     @property
     def is_production(self) -> bool:
         return self.env == "production"
