@@ -1,0 +1,298 @@
+# Évals IA — Catégorie ACCURACY
+# Questions factuelles à réponse courte vérifiable. Chaque question a
+# des critères concrets (nombre attendu, fait à mentionner, formule
+# correcte). Le juge LLM valide la présence du fait.
+#
+# Couvre les 6 experts non-image (general, computer, science, finance,
+# language, cooking). 8 questions par expert sauf general (4) — 8×5 + 4
+# = 44 questions.
+#
+# Pass score = 7.0 (qualité standard).
+
+questions:
+  # ─── general (4) ─────────────────────────────────────────
+  - id: accuracy_gen_01
+    expert_id: general
+    question: "Quelle est la capitale du Cameroun ?"
+    expected_criteria:
+      - "Mentionne 'Yaoundé'"
+      - "Pas de confusion avec Douala (capitale économique)"
+
+  - id: accuracy_gen_02
+    expert_id: general
+    question: "En quelle année l'indépendance du Cameroun a-t-elle été proclamée ?"
+    expected_criteria:
+      - "Mentionne 1960"
+      - "Précise le 1er janvier 1960 si possible"
+
+  - id: accuracy_gen_03
+    expert_id: general
+    question: "Combien de continents y a-t-il selon le modèle français ?"
+    expected_criteria:
+      - "5 continents (Europe, Asie, Afrique, Amérique, Océanie)"
+      - "Cohérence avec le modèle francophone"
+
+  - id: accuracy_gen_04
+    expert_id: general
+    question: "Quelle langue est parlée au Brésil ?"
+    expected_criteria:
+      - "Portugais"
+      - "Pas l'espagnol"
+
+  # ─── computer (8) ────────────────────────────────────────
+  - id: accuracy_cs_01
+    expert_id: computer
+    question: "Quelle est la complexité algorithmique du tri rapide en moyenne ?"
+    expected_criteria:
+      - "O(n log n)"
+      - "Distinction avec pire cas O(n²)"
+
+  - id: accuracy_cs_02
+    expert_id: computer
+    question: "Que signifie l'acronyme CRUD ?"
+    expected_criteria:
+      - "Create, Read, Update, Delete"
+
+  - id: accuracy_cs_03
+    expert_id: computer
+    question: "Quel port HTTPS standard ?"
+    expected_criteria:
+      - "443"
+
+  - id: accuracy_cs_04
+    expert_id: computer
+    question: "Quelle est la différence entre ext3 et ext4 ?"
+    expected_criteria:
+      - "ext4 supporte fichiers plus gros (16 TB+)"
+      - "ext4 a journaling amélioré"
+      - "ext4 plus rapide"
+
+  - id: accuracy_cs_05
+    expert_id: computer
+    question: "Que retourne l'opération bitwise 5 & 3 en Python ?"
+    expected_criteria:
+      - "1"
+      - "Explication binaire (101 & 011 = 001)"
+
+  - id: accuracy_cs_06
+    expert_id: computer
+    question: "Quelle commande Docker liste les containers en cours ?"
+    expected_criteria:
+      - "docker ps"
+
+  - id: accuracy_cs_07
+    expert_id: computer
+    question: "Quel est l'auteur de Python ?"
+    expected_criteria:
+      - "Guido van Rossum"
+
+  - id: accuracy_cs_08
+    expert_id: computer
+    question: "What does ACID stand for in databases?"
+    expected_criteria:
+      - "Atomicity, Consistency, Isolation, Durability"
+
+  # ─── science (8) ─────────────────────────────────────────
+  - id: accuracy_sci_01
+    expert_id: science
+    question: "Quelle est la vitesse de la lumière dans le vide en m/s ?"
+    expected_criteria:
+      - "≈ 3 × 10⁸ m/s ou 299 792 458 m/s"
+
+  - id: accuracy_sci_02
+    expert_id: science
+    question: "Quelle est la formule chimique de l'eau ?"
+    expected_criteria:
+      - "H₂O ou H2O"
+
+  - id: accuracy_sci_03
+    expert_id: science
+    question: "Combien de chromosomes a un humain en bonne santé ?"
+    expected_criteria:
+      - "46 (23 paires)"
+
+  - id: accuracy_sci_04
+    expert_id: science
+    question: "Quelle est la racine carrée de 144 ?"
+    expected_criteria:
+      - "12"
+
+  - id: accuracy_sci_05
+    expert_id: science
+    question: "Quelle est la 3ème planète du système solaire ?"
+    expected_criteria:
+      - "La Terre"
+      - "Pas Mars (4ème) ni Vénus (2ème)"
+
+  - id: accuracy_sci_06
+    expert_id: science
+    question: "Qu'est-ce que la photosynthèse en une phrase ?"
+    expected_criteria:
+      - "Conversion lumière → énergie chimique par les plantes"
+      - "CO₂ + H₂O → glucose + O₂"
+
+  - id: accuracy_sci_07
+    expert_id: science
+    question: "Quelle est la masse molaire approximative du carbone ?"
+    expected_criteria:
+      - "≈ 12 g/mol"
+
+  - id: accuracy_sci_08
+    expert_id: science
+    question: "Énonce le principe d'incertitude d'Heisenberg en une phrase."
+    expected_criteria:
+      - "Position et quantité de mouvement non simultanément précises"
+      - "ΔxΔp ≥ ℏ/2"
+
+  # ─── finance (8) ─────────────────────────────────────────
+  - id: accuracy_fin_01
+    expert_id: finance
+    question: "Que signifie OHADA ?"
+    expected_criteria:
+      - "Organisation pour l'Harmonisation en Afrique du Droit des Affaires"
+
+  - id: accuracy_fin_02
+    expert_id: finance
+    question: "Quelle est la monnaie utilisée au Cameroun ?"
+    expected_criteria:
+      - "Franc CFA (FCFA)"
+      - "Mention de la zone CEMAC ou XAF si possible"
+
+  - id: accuracy_fin_03
+    expert_id: finance
+    question: "Que veut dire BRVM ?"
+    expected_criteria:
+      - "Bourse Régionale des Valeurs Mobilières"
+      - "Abidjan, UEMOA"
+
+  - id: accuracy_fin_04
+    expert_id: finance
+    question: "Quelle est la TVA en France métropolitaine en 2026 ?"
+    expected_criteria:
+      - "20 % (taux normal)"
+      - "Taux réduits 10 % et 5,5 % mentionnés possible"
+
+  - id: accuracy_fin_05
+    expert_id: finance
+    question: "Que signifie ROI ?"
+    expected_criteria:
+      - "Return On Investment / Retour sur investissement"
+
+  - id: accuracy_fin_06
+    expert_id: finance
+    question: "Différence entre EBITDA et résultat net en une phrase ?"
+    expected_criteria:
+      - "EBITDA = avant intérêts, taxes, dépréciations, amortissements"
+      - "Résultat net = après tout"
+
+  - id: accuracy_fin_07
+    expert_id: finance
+    question: "Qu'est-ce qu'un FCP ?"
+    expected_criteria:
+      - "Fonds Commun de Placement"
+
+  - id: accuracy_fin_08
+    expert_id: finance
+    question: "Que veut dire SARL en OHADA ?"
+    expected_criteria:
+      - "Société À Responsabilité Limitée"
+
+  # ─── language (8) ────────────────────────────────────────
+  - id: accuracy_lang_01
+    expert_id: language
+    question: "Conjugue 'aller' au futur simple à la 1ère personne du singulier."
+    expected_criteria:
+      - "j'irai"
+
+  - id: accuracy_lang_02
+    expert_id: language
+    question: "Quel est le pluriel de 'chacal' en français ?"
+    expected_criteria:
+      - "chacals (et non chacaux — exception)"
+
+  - id: accuracy_lang_03
+    expert_id: language
+    question: "Translate to English: « Je suis fatigué aujourd'hui. »"
+    expected_criteria:
+      - "I am tired today"
+
+  - id: accuracy_lang_04
+    expert_id: language
+    question: "Donne le past simple de 'go' en anglais."
+    expected_criteria:
+      - "went"
+
+  - id: accuracy_lang_05
+    expert_id: language
+    question: "Conjugue 'être' au subjonctif présent à la 1ère personne du pluriel."
+    expected_criteria:
+      - "que nous soyons"
+
+  - id: accuracy_lang_06
+    expert_id: language
+    question: "Que veut dire 'mbolo' en duala ?"
+    expected_criteria:
+      - "Bonjour / salutation"
+
+  - id: accuracy_lang_07
+    expert_id: language
+    question: "Comment dit-on 'merci' en lingala ?"
+    expected_criteria:
+      - "Matondo (ou variante)"
+
+  - id: accuracy_lang_08
+    expert_id: language
+    question: "Quel est le participe passé du verbe 'résoudre' ?"
+    expected_criteria:
+      - "résolu"
+
+  # ─── cooking (8) ─────────────────────────────────────────
+  - id: accuracy_cook_01
+    expert_id: cooking
+    question: "Combien de temps cuire un œuf dur ?"
+    expected_criteria:
+      - "≈ 10 minutes (8-12 acceptable)"
+
+  - id: accuracy_cook_02
+    expert_id: cooking
+    question: "Quelle est la température de cuisson typique du four pour une pizza ?"
+    expected_criteria:
+      - "≈ 220-280 °C (idéalement 250°C+)"
+
+  - id: accuracy_cook_03
+    expert_id: cooking
+    question: "Combien de pincées dans une cuillère à café (approximation cuisine) ?"
+    expected_criteria:
+      - "≈ 4 à 5 pincées"
+
+  - id: accuracy_cook_04
+    expert_id: cooking
+    question: "Qu'est-ce que le ndolè en cuisine camerounaise ?"
+    expected_criteria:
+      - "Plat à base de feuilles amères"
+      - "Avec viande/poisson + arachides"
+
+  - id: accuracy_cook_05
+    expert_id: cooking
+    question: "Substitut courant du beurre dans une recette vegan ?"
+    expected_criteria:
+      - "Margarine vegan / huile de coco / purée de fruits"
+
+  - id: accuracy_cook_06
+    expert_id: cooking
+    question: "Quelle est la température safe pour cuire du poulet à cœur ?"
+    expected_criteria:
+      - "75 °C (165 °F)"
+
+  - id: accuracy_cook_07
+    expert_id: cooking
+    question: "Quel est le ratio classique pâte à crêpes (farine/lait/œufs) ?"
+    expected_criteria:
+      - "Ordre de grandeur : 250 g farine / 500 ml lait / 2-3 œufs"
+
+  - id: accuracy_cook_08
+    expert_id: cooking
+    question: "Quelle est la différence entre confire et braiser ?"
+    expected_criteria:
+      - "Confire = cuisson basse température dans matière grasse"
+      - "Braiser = cuisson lente liquide partiel + couvercle"
