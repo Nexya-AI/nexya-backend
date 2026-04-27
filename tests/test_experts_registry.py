@@ -1,0 +1,219 @@
+"""
+Tests N2 — `app.ai.experts` : intégrité du registre 11 experts.
+
+Ces tests garantissent que :
+1. Les **11 expert_id slugs** (contrat API stable avec Flutter) ne dérivent pas.
+2. Chaque `ExpertConfig` a les champs essentiels non-vides (display_name,
+   system_prompt, primary_provider, primary_model).
+3. `get_expert_config()` est permissif : `None` ou expert_id inconnu
+   retombe sur "general" sans lever.
+4. Les invariants safety-critical sont préservés : `medicine` et `legal`
+   ont `tools_allowed=False` + un disclaimer non-vide ; `studio` a une
+   chaîne de fallback vide (image-only).
+5. La `full_chain` commence par le primaire et liste ensuite les fallbacks.
+
+Aucun appel LLM. Pure introspection du registre.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from app.ai.experts import (
+    EXPERT_REGISTRY,
+    ExpertConfig,
+    all_expert_ids,
+    get_expert_config,
+)
+
+# ══════════════════════════════════════════════════════════════
+# Slugs attendus — figés comme contrat API avec Flutter (ExpertDomain.name)
+# ══════════════════════════════════════════════════════════════
+
+EXPECTED_EXPERT_IDS: frozenset[str] = frozenset(
+    {
+        "general",
+        "computer",
+        "science",
+        "finance",
+        "language",
+        "cooking",
+        "studio",
+        "engineering",
+        "productivity",
+        "medicine",
+        "legal",
+    }
+)
+
+SAFETY_CRITICAL_IDS: frozenset[str] = frozenset({"medicine", "legal"})
+
+
+# ══════════════════════════════════════════════════════════════
+# 1. Intégrité du set d'expert_id — contrat API
+# ══════════════════════════════════════════════════════════════
+
+
+def test_registry_contains_exactly_eleven_experts() -> None:
+    assert len(EXPERT_REGISTRY) == 11
+
+
+def test_registry_keys_match_expected_slugs_strict() -> None:
+    """Slug != display_name. Le slug est le contrat API ; un renommage
+    casse le frontend Flutter (`ExpertDomain.name`)."""
+    assert set(EXPERT_REGISTRY.keys()) == EXPECTED_EXPERT_IDS
+
+
+def test_all_expert_ids_returns_eleven_items_general_first() -> None:
+    ids = all_expert_ids()
+    assert len(ids) == 11
+    assert ids[0] == "general"  # general en tête (cf. docstring)
+    assert set(ids) == EXPECTED_EXPERT_IDS
+
+
+def test_each_expert_id_matches_its_config_field() -> None:
+    """Le mapping registre `key → ExpertConfig` doit être cohérent —
+    `EXPERT_REGISTRY['science'].expert_id` doit valoir `'science'`."""
+    for key, config in EXPERT_REGISTRY.items():
+        assert config.expert_id == key, f"Mismatch: {key!r} → {config.expert_id!r}"
+
+
+# ══════════════════════════════════════════════════════════════
+# 2. Champs essentiels non-vides
+# ══════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize("expert_id", sorted(EXPECTED_EXPERT_IDS))
+def test_each_config_has_non_empty_essential_fields(expert_id: str) -> None:
+    config = EXPERT_REGISTRY[expert_id]
+    assert config.display_name and len(config.display_name) >= 2
+    assert config.system_prompt and len(config.system_prompt) > 50
+    assert config.primary_provider, f"{expert_id} sans primary_provider"
+    assert config.primary_model, f"{expert_id} sans primary_model"
+    assert config.tier in {"flash", "pro", "image"}
+
+
+# ══════════════════════════════════════════════════════════════
+# 3. get_expert_config() — permissive
+# ══════════════════════════════════════════════════════════════
+
+
+def test_get_expert_config_none_returns_general() -> None:
+    assert get_expert_config(None) is EXPERT_REGISTRY["general"]
+
+
+def test_get_expert_config_empty_string_returns_general() -> None:
+    """`""` est falsy : doit aussi retomber sur general (`if not expert_id`)."""
+    assert get_expert_config("") is EXPERT_REGISTRY["general"]
+
+
+def test_get_expert_config_unknown_id_falls_back_to_general() -> None:
+    """Le contrat est explicitement permissif — un expert_id inconnu (Flutter
+    en avance sur le backend) ne lève pas, retombe sur general."""
+    cfg = get_expert_config("nonexistent_expert_id_xyz")
+    assert cfg.expert_id == "general"
+
+
+def test_get_expert_config_known_id_returns_exact_config() -> None:
+    cfg = get_expert_config("computer")
+    assert cfg.expert_id == "computer"
+    assert cfg is EXPERT_REGISTRY["computer"]
+
+
+# ══════════════════════════════════════════════════════════════
+# 4. Invariants safety-critical
+# ══════════════════════════════════════════════════════════════
+
+
+@pytest.mark.parametrize("expert_id", sorted(SAFETY_CRITICAL_IDS))
+def test_safety_critical_experts_have_tools_disabled(expert_id: str) -> None:
+    """F2.5 : `medicine` et `legal` n'ont PAS le droit de déclencher des
+    function calls (pas de side-effect DB depuis une consultation)."""
+    config = EXPERT_REGISTRY[expert_id]
+    assert config.tools_allowed is False, (
+        f"{expert_id} doit avoir tools_allowed=False (safety-critical)"
+    )
+
+
+@pytest.mark.parametrize("expert_id", sorted(SAFETY_CRITICAL_IDS))
+def test_safety_critical_experts_have_disclaimer(expert_id: str) -> None:
+    config = EXPERT_REGISTRY[expert_id]
+    assert config.disclaimer is not None
+    assert len(config.disclaimer) > 30
+
+
+def test_studio_has_empty_fallback_chain_image_only() -> None:
+    """Studio est image-only : pas de chaîne chat, le router lève si on
+    tente `resolve()` dessus mais doit pouvoir `resolve_image()`."""
+    studio = EXPERT_REGISTRY["studio"]
+    assert studio.fallback_chain == ()
+    assert studio.tier == "image"
+    assert studio.primary_provider == "gemini-imagen"
+
+
+def test_safety_critical_experts_have_low_temperature() -> None:
+    """Médecine et légal doivent avoir une température très basse (zéro
+    créativité — l'erreur coûte cher)."""
+    assert EXPERT_REGISTRY["medicine"].temperature <= 0.2
+    assert EXPERT_REGISTRY["legal"].temperature <= 0.2
+
+
+# ══════════════════════════════════════════════════════════════
+# 5. ExpertConfig.full_chain — primaire + fallbacks
+# ══════════════════════════════════════════════════════════════
+
+
+def test_full_chain_starts_with_primary() -> None:
+    cfg = EXPERT_REGISTRY["general"]
+    chain = cfg.full_chain
+    assert chain[0] == (cfg.primary_provider, cfg.primary_model)
+
+
+def test_full_chain_includes_all_fallbacks() -> None:
+    cfg = EXPERT_REGISTRY["general"]
+    chain = cfg.full_chain
+    # general a primary + 2 fallbacks (Pro Gemini + OpenRouter Sonnet)
+    assert len(chain) == 1 + len(cfg.fallback_chain)
+    for fallback in cfg.fallback_chain:
+        assert fallback in chain
+
+
+def test_full_chain_for_studio_is_just_primary() -> None:
+    cfg = EXPERT_REGISTRY["studio"]
+    assert cfg.full_chain == (("gemini-imagen", "imagen-3.0-generate-002"),)
+
+
+# ══════════════════════════════════════════════════════════════
+# 6. Cohérence corpus_enabled (post-G1 cleanup)
+# ══════════════════════════════════════════════════════════════
+
+
+def test_no_expert_has_corpus_enabled_post_g1_cleanup() -> None:
+    """Après le cleanup G1 du 2026-04-24, aucun expert n'a `corpus_enabled=True`.
+    L'infra est conservée pour G2/G4/G6 mais désactivée tant que les corpus
+    cuisine/ingénierie/info n'ont pas été ingérés."""
+    for expert_id, cfg in EXPERT_REGISTRY.items():
+        assert cfg.corpus_enabled is False, (
+            f"{expert_id} a corpus_enabled=True alors que G1 a été abandonné"
+        )
+
+
+# ══════════════════════════════════════════════════════════════
+# 7. ExpertConfig est immutable (frozen=True, slots=True)
+# ══════════════════════════════════════════════════════════════
+
+
+def test_expert_config_is_frozen_dataclass() -> None:
+    """Empêche les mutations runtime accidentelles du registre."""
+    cfg = EXPERT_REGISTRY["general"]
+    with pytest.raises((AttributeError, Exception)):
+        cfg.expert_id = "hacked"  # type: ignore[misc]
+
+
+def test_expert_config_dataclass_attrs_are_frozen() -> None:
+    """Vérifie l'introspection dataclass — frozen=True imposé."""
+    import dataclasses
+
+    assert dataclasses.is_dataclass(ExpertConfig)
+    params = ExpertConfig.__dataclass_params__  # type: ignore[attr-defined]
+    assert params.frozen is True
