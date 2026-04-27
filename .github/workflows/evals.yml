@@ -1,0 +1,269 @@
+# NEXYA Backend — IA Evaluations (Session N3)
+#
+# Triggers :
+#   - pull_request (toutes branches → main) : mock judge, fast, BLOQUE
+#     le merge si régression > 10pp détectée. Pas de coût LLM.
+#   - schedule (cron 0 3 * * * UTC) : real judge Gemini 2.5 Pro,
+#     full corpus, ouvre une issue auto si régression > 5pp détectée.
+#     Coût ~$1/run × 30 nuits = ~$30/mois.
+#
+# Concurrency : annule un run précédent sur la même branche.
+# Permissions : contents:read par défaut + issues:write (nightly post)
+#               + pull-requests:write (PR comment).
+
+name: Evals IA
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Tous les jours à 3h00 UTC (4h00 CET hiver / 5h00 CEST été)
+    - cron: "0 3 * * *"
+  # Permet de déclencher manuellement depuis l'UI GitHub Actions
+  workflow_dispatch:
+    inputs:
+      judge:
+        description: "Juge à utiliser"
+        required: false
+        default: mock
+        type: choice
+        options:
+          - mock
+          - gemini
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  UV_VERSION: "0.5.14"
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # PR — mock judge, bloquant si régression > 10pp
+  # ─────────────────────────────────────────────────────────────
+  evals-pr:
+    name: Evals (PR mock judge)
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 65530:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 65531:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+    env:
+      ENV: development
+      APP_SECRET: test-secret-not-for-prod
+      DATABASE_URL: "postgresql+psycopg://test:test@127.0.0.1:65530/test"
+      REDIS_URL: "redis://127.0.0.1:65531/0"
+      ALLOWED_ORIGINS: "http://localhost:3000"
+      EMBEDDINGS_MOCK_ENABLED: "true"
+      VOICE_MOCK_ENABLED: "true"
+      VISION_MOCK_ENABLED: "true"
+      FCM_MOCK_ENABLED: "true"
+      STORAGE_MOCK_ENABLED: "true"
+      EVALS_REGRESSION_THRESHOLD_PP: "10.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install deps
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Generate JWT keys for test
+        run: |
+          openssl genrsa -out /tmp/private.pem 2048
+          openssl rsa -in /tmp/private.pem -pubout -out /tmp/public.pem
+          echo "JWT_PRIVATE_KEY=/tmp/private.pem" >> $GITHUB_ENV
+          echo "JWT_PUBLIC_KEY=/tmp/public.pem" >> $GITHUB_ENV
+
+      - name: Run evals (mock judge, threshold 10pp)
+        run: |
+          python -m tests.evals \
+            --judge=mock \
+            --category=all \
+            --threshold-pp=10.0 \
+            --md-out=evals_report.md \
+            --json-out=evals_report.json
+
+      - name: Upload report artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evals-pr-report
+          path: |
+            evals_report.md
+            evals_report.json
+          retention-days: 30
+
+      - name: Comment PR with summary
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = '## 📊 Rapport Évals IA (mock judge)\n\n';
+            try {
+              body += fs.readFileSync('evals_report.md', 'utf-8').slice(0, 60000);
+            } catch (e) {
+              body += `_Rapport non disponible : ${e.message}_`;
+            }
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+  # ─────────────────────────────────────────────────────────────
+  # NIGHTLY — real judge Gemini, post issue si régression
+  # ─────────────────────────────────────────────────────────────
+  evals-nightly:
+    name: Evals (nightly real judge)
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.judge == 'gemini')
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 65530:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 65531:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+    env:
+      ENV: development
+      APP_SECRET: test-secret-not-for-prod
+      DATABASE_URL: "postgresql+psycopg://test:test@127.0.0.1:65530/test"
+      REDIS_URL: "redis://127.0.0.1:65531/0"
+      ALLOWED_ORIGINS: "http://localhost:3000"
+      # Mocks autres providers (on évalue uniquement le LLM Gemini)
+      EMBEDDINGS_MOCK_ENABLED: "true"
+      VOICE_MOCK_ENABLED: "true"
+      VISION_MOCK_ENABLED: "true"
+      FCM_MOCK_ENABLED: "true"
+      STORAGE_MOCK_ENABLED: "true"
+      # Real Gemini judge — secret à configurer dans GitHub Settings
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      EVALS_REGRESSION_THRESHOLD_PP: "5.0"
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install deps
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Generate JWT keys for test
+        run: |
+          openssl genrsa -out /tmp/private.pem 2048
+          openssl rsa -in /tmp/private.pem -pubout -out /tmp/public.pem
+          echo "JWT_PRIVATE_KEY=/tmp/private.pem" >> $GITHUB_ENV
+          echo "JWT_PUBLIC_KEY=/tmp/public.pem" >> $GITHUB_ENV
+
+      - name: Run evals (Gemini judge, threshold 5pp)
+        # Tranche : ne pas faire fail le job sur régression nightly —
+        # on poste une issue à la place. Le job ne fail que sur erreur
+        # technique (corpus vide, runner crash, etc.).
+        id: evals
+        run: |
+          set +e
+          python -m tests.evals \
+            --judge=gemini \
+            --category=all \
+            --threshold-pp=5.0 \
+            --md-out=evals_report.md \
+            --json-out=evals_report.json
+          rc=$?
+          echo "rc=$rc" >> $GITHUB_OUTPUT
+          if [ $rc -gt 1 ]; then
+            exit $rc  # erreur technique → fail le job
+          fi
+          exit 0
+
+      - name: Upload nightly report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evals-nightly-report
+          path: |
+            evals_report.md
+            evals_report.json
+          retention-days: 90
+
+      - name: Open GitHub issue if regression
+        if: steps.evals.outputs.rc == '1'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const today = new Date().toISOString().slice(0, 10);
+            let body = '';
+            try {
+              body = fs.readFileSync('evals_report.md', 'utf-8').slice(0, 60000);
+            } catch (e) {
+              body = `_Rapport non disponible : ${e.message}_`;
+            }
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🔻 Régression évals IA — ${today}`,
+              body,
+              labels: ['evals-regression', 'priority/high']
+            });

@@ -1,0 +1,233 @@
+# Évals IA — Catégorie FORMAT
+# Vérifie que NEXYA respecte les conventions de format selon l'expert :
+# - computer  → blocs de code Markdown (```python, ```bash, etc.)
+# - science   → notation LaTeX entre $...$ ou $$...$$ pour les équations
+# - cooking   → liste numérotée + ingrédients + temps
+# - finance   → unités explicites (FCFA, EUR, USD), formules visibles
+# - language  → corrections marquées via ~~rature~~ → **gras** + règle
+#
+# Si le LLM "oublie" le code block sur une question dev, l'UX Flutter
+# casse (rendu Markdown moche). Anti-régression critique.
+
+questions:
+  # ─── Computer : blocs de code (8) ──────────────────────
+  - id: format_code_01
+    expert_id: computer
+    question: "Écris une fonction Python qui calcule la suite de Fibonacci."
+    expected_criteria:
+      - "Contient un bloc ```python ... ``` Markdown"
+      - "Code exécutable (pas de pseudo-code)"
+      - "Imports nécessaires si applicable"
+
+  - id: format_code_02
+    expert_id: computer
+    question: "Comment cloner un repo git en mode shallow ?"
+    expected_criteria:
+      - "Contient un bloc ```bash ou ```sh"
+      - "Commande git clone --depth=1 ou équivalent"
+
+  - id: format_code_03
+    expert_id: computer
+    question: "Donne-moi un Dockerfile minimal pour une app Python FastAPI."
+    expected_criteria:
+      - "Contient un bloc ```dockerfile ou ``` standard"
+      - "FROM python: + COPY + RUN pip install + CMD"
+
+  - id: format_code_04
+    expert_id: computer
+    question: "Écris une fonction Dart qui inverse une chaîne."
+    expected_criteria:
+      - "Contient un bloc ```dart ... ```"
+      - "Code exécutable"
+
+  - id: format_code_05
+    expert_id: computer
+    question: "Comment faire un select count(*) avec where en SQL ?"
+    expected_criteria:
+      - "Contient un bloc ```sql ... ``` ou ``` ... ```"
+      - "Syntaxe SQL valide"
+
+  - id: format_code_06
+    expert_id: computer
+    question: "Comment lire un fichier JSON en Python ?"
+    expected_criteria:
+      - "Bloc ```python ... ```"
+      - "Utilise json.load ou json.loads"
+      - "Gère le with open(..)"
+
+  - id: format_code_07
+    expert_id: computer
+    question: "Donne un exemple de hook React useState pour un compteur."
+    expected_criteria:
+      - "Bloc ```jsx ou ```javascript ou ```typescript"
+      - "useState appelé correctement"
+
+  - id: format_code_08
+    expert_id: computer
+    question: "Écris une regex qui matche un email basique."
+    expected_criteria:
+      - "Regex affichée dans un bloc code (backticks ou ```)"
+      - "Pattern raisonnable (^.+@.+\\..+$ ou similaire)"
+
+  # ─── Science : LaTeX (7) ───────────────────────────────
+  - id: format_math_01
+    expert_id: science
+    question: "Donne la formule de l'aire d'un cercle de rayon r."
+    expected_criteria:
+      - "Utilise notation LaTeX $A = \\pi r^2$ ou $$...$$ "
+      - "Pi en notation correcte"
+
+  - id: format_math_02
+    expert_id: science
+    question: "Quelle est la formule du théorème de Pythagore ?"
+    expected_criteria:
+      - "Notation LaTeX $a^2 + b^2 = c^2$"
+
+  - id: format_math_03
+    expert_id: science
+    question: "Calcule la dérivée de f(x) = x^3 + 2x."
+    expected_criteria:
+      - "Notation LaTeX pour la dérivée et le résultat"
+      - "Étapes intermédiaires montrées"
+
+  - id: format_math_04
+    expert_id: science
+    question: "Donne la 2ème loi de Newton."
+    expected_criteria:
+      - "Notation LaTeX $F = ma$ ou $\\vec{F} = m\\vec{a}$"
+      - "Unités SI mentionnées (N, kg, m/s²)"
+
+  - id: format_math_05
+    expert_id: science
+    question: "Quelle est la formule de l'intégrale de 1/x ?"
+    expected_criteria:
+      - "Notation LaTeX (ln|x| + C)"
+      - "Constante d'intégration mentionnée"
+
+  - id: format_math_06
+    expert_id: science
+    question: "Énonce le théorème de Thalès."
+    expected_criteria:
+      - "Notation LaTeX pour les rapports de longueurs"
+      - "Énoncé clair"
+
+  - id: format_math_07
+    expert_id: science
+    question: "Donne l'équation de la chaleur en physique."
+    expected_criteria:
+      - "Notation LaTeX (équation différentielle partielle)"
+      - "Symboles ∂ et ∇²"
+
+  # ─── Cooking : liste numérotée (6) ─────────────────────
+  - id: format_recipe_01
+    expert_id: cooking
+    question: "Donne-moi une recette simple de poulet DG."
+    expected_criteria:
+      - "Liste d'ingrédients avec quantités précises"
+      - "Étapes numérotées (1. 2. 3. ...)"
+      - "Temps de préparation et cuisson mentionnés"
+
+  - id: format_recipe_02
+    expert_id: cooking
+    question: "Comment cuire du riz parfait ?"
+    expected_criteria:
+      - "Étapes numérotées"
+      - "Ratios (riz/eau)"
+      - "Temps de cuisson"
+
+  - id: format_recipe_03
+    expert_id: cooking
+    question: "Recette de sauce tomate maison."
+    expected_criteria:
+      - "Ingrédients listés"
+      - "Étapes numérotées"
+
+  - id: format_recipe_04
+    expert_id: cooking
+    question: "Comment faire un ndolè camerounais ?"
+    expected_criteria:
+      - "Ingrédients (ndolè, viande, arachides…)"
+      - "Étapes numérotées"
+      - "Temps réaliste"
+
+  - id: format_recipe_05
+    expert_id: cooking
+    question: "Recette de pâtes carbonara authentique italienne."
+    expected_criteria:
+      - "Ingrédients corrects (guanciale ou pancetta, œufs, pecorino)"
+      - "PAS de crème (anti-myth)"
+      - "Étapes numérotées"
+
+  - id: format_recipe_06
+    expert_id: cooking
+    question: "Comment préparer du foufou de manioc ?"
+    expected_criteria:
+      - "Étapes numérotées"
+      - "Ingrédients (manioc, eau, sel)"
+
+  # ─── Finance : unités + formules (5) ───────────────────
+  - id: format_finance_01
+    expert_id: finance
+    question: "Calcule l'intérêt composé sur 1 000 000 FCFA à 5 % sur 3 ans."
+    expected_criteria:
+      - "Formule explicite (A = P(1+r)^n)"
+      - "Unité FCFA mentionnée"
+      - "Résultat chiffré"
+
+  - id: format_finance_02
+    expert_id: finance
+    question: "Quel est le seuil de rentabilité d'une entreprise ?"
+    expected_criteria:
+      - "Formule (CF / (PU - CV)) montrée"
+      - "Unités cohérentes"
+
+  - id: format_finance_03
+    expert_id: finance
+    question: "Comment calculer la TVA à 19,25 % sur 50 000 FCFA HT ?"
+    expected_criteria:
+      - "Calcul détaillé (50000 × 0.1925)"
+      - "Résultat en FCFA"
+
+  - id: format_finance_04
+    expert_id: finance
+    question: "Quelle est la formule du retour sur investissement (ROI) ?"
+    expected_criteria:
+      - "Formule (Gain - Coût) / Coût × 100"
+      - "Résultat en %"
+
+  - id: format_finance_05
+    expert_id: finance
+    question: "Calcule la marge bénéficiaire pour CA 10M FCFA et coûts 7M FCFA."
+    expected_criteria:
+      - "Calcul (3M / 10M = 30 %)"
+      - "Unités FCFA + %"
+
+  # ─── Language : corrections (4) ────────────────────────
+  - id: format_lang_01
+    expert_id: language
+    question: "Corrige : 'Je suis aller au marché hier.'"
+    expected_criteria:
+      - "Identifie l'erreur (allé, pas aller)"
+      - "Marquage ~~rature~~ → **correction** (idéal) ou explicite"
+      - "Explique la règle (auxiliaire être → participe passé)"
+
+  - id: format_lang_02
+    expert_id: language
+    question: "Corrige : 'Their going to the store later.'"
+    expected_criteria:
+      - "Identifie 'their' → 'they're'"
+      - "Explique la règle (contraction de they are)"
+
+  - id: format_lang_03
+    expert_id: language
+    question: "Corrige : 'J'ai mangé deux pommes hier soir et il était très bon.'"
+    expected_criteria:
+      - "Identifie l'accord (elles étaient très bonnes)"
+      - "Explique la règle d'accord en genre/nombre"
+
+  - id: format_lang_04
+    expert_id: language
+    question: "Corrige : 'Me and my brother went to the cinema.'"
+    expected_criteria:
+      - "Identifie 'Me and my brother' → 'My brother and I'"
+      - "Explique la règle (sujet → I, pas me)"

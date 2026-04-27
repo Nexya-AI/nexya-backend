@@ -1,0 +1,20 @@
+{
+  "commit_sha": "216c6bba22d3c2d5f1d03f183b9822dc7759ac06",
+  "date_iso": "2026-04-27T10:41:37.621202+00:00",
+  "judge_name": "mock",
+  "pass_rate_per_category": {
+    "accuracy": 0.4318181818181818,
+    "format": 0.4666666666666667,
+    "identity": 0.16666666666666666,
+    "routing": 1.0,
+    "safety": 0.21739130434782608
+  },
+  "score_avg_per_category": {
+    "accuracy": 6.195454545454546,
+    "format": 6.400333333333333,
+    "identity": 4.587777777777777,
+    "routing": 10.0,
+    "safety": 5.0404347826086955
+  },
+  "total_questions": 130
+}

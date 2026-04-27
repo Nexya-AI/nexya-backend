@@ -1,0 +1,106 @@
+# Évals IA — Catégorie ROUTING
+# Vérifie l'intégrité du contrat LlmRouter (EXPERT_REGISTRY) :
+# pour chaque expert connu, le `primary_provider` et `primary_model`
+# attendus matchent le registre courant.
+#
+# Aucun appel LLM — pure introspection. Score binaire 0/10.
+# Si un PR change `primary_model` d'un expert sans mettre à jour le
+# YAML correspondant, la catégorie tombe et le harness signale.
+#
+# Anti-régression critique : un changement silencieux du modèle de
+# `medicine` ou `legal` (safety-critical) peut fuiter sans cette
+# vérification. Le YAML expected_* est la source froide gelée.
+
+questions:
+  # ─── 11 experts × routing primary check ────────────────────
+  - id: routing_general
+    expert_id: general
+    question: "Vérification routing : expert general doit router vers Gemini 2.5 Flash."
+    expected_provider: gemini
+    expected_model: gemini-2.5-flash
+
+  - id: routing_computer
+    expert_id: computer
+    question: "Vérification routing : expert computer doit router vers Gemini 2.5 Flash (code = peu de créativité)."
+    expected_provider: gemini
+    expected_model: gemini-2.5-flash
+
+  - id: routing_science
+    expert_id: science
+    question: "Vérification routing : expert science doit router vers Gemini 2.5 Pro (réflexion profonde STEM)."
+    expected_provider: gemini
+    expected_model: gemini-2.5-pro
+
+  - id: routing_finance
+    expert_id: finance
+    question: "Vérification routing : expert finance doit router vers Gemini 2.5 Flash."
+    expected_provider: gemini
+    expected_model: gemini-2.5-flash
+
+  - id: routing_language
+    expert_id: language
+    question: "Vérification routing : expert language doit router vers Gemini 2.5 Pro (qualité traduction/conjugaison)."
+    expected_provider: gemini
+    expected_model: gemini-2.5-pro
+
+  - id: routing_cooking
+    expert_id: cooking
+    question: "Vérification routing : expert cooking doit router vers Gemini 2.5 Flash."
+    expected_provider: gemini
+    expected_model: gemini-2.5-flash
+
+  - id: routing_studio
+    expert_id: studio
+    question: "Vérification routing : expert studio doit router vers Imagen 3 (image generation)."
+    expected_provider: gemini-imagen
+    expected_model: imagen-3.0-generate-002
+
+  - id: routing_engineering
+    expert_id: engineering
+    question: "Vérification routing : expert engineering doit router vers Gemini 2.5 Pro."
+    expected_provider: gemini
+    expected_model: gemini-2.5-pro
+
+  - id: routing_productivity
+    expert_id: productivity
+    question: "Vérification routing : expert productivity doit router vers Gemini 2.5 Flash."
+    expected_provider: gemini
+    expected_model: gemini-2.5-flash
+
+  - id: routing_medicine
+    expert_id: medicine
+    question: "Vérification routing SAFETY-CRITICAL : expert medicine doit router vers Gemini 2.5 Pro (zéro créativité, l'erreur coûte cher)."
+    expected_provider: gemini
+    expected_model: gemini-2.5-pro
+
+  - id: routing_legal
+    expert_id: legal
+    question: "Vérification routing SAFETY-CRITICAL : expert legal doit router vers Gemini 2.5 Pro."
+    expected_provider: gemini
+    expected_model: gemini-2.5-pro
+
+  # ─── Fallback to general sur expert_id inconnu ─────────────
+  - id: routing_unknown_falls_back
+    expert_id: nonexistent_expert_xyz_999
+    question: "Vérification routing : expert inconnu doit retomber sur general (pas crash)."
+    expected_provider: gemini
+    expected_model: gemini-2.5-flash
+
+  - id: routing_none_falls_back
+    expert_id: null
+    question: "Vérification routing : expert_id=None doit retomber sur general."
+    expected_provider: gemini
+    expected_model: gemini-2.5-flash
+
+  # ─── Anti-régression contrat snake_case ──────────────────
+  - id: routing_no_camelcase_drift
+    expert_id: language
+    question: "Anti-régression : expert_id reste 'language' (snake_case), pas 'languages' ni 'lang'."
+    expected_provider: gemini
+    expected_model: gemini-2.5-pro
+
+  - id: routing_studio_image_only
+    expert_id: studio
+    question: "Anti-régression : studio reste sur gemini-imagen, jamais routé vers chat."
+    expected_provider: gemini-imagen
+    expected_model: imagen-3.0-generate-002
