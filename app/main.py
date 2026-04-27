@@ -41,6 +41,12 @@ from app.core.errors.exceptions import (
     PlanRequiredException,
 )
 from app.core.errors.handlers import register_exception_handlers
+from app.core.health import (
+    ExtendedHealthService,
+    detect_version,
+    set_app_start_monotonic,
+)
+from app.core.openapi import customize_openapi
 from app.core.observability import (
     TraceIdMiddleware,
     configure_logging,
@@ -56,6 +62,7 @@ from app.core.observability import (
     verify_scrape_token,
 )
 from app.core.observability.trace import get_trace_id
+from app.core.security.headers import NexyaSecurityHeadersMiddleware
 from app.features.ai_models.router import router as ai_models_router
 from app.features.auth.models import User
 from app.features.auth.router import router as auth_router
@@ -100,6 +107,10 @@ async def lifespan(app: FastAPI):
     indisponibles (dégradation gracieuse pour le prototype).
     """
     log.info("nexya.startup", env=settings.env, debug=settings.debug)
+
+    # O1 — pose le timestamp monotonic de boot pour calculer uptime
+    # dans `/ready` étendu. Doit être appelé avant tout autre setup.
+    set_app_start_monotonic()
 
     # K1 — Observabilité prod, ordre d'init :
     # 1) Sentry FIRST → capture les erreurs d'init des services suivants.
@@ -177,6 +188,15 @@ app.add_middleware(
 # ── Trace ID + access log ──────────────────────────────────────
 app.add_middleware(TraceIdMiddleware)
 
+# ── Headers sécurité (O1 volet C) ──────────────────────────────
+# Posé en dernier dans add_middleware = exécuté en premier (Starlette
+# LIFO) pour que les headers s'appliquent à TOUTES les réponses, y
+# compris celles générées par les error handlers globaux.
+app.add_middleware(
+    NexyaSecurityHeadersMiddleware,
+    preset=settings.security_headers_preset,
+)
+
 
 # ══════════════════════════════════════════════════════════════
 # ROUTERS
@@ -200,6 +220,15 @@ app.include_router(helpdesk_router)
 
 
 # ══════════════════════════════════════════════════════════════
+# OPENAPI — schéma enrichi DD-ready (O1 volet A)
+# ══════════════════════════════════════════════════════════════
+# Hook posé APRÈS `include_router` pour que `customize_openapi` ait
+# accès à toutes les routes. Le lambda permet de re-générer en dev
+# (hot-reload) ; FastAPI cache via `app.openapi_schema` en prod.
+app.openapi = lambda: customize_openapi(app)
+
+
+# ══════════════════════════════════════════════════════════════
 # HEALTH CHECKS — liveness / readiness distincts
 # ══════════════════════════════════════════════════════════════
 # /healthz  : liveness — le process répond. Pas de check externe : si la DB
@@ -211,31 +240,98 @@ app.include_router(helpdesk_router)
 # ══════════════════════════════════════════════════════════════
 
 
-@app.get("/healthz", response_model=NexyaResponse[dict])
+@app.get("/healthz", response_model=NexyaResponse[dict], tags=["health"])
 async def healthz() -> NexyaResponse[dict]:
-    """Liveness probe — le process est vivant et répond."""
+    """Liveness probe — le process est vivant et répond.
+
+    **Ne fait AUCUN check externe** : si DB/Redis tombent, on retourne
+    quand même 200 pour que K8s ne kill pas le pod. K8s doit retirer
+    le pod du load balancer via `/ready` (readiness), PAS le redémarrer.
+    """
     return NexyaResponse(
         success=True,
         data={"status": "ok", "service": "NEXYA API", "env": settings.env},
     )
 
 
-@app.get("/ready")
+@app.get("/ready", tags=["health"])
 async def ready() -> JSONResponse:
-    """Readiness probe — l'API est prête à recevoir du trafic."""
-    db_ok = await check_db_connection()
-    redis_ok = await check_redis_connection()
-    all_ok = db_ok and redis_ok
+    """Readiness probe étendue (O1 volet B) — version + latence + queue arq.
+
+    Retourne :
+    - `status` : `ok` si DB+Redis up, `degraded` sinon (HTTP 503)
+    - `version` : commit_sha[:8] + tag git + dirty flag + source détection
+    - `db.latency_ms` + `db.last_migration` (Alembic version_num)
+    - `redis.latency_ms`
+    - `arq.queue_depth` (best-effort `ZCARD arq:queue`)
+    - `uptime_seconds` (depuis lifespan startup)
+
+    K8s lit le status_code (200/503) ; le body sert au debug ops.
+    Backward-compat : `data.db` et `data.redis` toujours présents
+    (avec un sub-champ `status` au lieu d'une string plate, mais le
+    field racine `success` reste le signal binaire pour les anciens
+    clients).
+    """
+    from app.core.database.redis import get_redis  # noqa: PLC0415
+
+    redis_client = None
+    try:
+        redis_client = get_redis()
+    except Exception:  # noqa: BLE001 — fail-safe absolu
+        redis_client = None
+
+    db_session = None
+    try:
+        # Ouvre une session éphémère pour le ping (n'utilise pas
+        # `Depends(get_db)` pour ne pas bloquer le healthcheck si le
+        # pool est saturé — on ouvre notre propre connexion).
+        from app.core.database.postgres import AsyncSessionLocal  # noqa: PLC0415
+
+        async with AsyncSessionLocal() as session:
+            extended = await ExtendedHealthService.compute(
+                db=session, redis=redis_client
+            )
+    except Exception:  # noqa: BLE001 — fail-safe absolu
+        # DB indisponible — on retourne un payload dégradé
+        extended = await ExtendedHealthService.compute(db=None, redis=redis_client)
+
+    all_ok = extended.status == "ok"
     payload = NexyaResponse(
         success=all_ok,
-        data={
-            "db": "ok" if db_ok else "unavailable",
-            "redis": "ok" if redis_ok else "unavailable",
-        },
+        data=extended.model_dump(mode="json"),
     )
     return JSONResponse(
         status_code=200 if all_ok else 503,
         content=payload.model_dump(mode="json"),
+    )
+
+
+@app.get("/version", tags=["health"])
+async def version() -> NexyaResponse[dict]:
+    """Version publique de l'API (sans secret).
+
+    Endpoint léger (< 5 ms, pas de DB) que le Flutter peut afficher
+    dans Settings (« version backend 0.4.2 »). Aucun token requis.
+
+    Retourne :
+    - `version` : tag git ou commit_sha[:8] (`unknown` en fallback)
+    - `commit_sha` : SHA git complet 40 chars
+    - `tag` : tag git si exact match HEAD, sinon null
+    - `dirty` : booléen — l'arbre courant a-t-il des modifs non committées
+    - `env` : `development` / `staging` / `production`
+    - `source` : d'où vient la version (`git` / `git_head_file` / `env` / `unknown`)
+    """
+    info = detect_version()
+    return NexyaResponse(
+        success=True,
+        data={
+            "version": info.version,
+            "commit_sha": info.commit_sha,
+            "tag": info.tag,
+            "dirty": info.dirty,
+            "env": settings.env,
+            "source": info.source,
+        },
     )
 
 
