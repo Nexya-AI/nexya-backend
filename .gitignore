@@ -32,4 +32,18 @@ Thumbs.db
 CLAUDE.md
 COURS_FASTAPI.md
 COURS_NEXYA_BACKEND.md
-docs/
+
+# docs/ : ignoré par défaut MAIS on exempte les dossiers DD-ready
+# livrés en O2 (architecture/compliance/api/runbooks/adr/glossary).
+docs/*
+!docs/architecture/
+!docs/compliance/
+!docs/api/
+!docs/runbooks/
+!docs/adr/
+!docs/glossary.md
+!docs/ROADMAP.md
+!docs/BACKEND_SESSIONS_PLAN.md
+
+# Évals IA — rapports transients (la baseline est committée, pas les rapports)
+tests/evals/reports/
