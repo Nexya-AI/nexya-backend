@@ -19,13 +19,40 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from app.ai.models import AiCall, UsageDaily  # noqa: F401
 from app.config import settings
 from app.core.database.base import Base
 
 # ── Importer TOUS les modèles ORM ici pour que Base.metadata les connaisse ──
 # Sans ces imports, autogenerate ne détecte aucune table.
-from app.features.auth.models import DeviceToken, RefreshToken, User  # noqa: F401
+from app.features.auth.models import (  # noqa: F401
+    AuthEvent,
+    DeviceQuota,
+    DeviceToken,
+    RefreshToken,
+    User,
+)
 from app.features.chat.models import AbuseReport, Conversation, Message  # noqa: F401
+from app.features.experts.models import ExpertCorpusChunk  # noqa: F401
+from app.features.feedback.models import MessageFeedback  # noqa: F401
+from app.features.files.chunk_models import DocumentChunk  # noqa: F401
+from app.features.helpdesk.models import HelpdeskEscalation  # noqa: F401
+from app.features.files.models import UploadedFile  # noqa: F401
+from app.features.library.models import LibraryItem  # noqa: F401
+from app.features.memory.models import Memory  # noqa: F401
+from app.features.notifications.models import (  # noqa: F401
+    Notification,
+    NotificationPreference,
+)
+from app.features.planner.models import (  # noqa: F401
+    ScheduledTask,
+    ScheduledTaskResult,
+)
+from app.features.projects.models import Project, ProjectFile  # noqa: F401
+from app.features.rgpd.models import ConsentLog, DeletionRequest  # noqa: F401
+from app.features.suggestions.models import UserSuggestion  # noqa: F401
+from app.features.vision.models import VisionAnalysis  # noqa: F401
+from app.features.voice.models import VoiceTranscription  # noqa: F401
 
 config = context.config
 

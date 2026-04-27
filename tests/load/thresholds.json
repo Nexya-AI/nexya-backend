@@ -1,0 +1,35 @@
+{
+  "_comment": "SLO codifiés par scénario k6. Versionné dans le repo — un PR qui les bouge est visible en review. Aligné §11 CLAUDE.md « Budget de performance ».",
+  "_session": "N4 — 2026-04-27",
+  "scenarios": {
+    "auth_burst": {
+      "auth_login_ms": {"p50_ms": 200, "p95_ms": 500, "p99_ms": 1000},
+      "auth_register_ms": {"p50_ms": 300, "p95_ms": 800, "p99_ms": 1500},
+      "error_rate_max": 0.01
+    },
+    "chat_stream_concurrent": {
+      "chat_total_duration_ms": {"p50_ms": 5000, "p95_ms": 30000, "p99_ms": 60000},
+      "chat_stream_success_rate_min": 0.99,
+      "error_rate_max": 0.01
+    },
+    "files_upload_concurrent": {
+      "upload_total_ms": {"p50_ms": 1000, "p95_ms": 3000, "p99_ms": 5000},
+      "upload_success_rate_min": 0.99,
+      "error_rate_max": 0.01
+    },
+    "conversations_list_paginated": {
+      "list_query_ms": {"p50_ms": 100, "p95_ms": 300, "p99_ms": 600},
+      "list_success_rate_min": 0.99,
+      "error_rate_max": 0.01
+    },
+    "metrics_endpoint": {
+      "metrics_scrape_ms": {"p50_ms": 30, "p95_ms": 100, "p99_ms": 250},
+      "error_rate_max": 0.001
+    },
+    "mixed_workload": {
+      "http_req_duration": {"p50_ms": 800, "p95_ms": 5000, "p99_ms": 15000},
+      "checks_rate_min": 0.99,
+      "error_rate_max": 0.01
+    }
+  }
+}
