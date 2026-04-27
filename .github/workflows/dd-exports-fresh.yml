@@ -1,0 +1,168 @@
+# NEXYA Backend — DD exports freshness check (Session O2)
+#
+# Vérifie que `docs/api/openapi.json` et `docs/architecture/schema.sql`
+# sont à jour vs HEAD. Re-génère + git diff --exit-code → fail le job
+# si stale.
+#
+# Trigger : push: main (pas PR — éviter de bloquer chaque PR sur la
+# régénération). Sur main = guarantee que les exports DD sont
+# toujours à jour pour audit investisseurs.
+
+name: DD exports freshness
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: dd-exports-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  PYTHON_VERSION: "3.12"
+  UV_VERSION: "0.5.14"
+
+jobs:
+  exports-fresh:
+    name: Verify DD exports are up-to-date
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 65530:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 65531:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+    env:
+      ENV: development
+      APP_SECRET: test-secret-not-for-prod
+      DATABASE_URL: "postgresql+psycopg://test:test@127.0.0.1:65530/test"
+      REDIS_URL: "redis://127.0.0.1:65531/0"
+      ALLOWED_ORIGINS: "http://localhost:3000"
+      EMBEDDINGS_MOCK_ENABLED: "true"
+      VOICE_MOCK_ENABLED: "true"
+      VISION_MOCK_ENABLED: "true"
+      FCM_MOCK_ENABLED: "true"
+      STORAGE_MOCK_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install deps
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Generate JWT keys for export
+        run: |
+          openssl genrsa -out /tmp/private.pem 2048
+          openssl rsa -in /tmp/private.pem -pubout -out /tmp/public.pem
+          echo "JWT_PRIVATE_KEY=/tmp/private.pem" >> $GITHUB_ENV
+          echo "JWT_PUBLIC_KEY=/tmp/public.pem" >> $GITHUB_ENV
+
+      - name: Apply migrations
+        run: alembic upgrade head
+
+      - name: Re-generate openapi.json
+        run: python -m scripts.export_openapi
+
+      - name: Re-generate schema.sql
+        run: bash scripts/export_schema.sh
+
+      - name: Verify openapi.json is fresh
+        id: openapi_diff
+        run: |
+          set +e
+          git diff --exit-code -- docs/api/openapi.json
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "is_stale=true" >> $GITHUB_OUTPUT
+            echo "::error::docs/api/openapi.json est stale — régénérer via 'python -m scripts.export_openapi' et committer."
+            git diff -- docs/api/openapi.json | head -50
+          else
+            echo "is_stale=false" >> $GITHUB_OUTPUT
+          fi
+          exit $rc
+        continue-on-error: true
+
+      - name: Verify schema.sql is fresh
+        id: schema_diff
+        run: |
+          set +e
+          git diff --exit-code -- docs/architecture/schema.sql
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "is_stale=true" >> $GITHUB_OUTPUT
+            echo "::error::docs/architecture/schema.sql est stale — régénérer via 'bash scripts/export_schema.sh' et committer."
+            git diff -- docs/architecture/schema.sql | head -50
+          else
+            echo "is_stale=false" >> $GITHUB_OUTPUT
+          fi
+          exit $rc
+        continue-on-error: true
+
+      - name: Open issue if any export is stale
+        if: steps.openapi_diff.outputs.is_stale == 'true' || steps.schema_diff.outputs.is_stale == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const today = new Date().toISOString().slice(0, 10);
+            const stale = [];
+            if ('${{ steps.openapi_diff.outputs.is_stale }}' === 'true') {
+              stale.push('`docs/api/openapi.json` (regenerate: `python -m scripts.export_openapi`)');
+            }
+            if ('${{ steps.schema_diff.outputs.is_stale }}' === 'true') {
+              stale.push('`docs/architecture/schema.sql` (regenerate: `bash scripts/export_schema.sh`)');
+            }
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🔻 DD exports stale — ${today}`,
+              body: [
+                'Les exports DD-ready ne sont plus alignés avec HEAD.',
+                '',
+                '**Stale files** :',
+                ...stale.map(s => `- ${s}`),
+                '',
+                `Run: [${context.runId}](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`,
+                '',
+                'Procédure :',
+                '1. `make export-dd` (ou les 2 commandes ci-dessus séparément)',
+                '2. `git add docs/api/openapi.json docs/architecture/schema.sql`',
+                '3. `git commit -m "Refresh DD exports"`',
+                '4. `git push`',
+              ].join('\n'),
+              labels: ['dd-exports-stale', 'priority/medium']
+            });
+
+      - name: Fail job if any stale
+        if: steps.openapi_diff.outputs.is_stale == 'true' || steps.schema_diff.outputs.is_stale == 'true'
+        run: exit 1
