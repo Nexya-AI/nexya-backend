@@ -8,6 +8,7 @@ Si une variable obligatoire manque, l'API refuse de démarrer avec un message ex
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -787,6 +788,22 @@ class Settings(BaseSettings):
         description="Durée par défaut d'un scenario en secondes.",
     )
 
+    # ── Headers sécurité (Session O1 volet C) ──────────────────
+    # Preset des security headers HTTP posés par le middleware
+    # `NexyaSecurityHeadersMiddleware`.
+    # - dev : minimal (X-Content-Type-Options seul, Swagger fonctionne)
+    # - staging : intermédiaire (CSP unsafe-inline + HSTS court)
+    # - prod : strict (CSP sans unsafe-inline + HSTS preload + COOP+CORP)
+    # - off : kill-switch incident (aucun header)
+    # Production safety guard refuse 'dev'/'staging' en prod.
+    security_headers_preset: Literal["dev", "staging", "prod", "off"] = Field(
+        default="dev",
+        description=(
+            "Preset des headers sécurité HTTP. "
+            "En prod : 'prod' imposé (ou 'off' kill-switch incident)."
+        ),
+    )
+
     @property
     def is_production(self) -> bool:
         return self.env == "production"
@@ -861,6 +878,16 @@ class Settings(BaseSettings):
                 "RGPD_ADMIN_EMAILS doit contenir au moins un email DPO en "
                 "production (endpoint /rgpd/admin/* sans ACL = fuite "
                 "registre AI Act)"
+            )
+
+        # O1 — preset headers sécurité : `dev`/`staging` interdits en prod
+        # (laxistes — Swagger UI fonctionne mais CSP relâché). On accepte
+        # `prod` (strict) ou `off` (kill-switch incident ponctuel — Ivan
+        # peut désactiver les headers le temps de débugger un faux positif).
+        if self.security_headers_preset not in ("prod", "off"):
+            problems.append(
+                "SECURITY_HEADERS_PRESET doit être 'prod' (strict) ou 'off' "
+                "(kill-switch) en production. 'dev'/'staging' interdits."
             )
 
         if problems:
