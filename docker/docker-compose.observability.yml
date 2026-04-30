@@ -1,0 +1,91 @@
+# ══════════════════════════════════════════════════════════════
+# NEXYA — Docker Compose Observability (Session K2)
+#
+# Stack Grafana + Prometheus locale pour valider visuellement les
+# dashboards K2 avant déploiement L2 staging. **Séparé du compose
+# principal** pour ne pas alourdir le démarrage quotidien — à
+# lancer explicitement quand on veut consommer les dashboards :
+#
+#   docker compose \
+#     -f docker/docker-compose.yml \
+#     -f docker/docker-compose.observability.yml up -d
+#
+# Puis ouvrir http://localhost:3000 (admin / GRAFANA_ADMIN_PASSWORD).
+# Les 5 dashboards apparaissent dans le dossier « NEXYA »,
+# provisionnés automatiquement depuis grafana/provisioning/.
+#
+# Versions images pinned strictement — pas de :latest (anti-pattern
+# reproducibilité, risque CVE silencieux à un upgrade).
+# ══════════════════════════════════════════════════════════════
+
+services:
+  # ── Prometheus — collecte + stockage TSDB ────────────────────
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: nexya-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    environment:
+      # Token de scrape interpolé dans prometheus.yml. Vide en
+      # dev = endpoint backend accepte tout (avec warning).
+      GRAFANA_PROMETHEUS_TOKEN: ${PROMETHEUS_SCRAPE_TOKEN:-}
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../grafana/provisioning/alerting:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    networks:
+      - nexya-observability
+      - default
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Grafana — UI dashboards + alerting natif ────────────────
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: nexya-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_INSTALL_PLUGINS: ""
+    volumes:
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    networks:
+      - nexya-observability
+      - default
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --quiet --spider http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  # Réseau bridge dédié pour Prometheus ↔ Grafana. Le réseau
+  # `default` du compose principal (postgres/redis/minio +
+  # backend) est joignable via la déclaration ci-dessous.
+  nexya-observability:
+    name: nexya-observability
+    driver: bridge
+
+volumes:
+  prometheus_data:
+  grafana_data:

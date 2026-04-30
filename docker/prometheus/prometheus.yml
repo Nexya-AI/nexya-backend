@@ -1,0 +1,53 @@
+# ══════════════════════════════════════════════════════════════
+# NEXYA — Prometheus scrape config (Session K2)
+#
+# Scrape /metrics du backend NEXYA toutes les 15 s, retention 7 j
+# en dev (largement suffisant pour valider visuellement les
+# dashboards). Retention prod ajustable via flag CLI dans le
+# compose (--storage.tsdb.retention.time=30d ou 90d).
+#
+# Le token de scrape est passé en query param via le mécanisme
+# `params` (Prometheus l'ajoute automatiquement à chaque GET).
+# Le scraper injecte aussi le header `X-Prometheus-Token` en
+# secours, mais l'auth backend supporte les deux (cf.
+# `verify_scrape_token` dans `core/observability/prometheus.py`).
+# ══════════════════════════════════════════════════════════════
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: nexya-dev
+    environment: development
+
+# Charge les règles d'alerte versionnées avec le code (single
+# source of truth en Git).
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # ── Backend NEXYA — métriques applicatives custom ─────────
+  - job_name: nexya-backend
+    metrics_path: /metrics
+    scheme: http
+    # Auth via query token. Le token est lu depuis l'env
+    # `GRAFANA_PROMETHEUS_TOKEN` au démarrage de Prometheus
+    # (interpolation Docker compose env_file). Vide en dev =
+    # endpoint backend accepte tout (avec WARNING au boot).
+    params:
+      token: ["${GRAFANA_PROMETHEUS_TOKEN:-}"]
+    static_configs:
+      - targets:
+          - nexya-backend:8000
+        labels:
+          service: nexya-backend
+          tier: api
+
+  # ── Prometheus self-monitoring ─────────────────────────────
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+        labels:
+          service: prometheus
+          tier: meta

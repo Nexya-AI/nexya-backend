@@ -7,8 +7,8 @@ Create Date: 2026-04-21
 
 from __future__ import annotations
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import UUID
 
 # revision identifiers, used by Alembic.
@@ -22,7 +22,9 @@ def upgrade() -> None:
     # ── Table conversations ────────────────────────────────────
     op.create_table(
         "conversations",
-        sa.Column("id", UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column(
+            "id", UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False
+        ),
         sa.Column("user_id", UUID(as_uuid=True), nullable=False),
         sa.Column("title", sa.String(120), nullable=True),
         sa.Column("expert_id", sa.String(32), server_default="general", nullable=False),
@@ -32,8 +34,12 @@ def upgrade() -> None:
         sa.Column("is_favorite", sa.Boolean(), server_default="false", nullable=False),
         sa.Column("title_generated_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.CheckConstraint(
@@ -58,7 +64,9 @@ def upgrade() -> None:
     # ── Table messages ─────────────────────────────────────────
     op.create_table(
         "messages",
-        sa.Column("id", UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column(
+            "id", UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False
+        ),
         sa.Column("conversation_id", UUID(as_uuid=True), nullable=False),
         sa.Column("role", sa.String(16), nullable=False),
         sa.Column("content", sa.Text(), server_default="", nullable=False),
@@ -72,15 +80,15 @@ def upgrade() -> None:
         sa.Column("error_code", sa.String(64), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id"),
-        sa.ForeignKeyConstraint(
-            ["conversation_id"], ["conversations.id"], ondelete="CASCADE"
-        ),
-        sa.CheckConstraint(
-            "role IN ('user', 'assistant', 'system')", name="ck_messages_role"
-        ),
+        sa.ForeignKeyConstraint(["conversation_id"], ["conversations.id"], ondelete="CASCADE"),
+        sa.CheckConstraint("role IN ('user', 'assistant', 'system')", name="ck_messages_role"),
         sa.CheckConstraint(
             "status IN ('streaming', 'completed', 'failed', 'cancelled')",
             name="ck_messages_status",
@@ -95,7 +103,9 @@ def upgrade() -> None:
     # ── Table abuse_reports ────────────────────────────────────
     op.create_table(
         "abuse_reports",
-        sa.Column("id", UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False),
+        sa.Column(
+            "id", UUID(as_uuid=True), server_default=sa.text("gen_random_uuid()"), nullable=False
+        ),
         sa.Column("user_id", UUID(as_uuid=True), nullable=False),
         sa.Column("message_id", UUID(as_uuid=True), nullable=False),
         sa.Column("conversation_id", UUID(as_uuid=True), nullable=False),
@@ -105,14 +115,16 @@ def upgrade() -> None:
         sa.Column("reviewer_notes", sa.Text(), nullable=True),
         sa.Column("reviewed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("reviewed_by", UUID(as_uuid=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["message_id"], ["messages.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(
-            ["conversation_id"], ["conversations.id"], ondelete="CASCADE"
-        ),
+        sa.ForeignKeyConstraint(["conversation_id"], ["conversations.id"], ondelete="CASCADE"),
         sa.UniqueConstraint("user_id", "message_id", name="uq_abuse_reports_user_message"),
         sa.CheckConstraint(
             "reason IN ('offensive', 'dangerous', 'illegal', 'harassment', "

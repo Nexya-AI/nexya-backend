@@ -1,0 +1,33 @@
+# NEXYA — Grafana datasources provisioning (Session K2).
+#
+# Single Source of Truth en Git : Grafana lit ce fichier au démarrage et
+# crée/met à jour les datasources automatiquement. `editable: false`
+# verrouille la modification via l'UI (toute évolution passe par PR).
+#
+# Référence Grafana 10+ :
+#   https://grafana.com/docs/grafana/latest/administration/provisioning/
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: nexya-prom
+    access: proxy
+    # `prometheus` = nom du service dans
+    # docker-compose.observability.yml. Grafana et Prometheus partagent
+    # le réseau bridge `nexya-observability`.
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
+      manageAlerts: true
+
+  # ── Tempo placeholder (K3) ────────────────────────────────────
+  # Le datasource Tempo sera ajouté en K3 quand Ivan déploiera un
+  # collecteur OTLP cible (Tempo / Jaeger). En attendant, OTel SDK
+  # exporte vers un endpoint inactif (`http://localhost:4318` côté
+  # backend) — fail-open. Aucun datasource Tempo provisionné en K2
+  # pour ne pas afficher une source en erreur dans l'UI.

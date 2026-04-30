@@ -66,6 +66,14 @@ _PRICING_USD_PER_1M: dict[tuple[str, str], tuple[float, float]] = {
     ("qwen", "qwen2.5-14b-instruct"): (0.10, 0.40),
     ("qwen", "qwen2.5-7b-instruct"): (0.05, 0.20),
     ("qwen", "qwen-max"): (1.60, 6.40),
+    # OpenRouter — prix incluent la marge agrégateur (~5-10 % au-dessus
+    # du modèle sous-jacent, ajustable via la colonne `cost_usd` retournée
+    # par l'API OpenRouter qui sera préférée quand présente).
+    ("openrouter", "anthropic/claude-3.5-sonnet"): (3.00, 15.00),
+    ("openrouter", "meta-llama/llama-3.1-70b-instruct"): (0.60, 0.60),
+    ("openrouter", "mistralai/mistral-large"): (2.00, 6.00),
+    ("openrouter", "deepseek/deepseek-chat"): (0.14, 0.28),
+    ("openrouter", "qwen/qwen-2.5-72b-instruct"): (0.40, 1.60),
 }
 
 
@@ -130,8 +138,8 @@ class StreamMetrics:
     cost_usd: float = 0.0
 
     # Issue
-    outcome: str = "in_flight"          # in_flight | success | cancelled | failed
-    failure_code: str | None = None     # LLM_UNAVAILABLE, CONTENT_FILTERED, etc.
+    outcome: str = "in_flight"  # in_flight | success | cancelled | failed
+    failure_code: str | None = None  # LLM_UNAVAILABLE, CONTENT_FILTERED, etc.
 
     # ─── Méthodes d'enrichissement ───────────────────────────────────
 

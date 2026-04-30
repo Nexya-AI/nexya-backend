@@ -43,9 +43,9 @@ log = structlog.get_logger(__name__)
 
 
 class CircuitState(StrEnum):
-    CLOSED = "closed"       # Tout va bien, les appels passent
-    OPEN = "open"           # Coupure active, les appels sont rejetés
-    HALF_OPEN = "half_open" # Test de reprise : un seul appel autorisé
+    CLOSED = "closed"  # Tout va bien, les appels passent
+    OPEN = "open"  # Coupure active, les appels sont rejetés
+    HALF_OPEN = "half_open"  # Test de reprise : un seul appel autorisé
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -222,9 +222,7 @@ class CircuitBreakerRegistry:
             stats.last_error = f"{type(error).__name__}: {error}"
 
             if stats.state is CircuitState.HALF_OPEN:
-                stats.half_open_trials_in_flight = max(
-                    0, stats.half_open_trials_in_flight - 1
-                )
+                stats.half_open_trials_in_flight = max(0, stats.half_open_trials_in_flight - 1)
                 stats.state = CircuitState.OPEN
                 stats.opened_at = time.monotonic()
                 stats.opens_count += 1
