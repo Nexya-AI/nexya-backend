@@ -12,7 +12,7 @@
 # On compile les dépendances ici, dans un venv qu'on copiera ensuite
 # dans l'image finale. Le builder embarque les toolchains (gcc, etc.)
 # qu'on ne veut PAS en prod.
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.14-slim-bookworm AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -45,7 +45,7 @@ RUN uv venv /opt/venv --python 3.12 \
 
 # ── Stage 2 ── runtime ─────────────────────────────────────────
 # Image finale — slim, sans toolchain, non-root.
-FROM python:3.12-slim-bookworm AS runtime
+FROM python:3.14-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
