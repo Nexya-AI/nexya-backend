@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+  <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center"
+         style="width: 100%; max-width: 600px; margin: 32px auto; background-color: #ffffff; border-radius: 8px; overflow: hidden;">
+    <tr>
+      <td style="padding: 32px; background-color: #10b981; color: #ffffff;">
+        <h1 style="margin: 0; font-size: 24px; font-weight: 600;">
+          💳 Paiement confirmé
+        </h1>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding: 32px; color: #111827; font-size: 16px; line-height: 1.6;">
+        <p style="margin: 0 0 16px;">
+          Bonjour {{ user_name }},
+        </p>
+        <p style="margin: 0 0 16px;">
+          Merci pour votre paiement. Votre abonnement NEXYA est maintenant actif.
+        </p>
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0"
+               style="width: 100%; margin: 0 0 16px; background-color: #f3f4f6; border-radius: 6px;">
+          {% if plan_name %}
+          <tr>
+            <td style="padding: 12px 16px; color: #6b7280;">Formule</td>
+            <td style="padding: 12px 16px; text-align: right; font-weight: 600;">{{ plan_name }}</td>
+          </tr>
+          {% endif %}
+          {% if amount_formatted %}
+          <tr>
+            <td style="padding: 12px 16px; color: #6b7280; border-top: 1px solid #e5e7eb;">Montant</td>
+            <td style="padding: 12px 16px; text-align: right; font-weight: 600; border-top: 1px solid #e5e7eb;">{{ amount_formatted }}</td>
+          </tr>
+          {% endif %}
+        </table>
+        {% if invoice_url %}
+        <p style="margin: 24px 0;">
+          <a href="{{ invoice_url }}"
+             style="display: inline-block; padding: 12px 24px; background-color: #0066ff; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">
+            Télécharger la facture
+          </a>
+        </p>
+        {% endif %}
+        <p style="margin: 16px 0 0; color: #6b7280;">
+          L'équipe NEXYA
+        </p>
+      </td>
+    </tr>
+    {% include '_layout_footer.html' %}
+  </table>
+</body>
+</html>

@@ -1,0 +1,40 @@
+Suppression de compte programmée — NEXYA
+
+Bonjour{% if user_name %} {{ user_name }}{% endif %},
+
+Nous avons bien reçu votre demande de suppression de compte
+(Article 17 du RGPD — droit à l'oubli).
+
+Date de suppression définitive : {{ scheduled_purge_at }}
+
+Vous disposez d'un délai de {{ grace_period_days | default(30) }} jours
+pour vous rétracter. Au-delà de cette date, **toutes vos données seront
+définitivement effacées** (cascade SQL sur 22 tables + suppression
+des blobs MinIO). Cette opération est irréversible.
+
+Annuler la demande
+------------------
+Si vous changez d'avis, vous pouvez annuler la suppression à tout
+moment avant la date ci-dessus en :
+- vous reconnectant à NEXYA et cliquant sur « Annuler ma suppression »
+- ou en appelant l'endpoint :
+  POST /rgpd/user/account/delete-request/cancel
+
+Votre compte est actuellement gelé : vous ne pouvez plus vous
+connecter ni utiliser l'app, mais vos données sont conservées
+en attente de la purge ou de votre rétractation.
+
+Et après ?
+----------
+Une fois la suppression effectuée, vous recevrez un email de
+confirmation. Plus aucune trace de vos données ne subsistera, à
+l'exception des journaux d'authentification anonymisés et du
+registre des appels IA agrégé (Article 13 du Règlement IA).
+
+Une question ?
+--------------
+Contactez le délégué à la protection des données :
+dpo@nexya.ai
+
+L'équipe NEXYA
+{% include '_layout_footer.txt' %}

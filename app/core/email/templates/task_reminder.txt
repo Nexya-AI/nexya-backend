@@ -1,0 +1,17 @@
+Rappel NEXYA
+
+Bonjour {{ user_name }},
+
+Ceci est un rappel pour votre tâche planifiée :
+
+  {{ task_title }}
+
+{% if scheduled_at_human_readable %}
+Prévue pour : {{ scheduled_at_human_readable }}
+{% endif %}
+{% if task_deep_link %}
+Voir la tâche : {{ task_deep_link }}
+{% endif %}
+
+L'équipe NEXYA
+{% include '_layout_footer.txt' %}

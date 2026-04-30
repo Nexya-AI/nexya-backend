@@ -1,0 +1,45 @@
+# NEXYA Backend — CodeQL security scan (Session L1)
+#
+# Détecte automatiquement les patterns dangereux (SQL injection, XSS,
+# hardcoded creds, path traversal, etc.) via les queries CWE de GitHub.
+# Résultats remontés dans l'onglet « Security » du repo.
+#
+# Trigger : hebdomadaire (lundi 6h UTC) + push sur main.
+# Non-bloquant pour CI principal — visibilité seulement.
+
+name: CodeQL
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'   # lundi 6h UTC
+  push:
+    branches: [main]
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write   # nécessaire pour push les résultats SARIF
+  actions: read            # nécessaire pour CodeQL action interne
+
+jobs:
+  analyze:
+    name: CodeQL Python analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          # `default` queries V1 (suffisent — couvre OWASP top 10 + CWE-25
+          # les plus communs). Custom queries → V2 si besoin réel.
+          queries: security-and-quality
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:python"

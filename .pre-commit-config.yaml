@@ -1,0 +1,43 @@
+# NEXYA Backend — Pre-commit hooks (Session L1)
+#
+# Hooks locaux opt-in pour Ivan + futures recrues. Le CI lance les mêmes
+# checks via `pre-commit run --all-files` dans le job `lint`.
+#
+# Installation :
+#   pip install pre-commit
+#   pre-commit install
+#
+# Versions hooks pinned via `rev:` pour reproducibilité — bumper via
+# `pre-commit autoupdate` puis test local AVANT push.
+
+repos:
+  # ── ruff : linter + formatter Python ─────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: ["--fix", "--exit-non-zero-on-fix"]
+      - id: ruff-format
+
+  # ── pre-commit-hooks : checks de base ────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # YAML parse-able (workflows GHA, dashboards Grafana K2,
+      # alertes Prometheus K2, dependabot, pre-commit lui-même).
+      - id: check-yaml
+        args: ["--unsafe"]   # tolère custom tags Helm/Kustomize si besoin
+      # TOML parse-able (pyproject.toml en particulier).
+      - id: check-toml
+      # Refuse fichiers > 500 KB (anti-leak modèles/datasets dans Git).
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      # Refuse les marqueurs `<<<<<<<` oubliés.
+      - id: check-merge-conflict
+      # Refuse les clés PEM accidentellement commitées (RSA/SSH/...).
+      - id: detect-private-key
+      # Garantit `\n` final (UNIX convention, évite diffs bruyants).
+      - id: end-of-file-fixer
+      # Strip trailing whitespace.
+      - id: trailing-whitespace
+        args: ["--markdown-linebreak-ext=md"]

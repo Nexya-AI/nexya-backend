@@ -1,0 +1,26 @@
+# NEXYA Backend — Auto-changelog config pour les Releases GitHub
+#
+# Consommé par `softprops/action-gh-release@v2` dans release.yml.
+# Groupe automatiquement les PRs depuis le tag précédent par labels.
+
+changelog:
+  exclude:
+    labels:
+      - dependabot
+      - ignore-changelog
+      - skip-release-notes
+  categories:
+    - title: "🚨 Breaking changes"
+      labels: [breaking, breaking-change]
+    - title: "✨ Features"
+      labels: [feature, feat, enhancement]
+    - title: "🐛 Fixes"
+      labels: [bug, fix, bugfix]
+    - title: "🔒 Security"
+      labels: [security]
+    - title: "🧹 Chores"
+      labels: [chore, refactor, test, docs]
+    - title: "📦 Dependencies"
+      labels: [dependencies]
+    - title: "Other"
+      labels: ["*"]

@@ -1,0 +1,25 @@
+{# Partiel Jinja2 — footer commun des emails transactionnels NEXYA. #}
+{# Usage : `{% include '_layout_footer.html' %}` dans chaque template. #}
+{# Le contexte doit contenir `unsubscribe_url` (str | None).          #}
+{# `None` = catégorie non-désinscriptible (security) → pas de ligne.   #}
+<tr>
+  <td style="padding: 24px 32px; border-top: 1px solid #e5e7eb; color: #6b7280; font-size: 12px; line-height: 1.6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+    <p style="margin: 0 0 8px;">
+      Cet email a été envoyé par <strong>NEXYA</strong> — votre assistant IA personnel.
+    </p>
+    <p style="margin: 0 0 8px;">
+      NEXYA respecte votre vie privée. Vous pouvez gérer toutes vos préférences
+      de notification directement dans l'application (Paramètres → Notifications).
+    </p>
+    {% if unsubscribe_url %}
+    <p style="margin: 12px 0 0;">
+      <a href="{{ unsubscribe_url }}" style="color: #0066ff; text-decoration: underline;">
+        Se désinscrire de cette catégorie d'emails
+      </a>
+    </p>
+    {% endif %}
+    <p style="margin: 16px 0 0; color: #9ca3af;">
+      © NEXYA 2026 — Tous droits réservés.
+    </p>
+  </td>
+</tr>

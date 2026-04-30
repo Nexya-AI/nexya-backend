@@ -1,0 +1,14 @@
+{# Partiel Jinja2 — footer commun des emails transactionnels NEXYA (variante texte brut). #}
+
+---
+Cet email a été envoyé par NEXYA — votre assistant IA personnel.
+
+NEXYA respecte votre vie privée. Vous pouvez gérer toutes vos préférences
+de notification directement dans l'application (Paramètres → Notifications).
+{% if unsubscribe_url %}
+
+Se désinscrire de cette catégorie d'emails :
+{{ unsubscribe_url }}
+{% endif %}
+
+© NEXYA 2026 — Tous droits réservés.

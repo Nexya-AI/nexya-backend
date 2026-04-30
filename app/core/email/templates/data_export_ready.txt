@@ -1,0 +1,41 @@
+Export RGPD prêt — NEXYA
+
+Bonjour {{ user_name | default("") }},
+
+Votre archive de données personnelles est prête au téléchargement,
+conformément à votre droit d'accès (Article 15 du RGPD).
+
+{% if download_url %}
+Lien de téléchargement (valide {{ expires_in_days | default(7) }} jours) :
+{{ download_url }}
+{% else %}
+Veuillez vous connecter à NEXYA et reprendre l'export depuis votre profil
+si le lien direct n'est pas inclus dans cet email.
+{% endif %}
+
+Contenu de l'archive
+--------------------
+- Profil et préférences
+- Historique des consentements (preuve juridique)
+- Journal d'authentification (IP anonymisée /24)
+- Conversations et messages
+- Projets, fichiers, bibliothèque
+- Mémoires IA, notifications, tâches planifiées
+- Registre des appels IA (sans le contenu de vos prompts)
+
+Format : JSON UTF-8 (lisible par machine, conformément à l'Article 20).
+
+Vie privée
+----------
+Cet export ne contient ni votre mot de passe, ni les données d'autres
+utilisateurs, ni les vecteurs sémantiques internes. Les blobs (images,
+audio, documents) sont accessibles via des URLs signées valides
+{{ blob_ttl_days | default(7) }} jours, listées dans le ZIP.
+
+Délai d'archivage
+-----------------
+Si vous n'avez pas effectué cet export, contactez immédiatement
+dpo@nexya.ai.
+
+L'équipe NEXYA
+{% include '_layout_footer.txt' %}

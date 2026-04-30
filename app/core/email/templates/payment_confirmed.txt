@@ -1,0 +1,15 @@
+Paiement confirmé
+
+Bonjour {{ user_name }},
+
+Merci pour votre paiement. Votre abonnement NEXYA est maintenant actif.
+
+{% if plan_name %}Formule : {{ plan_name }}{% endif %}
+{% if amount_formatted %}Montant : {{ amount_formatted }}{% endif %}
+{% if invoice_url %}
+
+Télécharger la facture : {{ invoice_url }}
+{% endif %}
+
+L'équipe NEXYA
+{% include '_layout_footer.txt' %}

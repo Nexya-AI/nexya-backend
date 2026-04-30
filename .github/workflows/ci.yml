@@ -1,0 +1,302 @@
+# NEXYA Backend — Continuous Integration (Session L1)
+#
+# Triggers : pull_request (toutes branches → main) + push: main +
+# `workflow_call` (réutilisé par release.yml).
+# Concurrency : 1 run par branche, cancel-in-progress (économie min CI).
+# Permissions : least-privilege (contents: read par défaut).
+#
+# 6 jobs (parallèles quand possible, indépendants) :
+#   - lint           : ruff check + ruff format --check
+#   - typecheck      : mypy (assoupli V1)
+#   - security-scan  : bandit + pip-audit (non-bloquant V1)
+#   - tests          : services postgres + redis + minio + alembic + pytest cov
+#   - docker-build   : build l'image, healthcheck /healthz
+#   - migrations-check: upgrade head + downgrade -1 + upgrade head (réversibilité)
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # Permet à release.yml de réutiliser ce workflow (validate avant tag).
+  workflow_call: {}
+
+# Annule les runs précédents sur la même branche dès qu'un nouveau push arrive.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Principle of least privilege : les jobs n'écrivent rien par défaut.
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  UV_VERSION: "0.5.14"
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # LINT — ruff check + ruff format --check
+  # ─────────────────────────────────────────────────────────────
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install dev deps
+        run: uv pip install --system -e ".[dev]"
+
+      - name: ruff check
+        run: ruff check . --output-format=github
+
+      - name: ruff format --check
+        run: ruff format --check .
+
+  # ─────────────────────────────────────────────────────────────
+  # TYPECHECK — mypy (assoupli V1, durcissement Phase 19)
+  # ─────────────────────────────────────────────────────────────
+  typecheck:
+    name: Typecheck (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install deps
+        run: uv pip install --system -e ".[dev]"
+
+      - name: mypy
+        run: mypy app/
+
+  # ─────────────────────────────────────────────────────────────
+  # SECURITY — bandit + pip-audit (non-bloquant V1)
+  # ─────────────────────────────────────────────────────────────
+  security-scan:
+    name: Security scan (bandit + pip-audit)
+    runs-on: ubuntu-latest
+    # Tranche 5 (2026-04-26) : non-bloquant V1 — un CVE mineur ne
+    # doit pas casser la PR. Les rapports remontent quand même via
+    # logs visibles dans l'UI GHA. V2 = strict avec seuil CVSS.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install deps
+        run: uv pip install --system -e ".[dev]"
+
+      - name: bandit (scan code patterns)
+        run: bandit -r app/ -ll -c pyproject.toml
+
+      - name: pip-audit (CVE deps)
+        # `--skip-editable` ignore le package local nexya-backend
+        # (éditable, pas sur PyPI). Les vraies deps sont auditées.
+        run: pip-audit --strict --desc --skip-editable
+
+  # ─────────────────────────────────────────────────────────────
+  # TESTS — services postgres+redis+minio + alembic + pytest cov
+  # ─────────────────────────────────────────────────────────────
+  tests:
+    name: Tests (pytest + coverage)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 65530:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 65531:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+    env:
+      # Alignées sur tests/conftest.py — ports non-routables habituels
+      # (65530/65531) restent fonctionnels mais services GHA exposent
+      # postgres sur 65530 et redis sur 65531 via mapping.
+      ENV: development
+      APP_SECRET: test-secret-not-for-prod
+      DATABASE_URL: "postgresql+psycopg://test:test@127.0.0.1:65530/test"
+      REDIS_URL: "redis://127.0.0.1:65531/0"
+      ALLOWED_ORIGINS: "http://localhost:3000"
+      EMBEDDINGS_MOCK_ENABLED: "true"
+      VOICE_MOCK_ENABLED: "true"
+      VISION_MOCK_ENABLED: "true"
+      FCM_MOCK_ENABLED: "true"
+      STORAGE_MOCK_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install deps
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Generate JWT keys for test
+        run: |
+          openssl genrsa -out /tmp/private.pem 2048
+          openssl rsa -in /tmp/private.pem -pubout -out /tmp/public.pem
+          echo "JWT_PRIVATE_KEY=/tmp/private.pem" >> $GITHUB_ENV
+          echo "JWT_PUBLIC_KEY=/tmp/public.pem" >> $GITHUB_ENV
+
+      - name: Alembic upgrade head
+        run: alembic upgrade head
+
+      - name: pytest with coverage
+        run: |
+          pytest tests/ -p no:warnings -q \
+            --cov=app \
+            --cov-report=xml \
+            --cov-report=term-missing
+
+      - name: Upload coverage XML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────────
+  # DOCKER BUILD — vérifie image + healthcheck /healthz
+  # ─────────────────────────────────────────────────────────────
+  docker-build:
+    name: Docker build (validate image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -f docker/Dockerfile \
+            -t nexya-backend:ci-${{ github.sha }} \
+            .
+
+      - name: Run image (healthcheck)
+        run: |
+          # Démarre le container en background et attend le healthcheck.
+          docker run -d --name nexya-ci-test \
+            -e ENV=development \
+            -e APP_SECRET=test-secret \
+            -e DATABASE_URL=postgresql+psycopg://nope:nope@127.0.0.1:65530/nope \
+            -e REDIS_URL=redis://127.0.0.1:65531/0 \
+            -e JWT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY-----" \
+            -e JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----\nFAKE\n-----END PUBLIC KEY-----" \
+            -p 8000:8000 \
+            nexya-backend:ci-${{ github.sha }}
+          # Wait jusqu'à 30s pour /healthz
+          for i in {1..30}; do
+            if curl -fsS http://localhost:8000/healthz; then
+              echo "OK healthz responded"
+              docker stop nexya-ci-test
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "FAIL healthz never responded"
+          docker logs nexya-ci-test
+          docker stop nexya-ci-test
+          exit 1
+
+  # ─────────────────────────────────────────────────────────────
+  # MIGRATIONS-CHECK — réversibilité (V1 = -1 step, tranche 8)
+  # ─────────────────────────────────────────────────────────────
+  migrations-check:
+    name: Migrations reversibility check
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 65530:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+    env:
+      ENV: development
+      APP_SECRET: test-secret
+      DATABASE_URL: "postgresql+psycopg://test:test@127.0.0.1:65530/test"
+      REDIS_URL: "redis://127.0.0.1:65531/0"
+      JWT_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY-----"
+      JWT_PUBLIC_KEY: "-----BEGIN PUBLIC KEY-----\nFAKE\n-----END PUBLIC KEY-----"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install deps
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Test migration reversibility (upgrade head → -1 → head)
+        # Tranche 8 (2026-04-26) : V1 reversibility limitée à la dernière
+        # migration (sûr, sans risque sur les `op.execute` historiques).
+        # TODO V2 : passer à `downgrade base` quand toutes les migrations
+        # historiques auront été auditées (1→16).
+        run: |
+          alembic upgrade head
+          alembic downgrade -1
+          alembic upgrade head

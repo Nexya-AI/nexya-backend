@@ -1,0 +1,67 @@
+# NEXYA Backend — Dependabot config (Session L1)
+#
+# 3 updaters : pip (Python deps), docker (base image), github-actions
+# (versions des actions GHA elles-mêmes).
+#
+# Interval `weekly` — bon compromis : suffisamment fréquent pour patcher
+# les CVE rapidement, pas si fréquent qu'on noie l'oncall sous les PRs.
+#
+# Limit max 5 PRs simultanées par updater pour éviter le spam de PRs
+# dependabot qui sature la review queue.
+
+version: 2
+
+updates:
+  # ── Python deps via pip / pyproject.toml ──────────────────────
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - python
+    commit-message:
+      # Pas de Conventional Commits préfixe (règle NEXYA
+      # feedback_git_commits.md). Format : `deps(python): bump X to Y`.
+      prefix: "deps(python)"
+      include: scope
+    groups:
+      # Groupe les patches/minor pour ne pas avoir 50 PRs/semaine.
+      python-patch-and-minor:
+        update-types:
+          - patch
+          - minor
+
+  # ── Docker base image (Dockerfile FROM) ───────────────────────
+  - package-ecosystem: docker
+    directory: "/docker"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: "deps(docker)"
+
+  # ── GitHub Actions versions (workflows YAML) ──────────────────
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "deps(actions)"
