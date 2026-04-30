@@ -1,0 +1,42 @@
+# NEXYA Backend — Dependabot auto-merge (Session L1)
+#
+# Auto-merge les PRs Dependabot pour upgrades patch + minor avec CI vert.
+# Les `major` upgrades restent manuels (review humaine obligatoire pour
+# breaking changes).
+#
+# Trigger : pull_request (filtré sur l'auteur Dependabot).
+
+name: Dependabot auto-merge
+
+on: pull_request
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write           # nécessaire pour merge la PR
+  pull-requests: write      # nécessaire pour `gh pr merge`
+
+jobs:
+  auto-merge:
+    name: Auto-merge patch+minor
+    runs-on: ubuntu-latest
+    # Filtre strict : que les PRs ouvertes par Dependabot.
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Auto-merge patch + minor (CI doit être vert)
+        # Tranche 9 actée 2026-04-26 : major manuel (breaking changes
+        # silencieux possibles). patch + minor auto-merge squash.
+        if: |
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge --auto --squash "${{ github.event.pull_request.html_url }}"

@@ -1,0 +1,19 @@
+Tâche terminée
+
+Bonjour {{ user_name }},
+
+Votre tâche planifiée vient d'être exécutée :
+
+  {{ task_title }}
+
+{% if result_preview %}
+Aperçu du résultat :
+{{ result_preview }}
+{% endif %}
+{% if task_deep_link %}
+
+Voir le résultat complet : {{ task_deep_link }}
+{% endif %}
+
+L'équipe NEXYA
+{% include '_layout_footer.txt' %}

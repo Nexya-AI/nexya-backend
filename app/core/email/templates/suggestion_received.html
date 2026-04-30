@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Nouvelle suggestion utilisateur — NEXYA</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.5; color: #222;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; margin: 0 auto;">
+    <tr>
+      <td>
+        <h1 style="color: #0066ff; font-size: 22px;">
+          📬 Nouvelle suggestion utilisateur
+        </h1>
+
+        <table width="100%" cellpadding="8" cellspacing="0" border="0"
+               style="background: #f7f7fa; border-radius: 6px;
+                      margin: 20px 0; font-size: 14px;">
+          <tr>
+            <td style="font-weight: bold; width: 130px;">Type</td>
+            <td><strong>{{ suggestion_type }}</strong></td>
+          </tr>
+          <tr>
+            <td style="font-weight: bold;">User email</td>
+            <td>{{ user_email }}</td>
+          </tr>
+          <tr>
+            <td style="font-weight: bold;">User ID</td>
+            <td><code>{{ user_id }}</code></td>
+          </tr>
+          <tr>
+            <td style="font-weight: bold;">IP (anonymisée)</td>
+            <td>{{ ip_anonymized | default('—') }}</td>
+          </tr>
+          <tr>
+            <td style="font-weight: bold;">Reçu le</td>
+            <td>{{ created_at }}</td>
+          </tr>
+        </table>
+
+        <h2 style="font-size: 16px; color: #333; margin-top: 24px;">
+          Message
+        </h2>
+        <div style="background: #fff; border: 1px solid #e1e4e8;
+                    border-radius: 6px; padding: 16px;
+                    white-space: pre-wrap; font-family: ui-monospace, monospace;
+                    font-size: 13px; color: #1c2024;">{{ body }}</div>
+
+        <p style="color: #888; font-size: 12px; margin-top: 24px;">
+          Pour traiter cette suggestion, mettez à jour
+          <code>processing_status</code> dans la table
+          <code>user_suggestions</code> via la console DB ou un futur
+          endpoint admin (V2).
+        </p>
+      </td>
+    </tr>
+  </table>
+  {% include '_layout_footer.html' %}
+</body>
+</html>

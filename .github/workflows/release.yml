@@ -1,0 +1,121 @@
+# NEXYA Backend — Release pipeline (Session L1)
+#
+# Trigger : push d'un tag semver `v*.*.*` (ex: v0.1.0, v1.2.3).
+# Pipeline : validate (CI complet) → build & push GHCR → release notes
+# auto-générées → log notify (V2 = webhook Slack).
+#
+# IMPORTANT : ce workflow ne déploie PAS automatiquement en prod
+# (arbitrage 7 — pas d'auto-deploy V1). Il pousse l'image sur GHCR ;
+# le déploiement réel sur staging Hetzner est en L2 + manuel via
+# `bash scripts/rollback.sh vX.Y.Z` ou un futur `deploy.yml` SSH.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+# Pas de cancel-in-progress sur les releases — chaque tag doit
+# se finaliser proprement même si un autre tag est poussé entre temps.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # VALIDATE — réutilise le CI complet (workflow_call de ci.yml)
+  # ─────────────────────────────────────────────────────────────
+  validate:
+    name: Validate (re-run CI)
+    uses: ./.github/workflows/ci.yml
+
+  # ─────────────────────────────────────────────────────────────
+  # BUILD & PUSH — image Docker → GHCR avec 3 tags
+  # ─────────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build & push GHCR
+    runs-on: ubuntu-latest
+    needs: validate
+    permissions:
+      contents: read
+      packages: write   # nécessaire pour push sur ghcr.io
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          # 3 tags : version semver explicite, latest (canal stable),
+          # sha pour traçabilité (debug d'un déploiement à un commit
+          # exact post-release). PROD utilise toujours :vX.Y.Z, jamais
+          # :latest (anti-pattern documenté arbitrage 19).
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/nexya-backend:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/nexya-backend:latest
+            ghcr.io/${{ github.repository_owner }}/nexya-backend:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.title=NEXYA Backend
+            org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  # ─────────────────────────────────────────────────────────────
+  # CREATE GITHUB RELEASE — notes auto-générées par labels
+  # ─────────────────────────────────────────────────────────────
+  create-github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    permissions:
+      contents: write   # nécessaire pour créer la release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history pour le changelog
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          # Notes auto-générées via .github/release.yml (labels-based).
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          body: |
+            ## 📦 Image Docker
+
+            ```bash
+            docker pull ghcr.io/${{ github.repository_owner }}/nexya-backend:${{ github.ref_name }}
+            ```
+
+            **SHA commit** : `${{ github.sha }}`
+
+  # ─────────────────────────────────────────────────────────────
+  # NOTIFY — log structlog (V2 = webhook Slack/email)
+  # ─────────────────────────────────────────────────────────────
+  notify:
+    name: Notify release
+    runs-on: ubuntu-latest
+    needs: create-github-release
+    steps:
+      - name: Log release event
+        run: |
+          echo "::notice::release.created tag=${{ github.ref_name }} sha=${{ github.sha }} image=ghcr.io/${{ github.repository_owner }}/nexya-backend:${{ github.ref_name }}"

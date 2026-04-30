@@ -1,0 +1,24 @@
+Alerte sécurité NEXYA
+
+Bonjour {{ user_name }},
+
+Nous avons détecté une activité importante sur votre compte :
+
+  {{ body }}
+
+{% if event_type %}Type : {{ event_type }}{% endif %}
+{% if event_ip %}Adresse IP : {{ event_ip }}{% endif %}
+{% if event_user_agent_truncated %}Appareil : {{ event_user_agent_truncated }}{% endif %}
+{% if event_time_utc %}Heure (UTC) : {{ event_time_utc }}{% endif %}
+
+Cette action vient-elle de vous ? Dans ce cas, aucune action n'est nécessaire —
+nous vous envoyons cet email pour votre information.
+
+Sinon, changez immédiatement votre mot de passe et contactez notre support.
+{% if password_reset_url %}
+
+Changer mon mot de passe : {{ password_reset_url }}
+{% endif %}
+
+L'équipe sécurité NEXYA
+{% include '_layout_footer.txt' %}

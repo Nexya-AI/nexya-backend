@@ -1,0 +1,22 @@
+Nouvelle suggestion utilisateur — NEXYA
+
+Une nouvelle suggestion a été soumise via l'application.
+
+Type            : {{ suggestion_type }}
+User email      : {{ user_email }}
+User ID         : {{ user_id }}
+IP (anonymisée) : {{ ip_anonymized | default('—') }}
+Reçu le         : {{ created_at }}
+
+────────────────────────────────────────────────────────
+Message
+────────────────────────────────────────────────────────
+
+{{ body }}
+
+────────────────────────────────────────────────────────
+
+Pour traiter cette suggestion, mettre à jour `processing_status`
+dans la table `user_suggestions` via la console DB ou un futur
+endpoint admin (V2).
+{% include '_layout_footer.txt' %}

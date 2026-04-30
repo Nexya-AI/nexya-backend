@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Suppression de compte programmée — NEXYA</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.5; color: #222;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; margin: 0 auto;">
+    <tr>
+      <td>
+        <h1 style="color: #cc0000; font-size: 24px;">
+          Suppression de compte programmée
+        </h1>
+        <p>Bonjour{% if user_name %} {{ user_name }}{% endif %},</p>
+        <p>
+          Nous avons bien reçu votre demande de suppression de compte
+          (<strong>Article 17 du RGPD — droit à l'oubli</strong>).
+        </p>
+
+        <p style="background: #fff3cd; padding: 16px; border-radius: 4px;
+                  border-left: 4px solid #cc0000;">
+          <strong>Date de suppression définitive :</strong>
+          {{ scheduled_purge_at }}
+        </p>
+
+        <p>
+          Vous disposez d'un délai de
+          <strong>{{ grace_period_days | default(30) }} jours</strong>
+          pour vous rétracter. Au-delà, toutes vos données seront
+          définitivement effacées (cascade SQL sur 22 tables +
+          suppression des blobs). <strong>Cette opération est
+          irréversible.</strong>
+        </p>
+
+        <h2 style="font-size: 18px; color: #333;">Annuler la demande</h2>
+        <p>
+          Si vous changez d'avis, reconnectez-vous à NEXYA et cliquez
+          sur « Annuler ma suppression ».
+        </p>
+
+        {% if cancel_url %}
+        <p style="margin: 30px 0;">
+          <a href="{{ cancel_url }}"
+             style="background: #28a745; color: white; padding: 12px 24px;
+                    text-decoration: none; border-radius: 4px;
+                    display: inline-block; font-weight: bold;">
+            Annuler ma suppression
+          </a>
+        </p>
+        {% endif %}
+
+        <h2 style="font-size: 18px; color: #333;">Et après ?</h2>
+        <p style="color: #555; font-size: 14px;">
+          Une fois la suppression effectuée, vous recevrez un email de
+          confirmation. Plus aucune trace de vos données ne subsistera,
+          à l'exception des journaux d'authentification anonymisés et
+          du registre des appels IA agrégé (Article 13 du Règlement IA).
+        </p>
+
+        <p style="color: #888; font-size: 13px;">
+          Une question ? Contactez le délégué à la protection des
+          données : <a href="mailto:dpo@nexya.ai">dpo@nexya.ai</a>.
+        </p>
+      </td>
+    </tr>
+  </table>
+  {% include '_layout_footer.html' %}
+</body>
+</html>
