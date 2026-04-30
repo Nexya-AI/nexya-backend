@@ -1,0 +1,248 @@
+# Blind test G1 — Expert Langues NEXYA
+# 30 questions FR/EN/ES/PT + conjugaisons/idiomes
+# Utilisé par `run_eval.py` pour comparer (RAG + LLM) vs (LLM brut).
+# Pass criterion : ≥ 24/30 victoires A (80 %).
+
+questions:
+  # ─── FR↔EN (10) ────────────────────────────────────────────────
+  - id: fr_en_01
+    domain: translation
+    target_lang: en
+    question_fr: "Traduis en anglais : « J'apprends le français depuis trois mois. »"
+    expected_criteria:
+      - "Traduction grammaticalement correcte"
+      - "Temps verbal idiomatique anglais (present perfect continuous ou équivalent)"
+      - "Durée 'three months' préservée"
+
+  - id: fr_en_02
+    domain: idiom
+    target_lang: en
+    question_fr: "Traduis en anglais : « Il pleut des cordes. »"
+    expected_criteria:
+      - "Traduction idiomatique anglaise (pas littérale)"
+      - "Ex: 'It's raining cats and dogs' ou 'It's pouring'"
+
+  - id: fr_en_03
+    domain: translation
+    target_lang: en
+    question_fr: "Traduis en anglais : « J'aimerais réserver une table pour deux personnes. »"
+    expected_criteria:
+      - "Politesse préservée (would like)"
+      - "Structure réservation correcte"
+
+  - id: fr_en_04
+    domain: translation
+    target_lang: en
+    question_fr: "Traduis en anglais : « Le marché est ouvert de 8 h à 17 h sauf le dimanche. »"
+    expected_criteria:
+      - "Horaires correctement formatés"
+      - "'except Sunday' ou 'Sundays excluded'"
+
+  - id: fr_en_05
+    domain: technical
+    target_lang: en
+    question_fr: "Traduis en anglais : « La fonction renvoie une erreur si le fichier n'existe pas. »"
+    expected_criteria:
+      - "Vocabulaire technique correct"
+      - "Conditional 'if' grammaticalement propre"
+
+  - id: en_fr_06
+    domain: translation
+    target_lang: fr
+    question_fr: "Traduis en français : \"I've been working on this project for six months.\""
+    expected_criteria:
+      - "Équivalent idiomatique 'Je travaille sur ce projet depuis six mois'"
+      - "Pas de calque anglais ('J'ai été travaillant')"
+
+  - id: en_fr_07
+    domain: idiom
+    target_lang: fr
+    question_fr: "Traduis en français : \"Break a leg!\""
+    expected_criteria:
+      - "Équivalent idiomatique français"
+      - "Ex: 'Bonne chance !' ou 'Merde !'"
+
+  - id: en_fr_08
+    domain: translation
+    target_lang: fr
+    question_fr: "Traduis en français : \"She's been to Paris several times.\""
+    expected_criteria:
+      - "Passé composé correct ('Elle est allée')"
+      - "Accord féminin préservé"
+
+  - id: en_fr_09
+    domain: translation
+    target_lang: fr
+    question_fr: "Traduis en français : \"Please send me the invoice by email.\""
+    expected_criteria:
+      - "Politesse impérative douce"
+      - "'par email' ou 'par courriel'"
+
+  - id: en_fr_10
+    domain: translation
+    target_lang: fr
+    question_fr: "Traduis en français : \"The meeting has been rescheduled to next Tuesday.\""
+    expected_criteria:
+      - "'reprogrammée' / 'reportée' / 'décalée'"
+      - "'mardi prochain' correct"
+
+  # ─── FR↔ES (10) ────────────────────────────────────────────────
+  - id: fr_es_11
+    domain: translation
+    target_lang: es
+    question_fr: "Traduis en espagnol : « J'apprends le français depuis trois mois. »"
+    expected_criteria:
+      - "Structure 'desde hace' correcte"
+      - "Ex: 'Aprendo francés desde hace tres meses'"
+
+  - id: fr_es_12
+    domain: idiom
+    target_lang: es
+    question_fr: "Traduis en espagnol : « Ça ne casse pas trois pattes à un canard. »"
+    expected_criteria:
+      - "Équivalent idiomatique espagnol (pas de calque)"
+      - "Ex: 'No es para tirar cohetes' / 'No es nada del otro mundo'"
+
+  - id: fr_es_13
+    domain: translation
+    target_lang: es
+    question_fr: "Traduis en espagnol : « Je voudrais un café sans sucre, s'il vous plaît. »"
+    expected_criteria:
+      - "'Quisiera' ou 'Me gustaría' (politesse conditionnelle)"
+      - "'sin azúcar' correct"
+
+  - id: fr_es_14
+    domain: translation
+    target_lang: es
+    question_fr: "Traduis en espagnol : « Il faut que tu partes maintenant. »"
+    expected_criteria:
+      - "Subjonctif espagnol ('Tienes que irte' OU 'Es necesario que te vayas')"
+
+  - id: fr_es_15
+    domain: conjugation
+    target_lang: es
+    question_fr: "Conjugue le verbe « boire » à tous les temps de l'indicatif en espagnol (beber)."
+    expected_criteria:
+      - "Tableau indicatif : presente, pretérito perfecto simple, pretérito imperfecto, futuro, condicional"
+      - "Formes correctes au singulier et pluriel"
+      - "Au moins: bebo, bebí, bebía, beberé, bebería"
+
+  - id: es_fr_16
+    domain: translation
+    target_lang: fr
+    question_fr: "Traduis en français : \"No me gusta madrugar.\""
+    expected_criteria:
+      - "'madrugar' rendu naturellement ('se lever tôt')"
+      - "Construction négative correcte"
+
+  - id: es_fr_17
+    domain: translation
+    target_lang: fr
+    question_fr: "Traduis en français : \"¿Me puedes ayudar con esto?\""
+    expected_criteria:
+      - "'Peux-tu m'aider avec ça ?'"
+      - "Tu/vous adapté au registre"
+
+  - id: es_fr_18
+    domain: idiom
+    target_lang: fr
+    question_fr: "Traduis en français : \"Estar como una cabra.\""
+    expected_criteria:
+      - "Équivalent idiomatique ('être complètement fou', 'taper un câble')"
+
+  - id: es_fr_19
+    domain: translation
+    target_lang: fr
+    question_fr: "Traduis en français : \"Nos vemos mañana en la oficina.\""
+    expected_criteria:
+      - "'On se voit demain au bureau' ou équivalent"
+
+  - id: fr_es_20
+    domain: conjugation
+    target_lang: es
+    question_fr: "Comment dit-on « je serais allé » en espagnol ?"
+    expected_criteria:
+      - "Forme 'habría ido' (conditionnel composé)"
+      - "Explication brève temps composé"
+
+  # ─── FR↔PT (5) ─────────────────────────────────────────────────
+  - id: fr_pt_21
+    domain: translation
+    target_lang: pt
+    question_fr: "Traduis en portugais : « Bonjour, comment allez-vous ? »"
+    expected_criteria:
+      - "'Bom dia' ou 'Olá'"
+      - "Formule de politesse correcte"
+
+  - id: fr_pt_22
+    domain: translation
+    target_lang: pt
+    question_fr: "Traduis en portugais : « Je voudrais un billet pour Lisbonne, s'il vous plaît. »"
+    expected_criteria:
+      - "'Queria' / 'Gostaria de'"
+      - "'Lisboa' (pas 'Lisbonne')"
+
+  - id: fr_pt_23
+    domain: translation
+    target_lang: pt
+    question_fr: "Traduis en portugais : « Où se trouve la gare ? »"
+    expected_criteria:
+      - "'estação' (gare/station)"
+      - "Construction 'Onde fica'"
+
+  - id: pt_fr_24
+    domain: translation
+    target_lang: fr
+    question_fr: "Traduis en français : \"Estou com saudade de casa.\""
+    expected_criteria:
+      - "'saudade' contextualisée (manque, nostalgie)"
+      - "Explication culturelle bienvenue"
+
+  - id: fr_pt_25
+    domain: idiom
+    target_lang: pt
+    question_fr: "Traduis en portugais : « Ça coûte les yeux de la tête. »"
+    expected_criteria:
+      - "Équivalent idiomatique portugais"
+      - "Ex: 'Custa os olhos da cara'"
+
+  # ─── Conjugaisons / tournures (5) ──────────────────────────────
+  - id: conj_26
+    domain: conjugation
+    target_lang: en
+    question_fr: "Conjugue le verbe « aller » au futur simple en anglais (to go)."
+    expected_criteria:
+      - "'I will go / you will go / he will go / ...'"
+      - "Ou 'I am going to go' (going-to future)"
+
+  - id: conj_27
+    domain: conjugation
+    target_lang: fr
+    question_fr: "Conjugue « voir » au subjonctif présent en français."
+    expected_criteria:
+      - "que je voie / que tu voies / qu'il voie / que nous voyions / que vous voyiez / qu'ils voient"
+
+  - id: idiom_28
+    domain: idiom
+    target_lang: fr
+    question_fr: "Que veut dire l'expression « avoir le cafard » ? Donne un équivalent anglais."
+    expected_criteria:
+      - "Signification : tristesse, déprime passagère"
+      - "Équivalent anglais : 'to feel blue' / 'feeling down'"
+
+  - id: idiom_29
+    domain: idiom
+    target_lang: es
+    question_fr: "Explique l'expression « tirar la toalla » en espagnol."
+    expected_criteria:
+      - "Signification : abandonner, renoncer"
+      - "Origine métaphorique boxe"
+      - "Équivalent français : 'jeter l'éponge'"
+
+  - id: conj_30
+    domain: conjugation
+    target_lang: es
+    question_fr: "Comment forme-t-on le subjonctif présent en espagnol pour le verbe « hablar » ?"
+    expected_criteria:
+      - "hable, hables, hable, hablemos, habléis, hablen"
+      - "Règle générale (-ar → -e, -er/-ir → -a)"

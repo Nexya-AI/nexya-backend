@@ -1,0 +1,125 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# NEXYA Backend — Docker Compose PRODUCTION (stub minimal V1)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Ce compose lance UNIQUEMENT le runtime applicatif NEXYA :
+#   - nexya-api    (FastAPI / uvicorn workers, image GHCR build L1)
+#   - nexya-worker (arq, mêmes image et env, command différent)
+#
+# Les services persistants (PostgreSQL, Redis, stockage objet) sont
+# DÉLIBÉRÉMENT EXCLUS car ils sont externalisés en production :
+#   - PostgreSQL : Hetzner Managed Postgres (backups, replicas, patching auto)
+#   - Redis      : Hetzner Managed Redis (ou Upstash)
+#   - Stockage   : Cloudflare R2 ou AWS S3 prod (pas MinIO embedded)
+#
+# Le reverse proxy TLS (Caddy/nginx avec Let's Encrypt) sera ajouté lors de
+# la session L2 (staging Hetzner). Ce stub ne s'occupe que du runtime app.
+#
+# Usage typique en L2 staging :
+#   docker compose -f docker/docker-compose.prod.yml --env-file .env.prod up -d
+#
+# Validation locale (sans up) :
+#   docker compose -f docker/docker-compose.prod.yml config
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# VARIABLES D'ENVIRONNEMENT REQUISES (.env.prod) — non exhaustif, voir
+# `.env.example` pour la liste complète. Les valeurs marquées « fail-fast »
+# font booter NEXYA en erreur si absentes/invalides en prod (config.py guard).
+# ──────────────────────────────────────────────────────────────────────────────
+#
+#   # ── Identité & cycle de vie ──────────────────────────────────────────────
+#   ENV=production                         # fail-fast si != production en prod
+#   APP_SECRET=<32+ chars random>          # fail-fast si vide en prod
+#   APP_VERSION=v1.0.0                     # injecté par scripts/release.sh L1
+#   APP_COMMIT_SHA=<git rev-parse HEAD>    # injecté par scripts/release.sh L1
+#
+#   # ── Persistence (services managés externes) ──────────────────────────────
+#   DATABASE_URL=postgresql+psycopg://USER:PASS@managed-pg.hetzner.example/nexya
+#   REDIS_URL=redis://USER:PASS@managed-redis.hetzner.example:6379/0
+#
+#   # ── Auth JWT RS256 (paires de clés générées hors compose) ────────────────
+#   JWT_PRIVATE_KEY=<-----BEGIN PRIVATE KEY-----\n…\n-----END PRIVATE KEY----->
+#   JWT_PUBLIC_KEY=<-----BEGIN PUBLIC KEY-----\n…\n-----END PUBLIC KEY------>
+#
+#   # ── Providers IA (au moins 1 requis, mock-first sinon) ──────────────────
+#   GEMINI_API_KEY=<...>                   # priorité produit V1
+#   OPENAI_API_KEY=<...>                   # optionnel (mock si vide)
+#   ANTHROPIC_API_KEY=<...>                # optionnel (mock si vide)
+#   QWEN_API_KEY=<...>                     # optionnel (mock si vide)
+#   OPENROUTER_API_KEY=<...>               # optionnel (mock si vide)
+#
+#   # ── Stockage objet (R2 ou AWS S3 prod) ──────────────────────────────────
+#   S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com
+#   S3_ACCESS_KEY=<...>
+#   S3_SECRET_KEY=<...>
+#   S3_BUCKET=nexya-prod
+#   S3_REGION=auto                         # 'auto' pour R2, 'eu-west-1' pour AWS
+#
+#   # ── Sécurité O1 (fail-fast prod si manquant ou misconfiguré) ────────────
+#   SECURITY_HEADERS_PRESET=prod           # fail-fast si NOT IN {prod, off}
+#   PROMETHEUS_SCRAPE_TOKEN=<32 hex random>  # fail-fast si vide en prod
+#   GRAFANA_ADMIN_PASSWORD=<strong>          # fail-fast si 'admin' ou vide
+#
+#   # ── Observabilité K1 + RGPD J1 ───────────────────────────────────────────
+#   SENTRY_DSN=<https://...@sentry.io/...>
+#   OTEL_EXPORTER_OTLP_ENDPOINT=<...>      # optionnel (silencieux si vide)
+#   RGPD_ADMIN_EMAILS=ngassayimgal@gmail.com  # fail-fast si vide en prod
+#
+#   # ── Email + Captcha + FCM + Helpdesk (optionnels mock-first) ────────────
+#   BREVO_API_KEY=<...>                    # email transactionnel A1
+#   HCAPTCHA_SECRET_KEY=<...>              # captcha register A3
+#   FCM_SERVER_KEY=<...>                   # push notifications F3
+#   CRISP_WEBSITE_ID=<...>                 # escalation helpdesk N4 (optionnel)
+#   CRISP_API_KEY=<...>
+#
+#   # ── uvicorn (tuning runtime) ─────────────────────────────────────────────
+#   WEB_CONCURRENCY=4                      # nb workers uvicorn (ajuster selon CPU)
+#
+# ══════════════════════════════════════════════════════════════════════════════
+
+services:
+  nexya-api:
+    image: ghcr.io/${GHCR_OWNER:-loth-ngassa}/nexya-backend:${IMAGE_TAG:-latest}
+    container_name: nexya-api
+    restart: unless-stopped
+    env_file:
+      - ../.env.prod
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    volumes:
+      - nexya_logs:/app/logs:rw
+    networks:
+      - nexya-prod
+    command:
+      - sh
+      - -c
+      - >-
+        uvicorn app.main:app
+        --host 0.0.0.0
+        --port 8000
+        --workers ${WEB_CONCURRENCY:-4}
+        --proxy-headers
+        --forwarded-allow-ips=*
+
+  nexya-worker:
+    image: ghcr.io/${GHCR_OWNER:-loth-ngassa}/nexya-backend:${IMAGE_TAG:-latest}
+    container_name: nexya-worker
+    restart: unless-stopped
+    env_file:
+      - ../.env.prod
+    networks:
+      - nexya-prod
+    command: ["arq", "workers.worker.WorkerSettings"]
+
+networks:
+  nexya-prod:
+    driver: bridge
+
+volumes:
+  nexya_logs:
