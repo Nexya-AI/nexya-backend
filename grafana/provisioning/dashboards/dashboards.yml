@@ -1,0 +1,25 @@
+# NEXYA — Grafana dashboards provisioning (Session K2).
+#
+# Provider de type `file` : Grafana scanne le dossier
+# `/etc/grafana/provisioning/dashboards` (volume monté depuis ce repo)
+# toutes les `updateIntervalSeconds` et recharge tout JSON modifié.
+#
+# `allowUiUpdates: false` interdit toute édition via l'UI Grafana —
+# Single Source of Truth en Git, toute modification passe par PR.
+# Si un admin tente d'éditer un panel dans l'UI, Grafana affiche le
+# changement en RAM mais le rollback automatiquement au prochain scan.
+
+apiVersion: 1
+
+providers:
+  - name: NEXYA
+    orgId: 1
+    folder: NEXYA
+    folderUid: nexya
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

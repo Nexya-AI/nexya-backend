@@ -29,7 +29,7 @@ Les deux cohabitent ; ils ne s'écrasent pas.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import redis.asyncio as aioredis
 import structlog
@@ -52,14 +52,18 @@ log = structlog.get_logger(__name__)
 # Ces constantes sont la base ; peuvent être override à la construction.
 # ═══════════════════════════════════════════════════════════════════
 
-DEFAULT_USER_CHAT_PER_DAY = 200         # messages IA / user / jour
-DEFAULT_USER_IMAGE_PER_DAY = 50         # images / user / jour
-DEFAULT_IP_BURST_PER_MINUTE = 20        # requêtes / IP / minute (toutes features)
+DEFAULT_USER_CHAT_PER_DAY = 200  # messages IA / user / jour
+DEFAULT_USER_IMAGE_PER_DAY = 50  # images / user / jour
+DEFAULT_USER_EMBEDDINGS_PER_DAY = 10_000  # appels embed() / user / jour (D1)
+DEFAULT_USER_VOICE_MINUTES_PER_DAY = 120  # minutes Whisper / user / jour (E1 Pro only)
+DEFAULT_USER_TTS_CHARS_PER_DAY = 50_000  # chars TTS / user / jour (E1 Pro only)
+DEFAULT_USER_VISION_IMAGES_PER_DAY = 50  # images / user / jour (E2 — Free=3, Pro=50)
+DEFAULT_IP_BURST_PER_MINUTE = 20  # requêtes / IP / minute (toutes features)
 DEFAULT_GLOBAL_MODEL_PER_DAY = 100_000  # appels / modèle / jour (plafond global)
 
 _PREFIX = "budget:"
-_DAY_TTL_SECONDS = 60 * 60 * 24 * 2     # 48h — marge pour fuseaux horaires
-_MINUTE_TTL_SECONDS = 90                # 90s — marge pour les secondes intermédiaires
+_DAY_TTL_SECONDS = 60 * 60 * 24 * 2  # 48h — marge pour fuseaux horaires
+_MINUTE_TTL_SECONDS = 90  # 90s — marge pour les secondes intermédiaires
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -107,12 +111,20 @@ class BudgetTracker:
         *,
         user_chat_per_day: int = DEFAULT_USER_CHAT_PER_DAY,
         user_image_per_day: int = DEFAULT_USER_IMAGE_PER_DAY,
+        user_embeddings_per_day: int = DEFAULT_USER_EMBEDDINGS_PER_DAY,
+        user_voice_minutes_per_day: int = DEFAULT_USER_VOICE_MINUTES_PER_DAY,
+        user_tts_chars_per_day: int = DEFAULT_USER_TTS_CHARS_PER_DAY,
+        user_vision_images_per_day: int = DEFAULT_USER_VISION_IMAGES_PER_DAY,
         ip_burst_per_minute: int = DEFAULT_IP_BURST_PER_MINUTE,
         global_model_per_day: int = DEFAULT_GLOBAL_MODEL_PER_DAY,
         redis_client: aioredis.Redis | None = None,
     ) -> None:
         self.user_chat_per_day = user_chat_per_day
         self.user_image_per_day = user_image_per_day
+        self.user_embeddings_per_day = user_embeddings_per_day
+        self.user_voice_minutes_per_day = user_voice_minutes_per_day
+        self.user_tts_chars_per_day = user_tts_chars_per_day
+        self.user_vision_images_per_day = user_vision_images_per_day
         self.ip_burst_per_minute = ip_burst_per_minute
         self.global_model_per_day = global_model_per_day
         self._redis = redis_client  # Si None, get_redis() au moment de l'appel
@@ -145,6 +157,127 @@ class BudgetTracker:
             metadata={"user_id": user_id, "count": cost},
             reset_at=_next_midnight_utc(),
         )
+
+    async def check_and_consume_embeddings(self, user_id: str, *, cost: int = 1) -> int:
+        """Compteur journalier d'appels `embed()` côté user (Session D1).
+
+        Chaque `MemoryStore.add` et chaque `MemoryStore.search` consomme
+        1 crédit (coût minuscule de l'API OpenAI `text-embedding-3-small`,
+        mais utile pour couper un script abusif avant de brûler la facture).
+        """
+        return await self._check_and_incr(
+            key=self._user_day_key(user_id, kind="embeddings"),
+            cost=cost,
+            limit=self.user_embeddings_per_day,
+            ttl_seconds=_DAY_TTL_SECONDS,
+            scope="user_embeddings_day",
+            metadata={"user_id": user_id, "count": cost},
+            reset_at=_next_midnight_utc(),
+        )
+
+    async def check_and_consume_voice_minutes(self, user_id: str, *, minutes: int = 1) -> int:
+        """Compteur journalier de minutes Whisper consommées (Session E1).
+
+        `minutes` est un entier (on arrondit à la minute supérieure dans
+        l'appelant). Utilisé **avant** l'appel API Whisper pour bloquer
+        un Pro qui dépasserait son quota journalier avant de brûler les
+        crédits OpenAI.
+
+        Si l'estimation pré-appel était trop haute (ex: audio plus court
+        que prévu), l'appelant peut rembourser via `refund_voice_minutes`.
+        """
+        if minutes < 1:
+            return 0
+        return await self._check_and_incr(
+            key=self._user_day_key(user_id, kind="voice_minutes"),
+            cost=minutes,
+            limit=self.user_voice_minutes_per_day,
+            ttl_seconds=_DAY_TTL_SECONDS,
+            scope="user_voice_minutes_day",
+            metadata={"user_id": user_id, "minutes": minutes},
+            reset_at=_next_midnight_utc(),
+        )
+
+    async def refund_voice_minutes(self, user_id: str, *, minutes: int) -> None:
+        """Rembourse un excédent d'estimation de minutes voice.
+
+        Utilisé quand la durée estimée avant appel Whisper était plus
+        haute que la durée réelle retournée par l'API. Ne raise jamais
+        (fail-safe Redis error).
+        """
+        if minutes <= 0:
+            return
+        redis = self._get_redis()
+        key = self._user_day_key(user_id, kind="voice_minutes")
+        try:
+            new_value = await redis.decrby(key, minutes)
+            if new_value < 0:
+                await redis.set(key, 0)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "ai.budget.refund_error",
+                scope="voice_minutes",
+                user_id=user_id,
+                error=str(exc),
+            )
+
+    async def check_and_consume_tts_chars(self, user_id: str, *, chars: int) -> int:
+        """Compteur journalier de caractères TTS consommés (Session E1).
+
+        Unité = caractères, pas minutes — parce que la facturation
+        OpenAI TTS est per-character. 50k chars/jour ≈ 1h d'audio
+        synthétisé à 10 mots/seconde.
+        """
+        if chars < 1:
+            return 0
+        return await self._check_and_incr(
+            key=self._user_day_key(user_id, kind="tts_chars"),
+            cost=chars,
+            limit=self.user_tts_chars_per_day,
+            ttl_seconds=_DAY_TTL_SECONDS,
+            scope="user_tts_chars_day",
+            metadata={"user_id": user_id, "chars": chars},
+            reset_at=_next_midnight_utc(),
+        )
+
+    async def check_and_consume_vision_images(self, user_id: str, *, images: int = 1) -> int:
+        """Compteur journalier d'images vision analysées (Session E2).
+
+        Comptage par image (pas tokens) pour rester prévisible côté user.
+        Une image Full HD = ~400-800 tokens Gemini ; on plafonne par
+        nombre d'images car c'est l'UX visible pour l'user (« j'ai
+        analysé 3 images aujourd'hui »).
+        """
+        if images < 1:
+            return 0
+        return await self._check_and_incr(
+            key=self._user_day_key(user_id, kind="vision_images"),
+            cost=images,
+            limit=self.user_vision_images_per_day,
+            ttl_seconds=_DAY_TTL_SECONDS,
+            scope="user_vision_images_day",
+            metadata={"user_id": user_id, "images": images},
+            reset_at=_next_midnight_utc(),
+        )
+
+    async def refund_vision_images(self, user_id: str, *, images: int) -> None:
+        """Rembourse N images (usage : provider down, on rembourse le
+        consommé pré-appel). Fail-safe."""
+        if images <= 0:
+            return
+        redis = self._get_redis()
+        key = self._user_day_key(user_id, kind="vision_images")
+        try:
+            new_value = await redis.decrby(key, images)
+            if new_value < 0:
+                await redis.set(key, 0)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "ai.budget.refund_error",
+                scope="vision_images",
+                user_id=user_id,
+                error=str(exc),
+            )
 
     async def check_and_consume_ip_burst(self, ip: str) -> int:
         """Incrémente le compteur IP/minute. À appeler avant l'auth pour couper
@@ -270,18 +403,16 @@ class BudgetTracker:
 
 
 def _today_utc() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 def _this_minute_utc() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M")
 
 
 def _next_midnight_utc() -> datetime:
-    now = datetime.now(timezone.utc)
-    return (now + timedelta(days=1)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
+    now = datetime.now(UTC)
+    return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def _as_int(value: object) -> int:

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
@@ -37,6 +38,7 @@ from .base import (
     ProviderInvalidRequestError,
     ProviderRateLimitError,
     ProviderUnavailableError,
+    ToolCallDelta,
 )
 
 if TYPE_CHECKING:
@@ -138,9 +140,7 @@ class GeminiChatProvider(ChatProvider):
     # Gemini 2.5 : 1M tokens de contexte ; on garde une marge
     max_context_tokens = 900_000
 
-    async def stream_chat(
-        self, request: ChatCompletionRequest
-    ) -> AsyncIterator[ChatChunk]:
+    async def stream_chat(self, request: ChatCompletionRequest) -> AsyncIterator[ChatChunk]:
         from google.genai import types  # import local — dépendance lourde
 
         model = request.model or self.default_model
@@ -160,6 +160,18 @@ class GeminiChatProvider(ChatProvider):
         if request.stop_sequences:
             config_kwargs["stop_sequences"] = list(request.stop_sequences)
 
+        # F2.5 — function calling. Format spécifique Gemini :
+        # `tools=[{function_declarations: [{name, description, parameters}]}]`
+        # — wrapper `function_declarations` obligatoire (Gemini supporte
+        # plusieurs « tool sets » : function_declarations, retrieval, etc.).
+        # Le `parameters` JSON Schema est passé tel quel ; si un type non
+        # supporté par Gemini est présent, le SDK lève une `BadRequest`
+        # qu'on remontera en `ProviderInvalidRequestError` via le mapper.
+        if request.tools:
+            gemini_tools = _to_gemini_tools(request.tools)
+            if gemini_tools:
+                config_kwargs["tools"] = gemini_tools
+
         client = _get_client()
 
         try:
@@ -177,6 +189,13 @@ class GeminiChatProvider(ChatProvider):
         last_finish: FinishReason | None = None
         produced_any = False
 
+        # F2.5 — détection function_call dans les parts. Gemini ne stream
+        # PAS les arguments fragment par fragment comme OpenAI/Anthropic :
+        # le `function_call` arrive en un chunk unique avec son `name` et
+        # ses `args` complets. On émet alors un seul `ChatChunk` portant
+        # un `ToolCallDelta` complet (id synthétique, args sérialisés JSON).
+        function_call_seen = False
+
         try:
             async for chunk in stream:
                 # Métadonnées éventuelles (pas toujours présentes avant la fin)
@@ -189,6 +208,29 @@ class GeminiChatProvider(ChatProvider):
                     if finish is not None:
                         last_finish = _map_finish_reason(finish)
 
+                    # Cherche un function_call dans les parts du candidate.
+                    content = getattr(cand, "content", None)
+                    parts = getattr(content, "parts", None) if content is not None else None
+                    if parts:
+                        for part_index, part in enumerate(parts):
+                            fc = getattr(part, "function_call", None)
+                            if fc is None:
+                                continue
+                            fc_name = getattr(fc, "name", None) or ""
+                            if not fc_name:
+                                continue
+                            fc_args_raw = getattr(fc, "args", None)
+                            args_json = _gemini_args_to_json(fc_args_raw)
+                            function_call_seen = True
+                            yield ChatChunk(
+                                tool_call=ToolCallDelta(
+                                    id=f"call_gemini_{part_index}",
+                                    name=fc_name,
+                                    arguments_json_partial=args_json,
+                                    index=part_index,
+                                )
+                            )
+
                 text = getattr(chunk, "text", None)
                 if text:
                     produced_any = True
@@ -198,6 +240,14 @@ class GeminiChatProvider(ChatProvider):
             raise
         except Exception as exc:  # noqa: BLE001
             raise _map_sdk_exception(exc, model=model) from exc
+
+        # Si Gemini a émis un function_call, on force `FinishReason.TOOL_CALLS`
+        # pour signaler à l'orchestrateur qu'il doit exécuter le tool —
+        # même si Gemini a renvoyé `finish_reason=STOP` (cas standard avec
+        # function_call : le LLM a fini son tour de parole, mais il attend
+        # un résultat tool avant de répondre à l'user).
+        if function_call_seen:
+            last_finish = FinishReason.TOOL_CALLS
 
         # Chunk final — toujours yield pour signaler la fin, même si aucune sortie
         if last_finish is None:
@@ -228,9 +278,7 @@ class GeminiImageProvider(ImageProvider):
     supported_models = frozenset({"imagen-3.0-generate-002"})
     max_images_per_call = 4
 
-    async def generate_images(
-        self, request: ImageGenerationRequest
-    ) -> list[GeneratedImage]:
+    async def generate_images(self, request: ImageGenerationRequest) -> list[GeneratedImage]:
         from google.genai import types
 
         count = max(1, min(request.count, self.max_images_per_call))
@@ -316,10 +364,7 @@ def _extract_usage(usage_metadata: Any) -> ChatUsage | None:
             or getattr(usage_metadata, "output_tokens", None)
             or 0
         )
-        total = int(
-            getattr(usage_metadata, "total_token_count", None)
-            or (prompt + completion)
-        )
+        total = int(getattr(usage_metadata, "total_token_count", None) or (prompt + completion))
         if prompt == 0 and completion == 0:
             return None
         return ChatUsage(
@@ -341,4 +386,83 @@ def _map_finish_reason(raw: Any) -> FinishReason:
         return FinishReason.LENGTH
     if "SAFETY" in name_upper or "BLOCKED" in name_upper or "RECITATION" in name_upper:
         return FinishReason.CONTENT_FILTER
+    if "FUNCTION_CALL" in name_upper or "TOOL" in name_upper:
+        return FinishReason.TOOL_CALLS
     return FinishReason.ERROR
+
+
+# ═══════════════════════════════════════════════════════════════════
+# F2.5 — Helpers function calling Gemini
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _to_gemini_tools(
+    tools: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Convertit le format OpenAI natif vers le format Gemini.
+
+    Entrée :
+        [{"type": "function",
+          "function": {"name": ..., "description": ..., "parameters": {...}}}]
+
+    Sortie :
+        [{"function_declarations": [{"name", "description", "parameters"}]}]
+
+    On retourne UN SEUL tool set qui groupe toutes les `function_declarations`
+    — c'est le pattern recommandé par Google quand on n'utilise que du
+    function calling (pas de `retrieval` ni `code_execution` mélangés).
+    """
+    declarations: list[dict[str, Any]] = []
+    for raw in tools:
+        if not isinstance(raw, dict):
+            continue
+        fn = raw.get("function") if raw.get("type") == "function" else raw
+        if not isinstance(fn, dict):
+            continue
+        name = fn.get("name")
+        if not name:
+            continue
+        decl: dict[str, Any] = {"name": name}
+        if "description" in fn:
+            decl["description"] = fn["description"]
+        # `parameters` JSON Schema. Gemini supporte le subset standard
+        # (STRING/NUMBER/INTEGER/BOOLEAN/ARRAY/OBJECT) — un type non
+        # supporté lèvera côté SDK, qu'on remonte via `_map_sdk_exception`.
+        if "parameters" in fn and fn["parameters"]:
+            decl["parameters"] = fn["parameters"]
+        declarations.append(decl)
+
+    if not declarations:
+        return []
+    return [{"function_declarations": declarations}]
+
+
+def _gemini_args_to_json(raw_args: Any) -> str:
+    """Sérialise les arguments Gemini en chaîne JSON.
+
+    Le SDK `google.genai` 1.0+ retourne typiquement un `dict` Python
+    natif pour `function_call.args`. Mais certaines versions peuvent
+    retourner un `proto.Message` (Struct protobuf). On gère les deux
+    cas avec un fallback `str(...)` — au pire l'orchestrateur lèvera
+    `TOOL_ARGS_INVALID` à l'exécution, ce qui est récupérable.
+    """
+    if raw_args is None:
+        return "{}"
+    if isinstance(raw_args, dict):
+        try:
+            return json.dumps(raw_args, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            return "{}"
+    # Tentative MessageToDict pour les protobuf Struct.
+    try:
+        from google.protobuf.json_format import MessageToDict  # type: ignore
+
+        as_dict = MessageToDict(raw_args)
+        return json.dumps(as_dict, ensure_ascii=False, default=str)
+    except Exception:  # noqa: BLE001
+        pass
+    # Dernier recours : itération sur les attributs.
+    try:
+        return json.dumps(dict(raw_args), ensure_ascii=False, default=str)
+    except Exception:  # noqa: BLE001
+        return "{}"

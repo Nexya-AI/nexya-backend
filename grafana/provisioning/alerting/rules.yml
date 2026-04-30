@@ -1,0 +1,101 @@
+# NEXYA — Prometheus alerting rules (Session K2).
+#
+# Format Prometheus alerting rules natif, compatible :
+# - Prometheus standalone (chargé via `rule_files` dans prometheus.yml)
+# - Grafana 10+ alerting natif (chargé via provisioning alerting)
+# - AlertManager runtime (déploiement L2 staging)
+#
+# 6 alertes calibrées sur les 14 métriques NEXYA exposées par K1.
+# Chaque alerte a un `for` minimum (anti-flapping) et un label
+# `severity` ∈ {warning, critical} consommé par AlertManager.
+#
+# Le déploiement effectif d'AlertManager (avec destinations
+# email/Slack/PagerDuty) est OUT K2 → L2 staging quand Ivan aura
+# choisi sa destination de notification ops.
+
+groups:
+  - name: nexya-critical
+    interval: 30s
+    rules:
+      # ── Alerte 1 : taux d'échec provider IA > 1 % ──────────────
+      - alert: Nexya5xxRateHigh
+        expr: |
+          sum(rate(nexya_ai_provider_failures_total[5m]))
+            / clamp_min(sum(rate(nexya_ai_chat_calls_total[5m])), 0.0001)
+            > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Taux d'échec provider IA > 1 % sur 5 min"
+          description: "Le ratio d'échecs LLM dépasse 1 % depuis 5 min — vérifier les pannes provider, breakers, quotas API."
+
+      # ── Alerte 2 : p95 latence chat > 5 s ──────────────────────
+      - alert: NexyaChatLatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(nexya_ai_chat_total_duration_seconds_bucket[5m]))
+          ) > 5
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "p95 latence chat > 5 s sur 10 min"
+          description: "Le 95e percentile de durée totale d'un stream chat dépasse 5 s — vérifier providers IA, modèles utilisés, charge réseau Africa."
+
+      # ── Alerte 3 : circuit breaker open ────────────────────────
+      - alert: NexyaBreakerOpen
+        expr: nexya_ai_circuit_breaker_state == 2
+        for: 1m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Circuit breaker {{ $labels.provider }}/{{ $labels.model }} OPEN"
+          description: "Le circuit breaker est OPEN depuis ≥ 1 min sur {{ $labels.provider }}/{{ $labels.model }} — toutes les requêtes vers ce couple sont coupées en court-circuit, fallback chain en route. Vérifier le provider amont."
+
+      # ── Alerte 4 : taux d'échec FCM > 5 % ──────────────────────
+      - alert: NexyaFCMFailureRateHigh
+        expr: |
+          sum(rate(nexya_notifications_fcm_failures_total[5m]))
+            / clamp_min(sum(rate(nexya_notifications_dispatched_total[5m])), 0.0001)
+            > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Taux d'échec FCM > 5 % sur 10 min"
+          description: "Le ratio d'échecs FCM (push) dépasse 5 % — vérifier les credentials Firebase, quotas FCM, tokens UNREGISTERED en masse."
+
+      # ── Alerte 5 : taux d'échec arq jobs > 10 % ────────────────
+      - alert: NexyaArqFailureRateHigh
+        expr: |
+          sum by (function) (rate(nexya_arq_jobs_total{outcome="failed"}[10m]))
+            / clamp_min(sum by (function) (rate(nexya_arq_jobs_total[10m])), 0.0001)
+            > 0.10
+        for: 15m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Job arq {{ $labels.function }} échoue > 10 % sur 15 min"
+          description: "La fonction worker {{ $labels.function }} échoue plus de 10 % du temps depuis 15 min — vérifier logs Sentry pour la trace, dépendances DB/Redis/LLM."
+
+      # ── Alerte 6 : coût IA > seuil USD/jour ────────────────────
+      # Note : le seuil est codé en dur dans l'expression. Ivan
+      # affinera `cost_usd_daily_alert_threshold` post-K2 et
+      # régénérera ce fichier (provisioning Grafana). Valeur par
+      # défaut : 100 USD/jour (provisoire, voir TODO Ivan).
+      - alert: NexyaCostUSDDailyExceeded
+        expr: sum(increase(nexya_ai_cost_usd_total[24h])) > 100
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Coût IA > 100 USD sur 24 h"
+          description: "Le coût IA cumulé sur 24 h dépasse 100 USD — vérifier l'absence d'attaque/abus, vérifier les quotas user, valider que le budget de l'offre est respecté."

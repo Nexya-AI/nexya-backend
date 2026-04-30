@@ -24,7 +24,6 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Literal
 
-
 # ═══════════════════════════════════════════════════════════════════
 # TYPES — MESSAGES & CHUNKS
 # ═══════════════════════════════════════════════════════════════════
@@ -52,11 +51,37 @@ class ChatUsage:
 class FinishReason(StrEnum):
     """Raison pour laquelle le provider a arrêté de générer."""
 
-    STOP = "stop"                 # fin naturelle (le modèle a choisi de s'arrêter)
-    LENGTH = "length"             # max_tokens atteint
+    STOP = "stop"  # fin naturelle (le modèle a choisi de s'arrêter)
+    LENGTH = "length"  # max_tokens atteint
     CONTENT_FILTER = "content_filter"  # le filtre de sécurité a coupé la sortie
-    ERROR = "error"               # erreur technique côté provider
-    CANCELLED = "cancelled"       # l'utilisateur a annulé le stream
+    ERROR = "error"  # erreur technique côté provider
+    CANCELLED = "cancelled"  # l'utilisateur a annulé le stream
+    TOOL_CALLS = "tool_calls"  # le modèle veut appeler un ou plusieurs tools (F2)
+
+
+# ───────────────────────────────────────────────────────────────────
+# F2 — Tools / function calling types (MOCK-ready)
+# ───────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallDelta:
+    """Fragment d'un tool_call émis par le LLM en streaming.
+
+    Format neutre inspiré d'OpenAI mais portable vers Anthropic/Gemini.
+    - `id` : identifiant stable du tool_call (fourni par le provider).
+    - `name` : nom du tool (ex: "create_task"). Peut arriver partiel
+      pour certains providers qui streament le nom aussi.
+    - `arguments_json_partial` : les arguments au format JSON, reçus
+      potentiellement en plusieurs morceaux. Le caller doit concaténer.
+    - `index` : index du tool_call dans la liste (quand plusieurs tools
+      sont appelés en parallèle dans le même round).
+    """
+
+    id: str | None = None
+    name: str | None = None
+    arguments_json_partial: str = ""
+    index: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,11 +91,13 @@ class ChatChunk:
     - `delta` : le morceau de texte à concaténer côté client
     - `finish_reason` : non-nul uniquement sur le dernier chunk
     - `usage` : renseigné uniquement sur le dernier chunk si le provider le donne
+    - `tool_call` : non-nul si le chunk porte un fragment de tool_call (F2)
     """
 
     delta: str = ""
     finish_reason: FinishReason | None = None
     usage: ChatUsage | None = None
+    tool_call: ToolCallDelta | None = None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -89,7 +116,7 @@ class ChatCompletionRequest:
 
     messages: Sequence[ChatMessage]
     system_prompt: str | None = None
-    model: str | None = None          # Nom du modèle spécifique (ex: "gemini-2.5-flash")
+    model: str | None = None  # Nom du modèle spécifique (ex: "gemini-2.5-flash")
     temperature: float = 0.7
     max_tokens: int | None = None
     stop_sequences: list[str] = field(default_factory=list)
@@ -98,6 +125,16 @@ class ChatCompletionRequest:
     user_id: str | None = None
     trace_id: str | None = None
     expert_id: str | None = None
+
+    # F2 — Function calling / tools.
+    # Format neutre OpenAI-compatible (Gemini + Anthropic l'acceptent aussi) :
+    # [{"type": "function",
+    #   "function": {"name": "create_task",
+    #                "description": "...",
+    #                "parameters": {...JSON Schema...}}}]
+    # Non-rétro-compat par défaut : None = pas de tools, comportement B1
+    # inchangé pour tous les tests existants.
+    tools: list[dict[str, Any]] | None = None
 
     # Extensions libres pour des features spécifiques d'un provider
     extra: dict[str, Any] = field(default_factory=dict)
@@ -108,8 +145,8 @@ class ImageGenerationRequest:
     """Requête normalisée de génération d'images."""
 
     prompt: str
-    count: int = 1                    # 1 à 4 images par appel
-    aspect_ratio: str = "1:1"         # "1:1", "16:9", "9:16", "4:3", "3:4"
+    count: int = 1  # 1 à 4 images par appel
+    aspect_ratio: str = "1:1"  # "1:1", "16:9", "9:16", "4:3", "3:4"
     negative_prompt: str | None = None
 
     user_id: str | None = None
@@ -278,7 +315,7 @@ class ProviderCapability(StrEnum):
 
     TEXT_CHAT = "text_chat"
     IMAGE_GENERATION = "image_generation"
-    VISION = "vision"                 # input = image + text
+    VISION = "vision"  # input = image + text
     AUDIO_TRANSCRIPTION = "audio_transcription"
     TEXT_TO_SPEECH = "text_to_speech"
     FUNCTION_CALLING = "function_calling"
@@ -314,9 +351,7 @@ class ChatProvider(ABC):
     max_context_tokens: int = 8_192
 
     @abstractmethod
-    async def stream_chat(
-        self, request: ChatCompletionRequest
-    ) -> AsyncIterator[ChatChunk]:
+    async def stream_chat(self, request: ChatCompletionRequest) -> AsyncIterator[ChatChunk]:
         """Génère la réponse en streaming.
 
         Contrat :
@@ -341,7 +376,9 @@ class ChatProvider(ABC):
         return model in self.supported_models
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(name={self.name!r}, default_model={self.default_model!r})"
+        return (
+            f"{self.__class__.__name__}(name={self.name!r}, default_model={self.default_model!r})"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -358,9 +395,7 @@ class ImageProvider(ABC):
     max_images_per_call: int = 4
 
     @abstractmethod
-    async def generate_images(
-        self, request: ImageGenerationRequest
-    ) -> list[GeneratedImage]:
+    async def generate_images(self, request: ImageGenerationRequest) -> list[GeneratedImage]:
         """Génère `request.count` images. Peut retourner moins que demandé si
         certaines ont été filtrées par la modération — c'est au service appelant
         de signaler ce cas à l'utilisateur."""
@@ -370,4 +405,6 @@ class ImageProvider(ABC):
         return True
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(name={self.name!r}, default_model={self.default_model!r})"
+        return (
+            f"{self.__class__.__name__}(name={self.name!r}, default_model={self.default_model!r})"
+        )

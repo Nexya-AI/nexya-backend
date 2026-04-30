@@ -1,0 +1,139 @@
+{
+  "uid": "nexya-overview",
+  "title": "NEXYA — Overview",
+  "tags": ["nexya", "overview"],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "graphTooltip": 1,
+  "time": {"from": "now-6h", "to": "now"},
+  "refresh": "30s",
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "RPS chat (1m)",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(nexya_ai_chat_calls_total[1m]))",
+          "legendFormat": "RPS"
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value"},
+      "fieldConfig": {"defaults": {"unit": "reqps", "decimals": 2}}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Taux d'échec provider (5m)",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(nexya_ai_provider_failures_total[5m])) / clamp_min(sum(rate(nexya_ai_chat_calls_total[5m])), 0.0001)",
+          "legendFormat": "fail rate"
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 3, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.01}, {"color": "red", "value": 0.05}]}}}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "p95 latence chat (5m)",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(nexya_ai_chat_total_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value"},
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 2}}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Coût IA aujourd'hui (24h)",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(nexya_ai_cost_usd_total[24h]))",
+          "legendFormat": "USD"
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value"},
+      "fieldConfig": {"defaults": {"unit": "currencyUSD", "decimals": 2}}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Calls chat / minute par provider",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (provider) (rate(nexya_ai_chat_calls_total[1m]))",
+          "legendFormat": "{{provider}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "reqps"}}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Circuit breaker state (0=closed, 1=half_open, 2=open)",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "nexya_ai_circuit_breaker_state",
+          "legendFormat": "{{provider}}/{{model}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 2}}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Cache prompt — hit rate (5m)",
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(nexya_cache_operations_total{operation=\"get\",outcome=\"hit\"}[5m])) / clamp_min(sum(rate(nexya_cache_operations_total{operation=\"get\"}[5m])), 0.0001)",
+          "legendFormat": "hit rate"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 3, "min": 0, "max": 1}}
+    },
+    {
+      "id": 8,
+      "type": "bargauge",
+      "title": "Top 5 experts (24h)",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(5, sum by (expert_id) (increase(nexya_ai_chat_calls_total[24h])))",
+          "legendFormat": "{{expert_id}}"
+        }
+      ],
+      "options": {"orientation": "horizontal", "displayMode": "gradient"},
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    }
+  ]
+}

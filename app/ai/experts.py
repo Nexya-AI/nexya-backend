@@ -23,7 +23,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-
 # ═══════════════════════════════════════════════════════════════════
 # DATACLASS — ExpertConfig
 # ═══════════════════════════════════════════════════════════════════
@@ -52,6 +51,24 @@ class ExpertConfig:
     # Métadonnées pour le suivi coût / analytics (non envoyées au LLM)
     tier: str = "flash"  # "flash" (léger/rapide) | "pro" (réflexion profonde)
     tags: tuple[str, ...] = field(default_factory=tuple)
+
+    # G1 — Corpus RAG spécialisé (expert_corpus_chunks). Si True, le
+    # router `/chat/stream` appelle `build_expert_corpus_context` avant
+    # l'estimation tokens + cache key, et injecte top-K chunks Tatoeba /
+    # recettes / docs techniques dans le system prompt via framing D5.
+    # False par défaut — activé expert par expert (G1 Langues, G2 Cuisine,
+    # G3 Studio, G4 Ingénierie, G5 Productivité, G6 Informatique, G7 Sciences).
+    corpus_enabled: bool = False
+
+    # F2.5 — Function calling. Si True, le router `/chat/stream` injecte
+    # `tool_registry.build_openai_tools()` dans `StreamContext.tools` ;
+    # le LLM peut alors décider d'appeler `create_task`, `list_tasks`,
+    # `update_task` ou `pause_task` (4 tools Planner enregistrés au
+    # lifespan). Désactivé pour `medical` et `legal` parce qu'un expert
+    # médical / juridique ne devrait pas créer une tâche planifiée
+    # depuis une consultation — risque de confusion fonctionnelle (le
+    # user attend un avis, pas un side-effect DB silencieux).
+    tools_allowed: bool = True
 
     @property
     def full_chain(self) -> tuple[tuple[str, str], ...]:
@@ -83,7 +100,9 @@ Style :
 - Pour les sujets techniques, utilise des blocs de code Markdown.
 """
 
-_GENERAL_PROMPT = _NEXYA_IDENTITY + """
+_GENERAL_PROMPT = (
+    _NEXYA_IDENTITY
+    + """
 Rôle :
 - Assistant conversationnel généraliste. Tu peux aider sur tout sujet légal
   et éthique : questions du quotidien, apprentissage, créativité, productivité.
@@ -91,8 +110,11 @@ Rôle :
   juridique…), invite l'utilisateur à activer ce mode pour une réponse mieux
   adaptée.
 """
+)
 
-_COMPUTER_PROMPT = _NEXYA_IDENTITY + """
+_COMPUTER_PROMPT = (
+    _NEXYA_IDENTITY
+    + """
 Rôle — Expert Informatique :
 - Tu aides à coder, déboguer, comprendre des concepts CS, faire des choix
   d'architecture logicielle, naviguer dans les outils dev (Git, Docker, CI…).
@@ -102,8 +124,11 @@ Rôle — Expert Informatique :
 - Si tu proposes une solution sous-optimale, dis-le explicitement et cite
   l'alternative « meilleure pratique ».
 """
+)
 
-_SCIENCE_PROMPT = _NEXYA_IDENTITY + """
+_SCIENCE_PROMPT = (
+    _NEXYA_IDENTITY
+    + """
 Rôle — Expert Sciences & Mathématiques :
 - Tu aides sur les sciences dures : maths, physique, chimie, biologie, stats,
   et les sciences appliquées (ingénierie théorique).
@@ -113,8 +138,11 @@ Rôle — Expert Sciences & Mathématiques :
   les équations. Ne remplace jamais une équation par une phrase floue.
 - Si un résultat dépend d'une hypothèse, explicite-la avant de calculer.
 """
+)
 
-_FINANCE_PROMPT = _NEXYA_IDENTITY + """
+_FINANCE_PROMPT = (
+    _NEXYA_IDENTITY
+    + """
 Rôle — Expert Finance & Business :
 - Tu aides sur la gestion financière personnelle, la comptabilité d'entreprise,
   l'analyse d'investissements, la création d'entreprise, le marketing,
@@ -126,8 +154,11 @@ Rôle — Expert Finance & Business :
 - Tu N'ES PAS conseiller financier certifié : rappelle-le discrètement quand
   la question relève d'un conseil d'investissement engageant.
 """
+)
 
-_LANGUAGE_PROMPT = _NEXYA_IDENTITY + """
+_LANGUAGE_PROMPT = (
+    _NEXYA_IDENTITY
+    + """
 Rôle — Expert Langues :
 - Tu aides à apprendre, traduire, corriger, pratiquer une langue.
 - Langues cibles : français, anglais, espagnol, portugais, arabe, et les
@@ -138,8 +169,11 @@ Rôle — Expert Langues :
 - Pour les corrections, marque les erreurs avec `~~rature~~` puis la correction
   en **gras** et explique brièvement la règle.
 """
+)
 
-_COOKING_PROMPT = _NEXYA_IDENTITY + """
+_COOKING_PROMPT = (
+    _NEXYA_IDENTITY
+    + """
 Rôle — Expert Cuisine & Vie Quotidienne :
 - Tu aides sur la cuisine (recettes, techniques, substitutions), l'organisation
   du foyer, les astuces de la vie quotidienne.
@@ -150,15 +184,21 @@ Rôle — Expert Cuisine & Vie Quotidienne :
 - Adapte aux moyens locaux : si un ingrédient est rare au Cameroun, propose
   une alternative accessible.
 """
+)
 
-_STUDIO_PROMPT = _NEXYA_IDENTITY + """
+_STUDIO_PROMPT = (
+    _NEXYA_IDENTITY
+    + """
 Rôle — NEXYA Studio (génération d'images) :
 - Ce mode ne sert PAS à discuter : il pilote Imagen pour générer des images.
 - Si l'utilisateur te parle sans intention de générer, redirige-le gentiment
   vers le mode Général.
 """
+)
 
-_ENGINEERING_PROMPT = _NEXYA_IDENTITY + """
+_ENGINEERING_PROMPT = (
+    _NEXYA_IDENTITY
+    + """
 Rôle — Expert Ingénierie :
 - Tu couvres : génie civil, mécanique, électrique, industriel, chimique,
   informatique embarquée, énergies renouvelables, télécoms, aéronautique,
@@ -168,8 +208,11 @@ Rôle — Expert Ingénierie :
   résistance, durée de vie…).
 - Pour les normes : cite la référence (ISO, EN, NF, BS) si elle existe.
 """
+)
 
-_PRODUCTIVITY_PROMPT = _NEXYA_IDENTITY + """
+_PRODUCTIVITY_PROMPT = (
+    _NEXYA_IDENTITY
+    + """
 Rôle — Expert Productivité & Vie :
 - Tu aides à organiser son temps, prendre des décisions, construire des
   routines, gérer des projets personnels, améliorer ses habitudes.
@@ -178,8 +221,11 @@ Rôle — Expert Productivité & Vie :
 - Reste concret. Pour toute suggestion, propose une première action
   réalisable dans la journée.
 """
+)
 
-_MEDICINE_PROMPT = _NEXYA_IDENTITY + """
+_MEDICINE_PROMPT = (
+    _NEXYA_IDENTITY
+    + """
 Rôle — Expert Médecine (information uniquement) :
 - Tu fournis de l'information médicale générale pour aider à comprendre
   un sujet, une maladie, un médicament, un symptôme.
@@ -191,8 +237,11 @@ Rôle — Expert Médecine (information uniquement) :
   AVC, hémorragie, détresse respiratoire, idées suicidaires), redirige
   immédiatement vers les urgences avant toute autre réponse.
 """
+)
 
-_LEGAL_PROMPT = _NEXYA_IDENTITY + """
+_LEGAL_PROMPT = (
+    _NEXYA_IDENTITY
+    + """
 Rôle — Expert Légal (information uniquement) :
 - Tu fournis de l'information juridique générale, principalement en droit
   camerounais et OHADA (le socle commun à 17 pays africains).
@@ -203,6 +252,7 @@ Rôle — Expert Légal (information uniquement) :
 - Rappelle toujours : « Pour un cas concret, consulte un avocat ou un
   notaire. »
 """
+)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -225,6 +275,12 @@ Rôle — Expert Légal (information uniquement) :
 _GEMINI_FLASH = ("gemini", "gemini-2.5-flash")
 _GEMINI_PRO = ("gemini", "gemini-2.5-pro")
 
+# OpenRouter sert de **second fallback généraliste** sur les experts non
+# safety-critical (general, productivity, science). On ne le met PAS sur
+# medicine/legal — l'agrégateur peut router vers un modèle communautaire
+# dont l'alignement éthique n'a pas été vérifié par NEXYA.
+_OPENROUTER_SONNET = ("openrouter", "anthropic/claude-3.5-sonnet")
+
 
 EXPERT_REGISTRY: dict[str, ExpertConfig] = {
     "general": ExpertConfig(
@@ -233,7 +289,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         is_coming_soon=False,
         primary_provider="gemini",
         primary_model="gemini-2.5-flash",
-        fallback_chain=(_GEMINI_PRO,),
+        fallback_chain=(_GEMINI_PRO, _OPENROUTER_SONNET),
         system_prompt=_GENERAL_PROMPT,
         temperature=0.7,
         tier="flash",
@@ -247,7 +303,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         primary_model="gemini-2.5-flash",
         fallback_chain=(_GEMINI_PRO,),
         system_prompt=_COMPUTER_PROMPT,
-        temperature=0.3,        # code = peu de créativité, beaucoup de rigueur
+        temperature=0.3,  # code = peu de créativité, beaucoup de rigueur
         tier="flash",
         tags=("code", "technical"),
     ),
@@ -257,7 +313,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         is_coming_soon=False,
         primary_provider="gemini",
         primary_model="gemini-2.5-pro",
-        fallback_chain=(_GEMINI_FLASH,),
+        fallback_chain=(_GEMINI_FLASH, _OPENROUTER_SONNET),
         system_prompt=_SCIENCE_PROMPT,
         temperature=0.2,
         tier="pro",
@@ -280,12 +336,22 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         display_name="Expert Langues",
         is_coming_soon=False,
         primary_provider="gemini",
-        primary_model="gemini-2.5-flash",
-        fallback_chain=(_GEMINI_PRO,),
+        # G1 active `gemini-2.5-pro` pour ancrer la traduction/conjugaison
+        # 2026-04-24 : `corpus_enabled` désactivé après blind test G1
+        # (13/30 wins RAG vs Gemini brut, échec seuil 24/30). Diagnostic :
+        # Gemini 2.5 Pro déjà excellent sur FR/EN/ES/PT, le corpus Tatoeba
+        # n'apporte pas de valeur ; les langues vernaculaires camerounaises
+        # (Duala, Bassa, Medumba, Fulfulde…) seront couvertes par bloc H
+        # (fine-tuning Gemma) où le RAG ne suffit pas. Infra G1 conservée
+        # pour G2 Cuisine / G4 Ingénierie / G6 Informatique où le RAG a
+        # un sens. Voir CLAUDE.md §15 entrée G1 du 2026-04-24.
+        primary_model="gemini-2.5-pro",
+        fallback_chain=(_GEMINI_FLASH,),
         system_prompt=_LANGUAGE_PROMPT,
         temperature=0.5,
-        tier="flash",
+        tier="pro",
         tags=("language", "translation"),
+        corpus_enabled=False,
     ),
     "cooking": ExpertConfig(
         expert_id="cooking",
@@ -295,7 +361,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         primary_model="gemini-2.5-flash",
         fallback_chain=(_GEMINI_PRO,),
         system_prompt=_COOKING_PROMPT,
-        temperature=0.7,        # créativité culinaire bienvenue
+        temperature=0.7,  # créativité culinaire bienvenue
         tier="flash",
         tags=("cooking", "daily"),
     ),
@@ -308,7 +374,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         primary_model="imagen-3.0-generate-002",
         fallback_chain=(),
         system_prompt=_STUDIO_PROMPT,
-        temperature=0.0,        # non-applicable pour image, laissé par convention
+        temperature=0.0,  # non-applicable pour image, laissé par convention
         tier="image",
         tags=("image", "creative"),
     ),
@@ -330,7 +396,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         is_coming_soon=True,
         primary_provider="gemini",
         primary_model="gemini-2.5-flash",
-        fallback_chain=(_GEMINI_PRO,),
+        fallback_chain=(_GEMINI_PRO, _OPENROUTER_SONNET),
         system_prompt=_PRODUCTIVITY_PROMPT,
         temperature=0.6,
         tier="flash",
@@ -344,13 +410,18 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         primary_model="gemini-2.5-pro",
         fallback_chain=(_GEMINI_FLASH,),
         system_prompt=_MEDICINE_PROMPT,
-        temperature=0.1,        # médecine = zéro créativité
+        temperature=0.1,  # médecine = zéro créativité
         tier="pro",
         disclaimer=(
             "Les informations fournies ne remplacent pas l'avis d'un professionnel "
             "de santé. Consulte un médecin pour tout cas concret."
         ),
         tags=("medical", "safety-critical"),
+        # F2.5 — pas de function calling sur safety-critical : un expert
+        # médical ne doit pas créer une tâche planifiée silencieusement
+        # depuis une consultation (l'user attend un avis, pas un effet
+        # de bord DB).
+        tools_allowed=False,
     ),
     "legal": ExpertConfig(
         expert_id="legal",
@@ -360,13 +431,15 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         primary_model="gemini-2.5-pro",
         fallback_chain=(_GEMINI_FLASH,),
         system_prompt=_LEGAL_PROMPT,
-        temperature=0.1,        # juridique = zéro créativité
+        temperature=0.1,  # juridique = zéro créativité
         tier="pro",
         disclaimer=(
             "Les informations fournies ne constituent pas un conseil juridique. "
             "Consulte un avocat ou un notaire pour tout cas concret."
         ),
         tags=("legal", "safety-critical", "ohada"),
+        # F2.5 — idem `medicine` : aucun tool LLM autorisé sur le mode légal.
+        tools_allowed=False,
     ),
 }
 

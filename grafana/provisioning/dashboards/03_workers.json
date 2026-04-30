@@ -1,0 +1,130 @@
+{
+  "uid": "nexya-workers",
+  "title": "NEXYA — Workers arq",
+  "tags": ["nexya", "workers", "arq"],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "graphTooltip": 1,
+  "time": {"from": "now-6h", "to": "now"},
+  "refresh": "30s",
+  "timezone": "browser",
+  "templating": {
+    "list": [
+      {
+        "name": "function",
+        "label": "Function",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+        "query": "label_values(nexya_arq_jobs_total, function)",
+        "multi": true,
+        "includeAll": true,
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Jobs / min par fonction et outcome",
+      "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (function, outcome) (rate(nexya_arq_jobs_total{function=~\"$function\"}[1m]))",
+          "legendFormat": "{{function}} {{outcome}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Durée job p50 / p95 / p99",
+      "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le, function) (rate(nexya_arq_job_duration_seconds_bucket{function=~\"$function\"}[5m])))",
+          "legendFormat": "p50 {{function}}"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le, function) (rate(nexya_arq_job_duration_seconds_bucket{function=~\"$function\"}[5m])))",
+          "legendFormat": "p95 {{function}}"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le, function) (rate(nexya_arq_job_duration_seconds_bucket{function=~\"$function\"}[5m])))",
+          "legendFormat": "p99 {{function}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 3,
+      "type": "bargauge",
+      "title": "Taux échec par fonction (1h)",
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (function) (rate(nexya_arq_jobs_total{outcome=\"failed\",function=~\"$function\"}[1h])) / clamp_min(sum by (function) (rate(nexya_arq_jobs_total{function=~\"$function\"}[1h])), 0.0001)",
+          "legendFormat": "{{function}}"
+        }
+      ],
+      "options": {"orientation": "horizontal", "displayMode": "gradient"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 3, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.05}, {"color": "red", "value": 0.10}]}}}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Total jobs aujourd'hui (24h)",
+      "gridPos": {"x": 12, "y": 8, "w": 12, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(nexya_arq_jobs_total{function=~\"$function\"}[24h]))",
+          "legendFormat": "total"
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Jobs réussis / failed (5m) — placeholder queue depth (TODO N1 si besoin)",
+      "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate(nexya_arq_jobs_total{function=~\"$function\"}[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Jobs / min par fonction (vue agrégée)",
+      "gridPos": {"x": 0, "y": 16, "w": 24, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (function) (rate(nexya_arq_jobs_total{function=~\"$function\"}[1m]))",
+          "legendFormat": "{{function}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    }
+  ]
+}

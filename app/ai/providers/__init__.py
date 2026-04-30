@@ -26,9 +26,12 @@ from .base import (
     ProviderInvalidRequestError,
     ProviderRateLimitError,
     ProviderUnavailableError,
+    ToolCallDelta,
 )
 from .gemini import GeminiChatProvider, GeminiImageProvider
+from .mock import MockChatProvider
 from .openai_provider import OpenAIChatProvider
+from .openrouter_provider import OpenRouterChatProvider
 from .qwen_provider import QwenChatProvider
 
 __all__ = [
@@ -58,4 +61,7 @@ __all__ = [
     "OpenAIChatProvider",
     "AnthropicChatProvider",
     "QwenChatProvider",
+    "OpenRouterChatProvider",
+    "MockChatProvider",
+    "ToolCallDelta",
 ]

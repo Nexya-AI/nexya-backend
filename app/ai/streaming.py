@@ -37,6 +37,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
@@ -44,21 +45,24 @@ import structlog
 from fastapi import Request
 
 from app.ai.circuit_breaker import (
-    CircuitOpenError,
     CircuitBreakerRegistry,
+    CircuitOpenError,
     get_breaker_registry,
 )
+from app.ai.cost_tracker import CostTracker
+from app.ai.engine.session_store import SessionStore
+from app.ai.observability import StreamMetrics
 from app.ai.providers import (
     ChatChunk,
     ChatCompletionRequest,
     ChatMessage,
-    FinishReason,
     ProviderError,
 )
-from app.ai.observability import StreamMetrics
-from app.ai.retry import RetryPolicy, DEFAULT_POLICY, stream_chat_with_retry
+from app.ai.retry import DEFAULT_POLICY, RetryPolicy, stream_chat_with_retry
 from app.ai.router import ChatResolution, LlmRouter
+from app.config import settings as _settings
 from app.core.database.redis import get_redis
+from app.core.observability import get_tracer, record_ai_chat_call
 
 log = structlog.get_logger(__name__)
 
@@ -72,6 +76,29 @@ CANCEL_CHECK_INTERVAL_SECONDS = 1.0
 DISCONNECT_CHECK_INTERVAL_SECONDS = 2.0
 CANCEL_KEY_PREFIX = "chat:cancel:"
 CANCEL_KEY_TTL_SECONDS = 300  # 5 min — largement assez pour un chat long
+
+# Mapping StreamMetrics.outcome → valeur autorisée par la CHECK constraint
+# `ai_calls.outcome IN ('completed', 'cancelled', 'failed')`. Le terme
+# "success" reste interne aux métriques (plus parlant en Grafana), la DB
+# préfère "completed" pour rester alignée avec `Message.status`.
+_METRICS_TO_AI_CALLS_OUTCOME: dict[str, str] = {
+    "success": "completed",
+    "cancelled": "cancelled",
+    "failed": "failed",
+}
+
+
+def _coerce_uuid(value: str | uuid.UUID | None) -> uuid.UUID | None:
+    """Convertit tolérant str → UUID. Retourne `None` si la valeur n'est
+    pas un UUID valide — `ai_calls` accepte NULL sur user_id/session_id."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, uuid.UUID):
+        return value
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, AttributeError):
+        return None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -162,6 +189,33 @@ class StreamContext:
     session_id: str | None = None
     max_tokens: int | None = None
     metrics: StreamMetrics | None = None
+    # D3 — Bloc mémoire IA à injecter en préfixe du `system_prompt`
+    # expert. Construit par `app/features/memory/context_builder.py` dans
+    # le router chat_stream AVANT l'appel `_stream_link`. `None` = aucune
+    # injection (pas de memories pertinentes, mémoire désactivée par
+    # config, ou erreur fail-safe lors de la recherche). La concat
+    # finale se fait uniquement dans `_stream_link` (Single Source of
+    # Truth) — le router calcule une version locale pour le token
+    # estimator + cache key mais ne mute pas ce champ.
+    memory_context: str | None = None
+    # G1 — Bloc corpus expert (expert_corpus_chunks) injecté en préfixe
+    # du `system_prompt` expert. Construit par
+    # `app/features/experts/context_builder.py::build_expert_corpus_context`
+    # dans le router `chat_stream` quand `config.corpus_enabled=True`.
+    # `None` = expert sans corpus (général, finance…), corpus désactivé
+    # globalement, query vide, ou erreur fail-safe.
+    # Ordre de concat garanti dans `_stream_link` :
+    #     memory_context → expert_corpus_context → system_prompt
+    # Rationnel : (1) l'user d'abord (qui est-il ?), (2) la connaissance
+    # spécialisée (extraits de corpus factuels avec framing
+    # anti-injection D5), (3) les instructions métier (comment répondre).
+    expert_corpus_context: str | None = None
+    # F2 — Tools LLM (function calling) attachés à la requête. Format
+    # OpenAI standard (compatible Gemini + Anthropic via mapping natif
+    # des providers). `None` = pas de tools (comportement B1 inchangé).
+    # Peuplé par le router `/chat/stream` uniquement quand le caller
+    # active explicitement le function calling pour l'expert courant.
+    tools: list[dict] | None = None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -181,10 +235,108 @@ class StreamHandler:
         router: LlmRouter,
         retry_policy: RetryPolicy = DEFAULT_POLICY,
         breakers: CircuitBreakerRegistry | None = None,
+        cost_tracker: CostTracker | None = None,
+        session_store: SessionStore | None = None,
     ) -> None:
         self._router = router
         self._retry_policy = retry_policy
         self._breakers = breakers or get_breaker_registry()
+        self._cost_tracker = cost_tracker
+        self._session_store = session_store
+
+    def _persist_call(self, metrics: StreamMetrics) -> None:
+        """Double écriture fire-and-forget : DB (fast) + Redis (safety net).
+
+        - Fast path : `CostTracker.record_ai_call_background` insère
+          directement dans `ai_calls`.
+        - Safety net : `SessionStore.record` stocke la même entrée dans
+          Redis avec TTL 24 h. Le cron arq `flush_ai_sessions` (10 min)
+          matérialise en DB les entrées que le fast path aurait perdues
+          (crash uvicorn, DB down, etc.). Idempotent grâce à la
+          contrainte `ai_calls.session_id UNIQUE`.
+
+        Silencieux si :
+        - provider/model vides (chaîne épuisée avant résolution — le
+          payload n'aurait aucun sens) ;
+        - `session_id` absent ou non-UUID (pas de clé pour le filet
+          Redis ; le fast path DB accepte `session_id=NULL` mais le
+          SessionStore ne sert à rien sans une clé unique).
+        """
+        if not metrics.provider or not metrics.model:
+            return
+
+        outcome = _METRICS_TO_AI_CALLS_OUTCOME.get(metrics.outcome, "failed")
+        usage = metrics.usage
+        prompt_tokens = usage.prompt_tokens if usage else 0
+        completion_tokens = usage.completion_tokens if usage else 0
+        total_tokens = usage.total_tokens if usage else 0
+
+        ttfb_ms = (
+            max(0, int((metrics.first_chunk_at - metrics.started_at) * 1000))
+            if metrics.first_chunk_at is not None
+            else None
+        )
+        duration_ms = (
+            max(0, int((metrics.completed_at - metrics.started_at) * 1000))
+            if metrics.completed_at is not None
+            else None
+        )
+
+        user_uuid = _coerce_uuid(metrics.user_id)
+        session_uuid = _coerce_uuid(metrics.session_id)
+        trace_id = metrics.trace_id or None
+        expert_id = metrics.expert_id or "general"
+
+        if self._cost_tracker is not None:
+            self._cost_tracker.record_ai_call_background(
+                user_id=user_uuid,
+                session_id=session_uuid,
+                trace_id=trace_id,
+                expert_id=expert_id,
+                provider=metrics.provider,
+                model=metrics.model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                cost_usd=metrics.cost_usd,
+                outcome=outcome,
+                failure_code=metrics.failure_code,
+                first_chunk_ms=ttfb_ms,
+                total_duration_ms=duration_ms,
+                attempts=metrics.attempts,
+                fallback_used=metrics.fallback_used,
+            )
+
+        # K1 — Métriques Prometheus + persistance Redis. Fail-safe :
+        # `record_ai_chat_call` no-op si Prometheus inactif.
+        try:
+            record_ai_chat_call(metrics)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("ai.stream.metrics_record_failed", error=str(exc))
+
+        # Safety net : ne déclencher que si on a un session_id (sinon le
+        # cron ne pourra pas corréler avec `ai_calls.session_id`).
+        if self._session_store is not None and session_uuid is not None:
+            asyncio.create_task(
+                self._session_store.record(
+                    session_id=session_uuid,
+                    user_id=user_uuid,
+                    trace_id=trace_id,
+                    expert_id=expert_id,
+                    provider=metrics.provider,
+                    model=metrics.model,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                    cost_usd=metrics.cost_usd,
+                    outcome=outcome,
+                    failure_code=metrics.failure_code,
+                    first_chunk_ms=ttfb_ms,
+                    total_duration_ms=duration_ms,
+                    attempts=metrics.attempts,
+                    fallback_used=metrics.fallback_used,
+                )
+            )
 
     async def stream(
         self,
@@ -208,6 +360,20 @@ class StreamHandler:
             session_id=ctx.session_id,
         )
 
+        # K1 — Span OTel racine du stream chat. Les attributs métier
+        # (provider, model, outcome) seront ajoutés au fur et à mesure
+        # via `metrics`. user_id n'est inclus que si OTEL_LOG_USER_IDS=true
+        # (RGPD : par défaut off, à activer ponctuellement pour debug).
+        tracer = get_tracer()
+        span_attrs = {
+            "ai.expert_id": ctx.expert_id or "general",
+            "ai.session_id": ctx.session_id or "",
+            "ai.trace_id": ctx.trace_id,
+        }
+        if _settings.otel_log_user_ids and ctx.user_id:
+            span_attrs["ai.user_id"] = ctx.user_id
+        span_cm = tracer.start_as_current_span("ai.chat.stream", attributes=span_attrs)
+
         log.info(
             "ai.stream.start",
             user_id=ctx.user_id,
@@ -225,10 +391,21 @@ class StreamHandler:
             yield _sse("done", {"reason": "error"})
             metrics.finalize(outcome="failed", failure_code="LLM_UNAVAILABLE")
             metrics.emit()
+            self._persist_call(metrics)
             return
 
         cancel_scope = _CancelScope(request=request, session_id=ctx.session_id)
         cancel_scope.start()
+
+        # K1 — entre le span OTel manuellement (start_as_current_span est
+        # un context manager). On le ferme dans le finally pour garantir
+        # que les attributs métier (provider/model/outcome) sont bien
+        # posés même en cas d'exception ou de cancellation.
+        span = None
+        try:
+            span = span_cm.__enter__()
+        except Exception:  # noqa: BLE001 — fail-safe absolu
+            span = None
 
         try:
             last_error: Exception | None = None
@@ -238,6 +415,7 @@ class StreamHandler:
                         yield evt
                     metrics.finalize(outcome="cancelled", failure_code="STREAM_CANCELLED")
                     metrics.emit()
+                    self._persist_call(metrics)
                     return
 
                 try:
@@ -246,10 +424,14 @@ class StreamHandler:
                     # Lien réussi → fin du stream, on sort de la boucle
                     yield _sse(
                         "done",
-                        {"reason": "stop", "duration_ms": int((time.monotonic() - started_at) * 1000)},
+                        {
+                            "reason": "stop",
+                            "duration_ms": int((time.monotonic() - started_at) * 1000),
+                        },
                     )
                     metrics.finalize(outcome="success")
                     metrics.emit()
+                    self._persist_call(metrics)
                     return
                 except _ChainLinkFailed as exc:
                     last_error = exc.cause
@@ -268,6 +450,7 @@ class StreamHandler:
                         yield evt
                     metrics.finalize(outcome="cancelled", failure_code="STREAM_CANCELLED")
                     metrics.emit()
+                    self._persist_call(metrics)
                     return
 
             # Chaîne épuisée sans succès
@@ -294,11 +477,29 @@ class StreamHandler:
             )
             metrics.finalize(outcome="failed", failure_code="LLM_UNAVAILABLE")
             metrics.emit()
+            self._persist_call(metrics)
 
         finally:
             await cancel_scope.stop()
             if ctx.session_id:
                 await _clear_cancel(ctx.session_id)
+            # K1 — pose les attributs finaux puis ferme le span OTel.
+            if span is not None:
+                try:
+                    span.set_attribute("ai.outcome", metrics.outcome or "unknown")
+                    if metrics.provider:
+                        span.set_attribute("ai.provider", metrics.provider)
+                    if metrics.model:
+                        span.set_attribute("ai.model", metrics.model)
+                    if metrics.fallback_used:
+                        span.set_attribute("ai.fallback_used", True)
+                    span.set_attribute("ai.attempts", metrics.attempts)
+                except Exception:  # noqa: BLE001
+                    pass
+            try:
+                span_cm.__exit__(None, None, None)
+            except Exception:  # noqa: BLE001
+                pass
 
     # ─── Exécution d'un lien de la chaîne ────────────────────────────
 
@@ -306,7 +507,7 @@ class StreamHandler:
         self,
         link: ChatResolution,
         ctx: StreamContext,
-        cancel_scope: "_CancelScope",
+        cancel_scope: _CancelScope,
         link_index: int,
         metrics: StreamMetrics,
     ) -> AsyncIterator[str]:
@@ -318,25 +519,47 @@ class StreamHandler:
             self._breakers.before_call(provider.name, model)
         except CircuitOpenError:
             raise _ChainLinkFailed(
-                CircuitOpenError(
-                    provider=provider.name, model=model, reopen_in_seconds=0.0
-                )
+                CircuitOpenError(provider=provider.name, model=model, reopen_in_seconds=0.0)
             )
 
         metrics.bind_provider(provider.name, model, is_fallback=link_index > 0)
 
         # Ajouter disclaimer au premier chunk si applicable
-        disclaimer_prefix = (config.disclaimer + "\n\n") if link_index == 0 and config.disclaimer else ""
+        disclaimer_prefix = (
+            (config.disclaimer + "\n\n") if link_index == 0 and config.disclaimer else ""
+        )
+
+        # D3 + G1 — Injection automatique du bloc mémoire (D3) et du
+        # corpus expert (G1) dans le system prompt.
+        #
+        # Ordre délibéré :
+        #     memory_context → expert_corpus_context → system_prompt
+        #
+        # (1) mémoire d'abord (qui est l'user),
+        # (2) corpus spécialisé (extraits documentaires framés D5,
+        #     l'instruction anti-injection est déjà contenue dans le
+        #     bloc produit par `build_expert_corpus_context`),
+        # (3) instructions métier de l'expert (comment répondre).
+        #
+        # Single Source of Truth : la concat se fait UNIQUEMENT ici,
+        # le router se contente de propager les blocs tels quels.
+        parts = [
+            ctx.memory_context,
+            ctx.expert_corpus_context,
+            config.system_prompt or None,
+        ]
+        system_prompt_final = "\n\n".join(p for p in parts if p)
 
         request = ChatCompletionRequest(
             messages=ctx.user_messages,
-            system_prompt=config.system_prompt,
+            system_prompt=system_prompt_final,
             model=model,
             temperature=config.temperature,
             max_tokens=ctx.max_tokens or config.max_tokens,
             user_id=ctx.user_id,
             trace_id=ctx.trace_id,
             expert_id=config.expert_id,
+            tools=ctx.tools,
         )
 
         stream = stream_chat_with_retry(
@@ -358,6 +581,20 @@ class StreamHandler:
                     raise _ChainCancelled()
 
                 assert isinstance(chunk, ChatChunk)
+
+                # F2 — tool_call delta : yield un événement SSE dédié
+                # avant tout événement `chunk`. Le router /chat/stream
+                # l'observe via `observe_sse_event` pour déclencher
+                # l'exécution du tool côté serveur.
+                if chunk.tool_call is not None:
+                    tc_payload = {
+                        "id": chunk.tool_call.id,
+                        "name": chunk.tool_call.name,
+                        "arguments_json_partial": chunk.tool_call.arguments_json_partial,
+                        "index": chunk.tool_call.index,
+                    }
+                    yield _sse("tool_call", tc_payload)
+
                 payload: dict = {}
                 if first_chunk and disclaimer_prefix:
                     payload["delta"] = disclaimer_prefix + chunk.delta

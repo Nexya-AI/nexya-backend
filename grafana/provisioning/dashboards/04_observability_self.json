@@ -1,0 +1,108 @@
+{
+  "uid": "nexya-self",
+  "title": "NEXYA — Observability self-monitoring",
+  "tags": ["nexya", "self", "meta"],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "graphTooltip": 1,
+  "time": {"from": "now-6h", "to": "now"},
+  "refresh": "1m",
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Backend up",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{job=\"nexya-backend\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "background"},
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "UP", "color": "green"}}}], "unit": "short"}}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Scrape duration (s) — backend",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "scrape_duration_seconds{job=\"nexya-backend\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value"},
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 3}}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Séries actives Prometheus",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "prometheus_tsdb_head_series",
+          "legendFormat": "series"
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Cache opérations / min",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(nexya_cache_operations_total[1m]))",
+          "legendFormat": "ops/s"
+        }
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "colorMode": "value"},
+      "fieldConfig": {"defaults": {"unit": "ops"}}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "CPU process (rate seconds/s)",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(process_cpu_seconds_total{job=\"nexya-backend\"}[1m])",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 3}}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Cache opérations par outcome (1m)",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+      "datasource": {"type": "prometheus", "uid": "nexya-prom"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (operation, outcome) (rate(nexya_cache_operations_total[1m]))",
+          "legendFormat": "{{operation}} {{outcome}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    }
+  ]
+}
