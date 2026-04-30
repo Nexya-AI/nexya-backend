@@ -5,13 +5,14 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688)](pyproject.toml)
 [![License](https://img.shields.io/badge/License-Proprietary-red)](docs/compliance/dpa-template.md)
 
-> **Executive summary (EN).** NEXYA is a French-first, Africa-first AI
-> assistant API. Backend stack: FastAPI (Python 3.12 async) +
-> PostgreSQL 16 + Redis 7 + MinIO/S3 + arq workers. SSE-streamed chat
-> with multi-expert routing across 4 LLM providers (Gemini, OpenAI,
-> Anthropic, Qwen). RGPD UE 2016/679 + AI Act EU 2024/1689 compliant
-> by design. Mock-first SaaS pattern (Brevo, hCaptcha, FCM, Vision,
-> Voice, Embeddings, Crisp) — dev runs without any external API key.
+> **Résumé.** NEXYA est une API d'assistant IA pensée pour l'Afrique
+> et au-delà. Stack : FastAPI (Python 3.12 async), PostgreSQL 16,
+> Redis 7, MinIO/S3, workers arq. Chat en streaming SSE, routage
+> multi-expert sur 4 fournisseurs LLM (Gemini, OpenAI, Anthropic,
+> Qwen). Conformité RGPD (UE 2016/679) et AI Act (UE 2024/1689)
+> intégrée dès la conception. Tous les SaaS externes (Brevo, hCaptcha,
+> FCM, Vision, Voice, Embeddings, Crisp) ont un mode mock — le dev
+> tourne sans aucune clé d'API tierce.
 
 ---
 
