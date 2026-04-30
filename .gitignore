@@ -28,13 +28,9 @@ Thumbs.db
 # Models (stored in models_local/ at repo root)
 *.gguf
 
-# Personal / internal — pas pour partage public
-CLAUDE.md
-COURS_FASTAPI.md
-COURS_NEXYA_BACKEND.md
-
 # docs/ : ignoré par défaut MAIS on exempte les dossiers DD-ready
-# livrés en O2 (architecture/compliance/api/runbooks/adr/glossary).
+# livrés en O2 (architecture/compliance/api/runbooks/adr/glossary)
+# + pricing (interne, repo privé).
 docs/*
 !docs/architecture/
 !docs/compliance/
@@ -44,6 +40,7 @@ docs/*
 !docs/glossary.md
 !docs/ROADMAP.md
 !docs/BACKEND_SESSIONS_PLAN.md
+!docs/pricing/
 
 # Évals IA — rapports transients (la baseline est committée, pas les rapports)
 tests/evals/reports/
