@@ -33,7 +33,7 @@ NEXYA_METRIC_REGEX = re.compile(r"\bnexya_[a-z_]+\b")
 
 
 def _exposed_metric_names() -> set[str]:
-    """Récupère les 14 noms NEXYA exposés en appelant setup_prometheus
+    """Récupère les 15 noms NEXYA exposés en appelant setup_prometheus
     sur un registry custom isolé."""
     from app.config import Settings
     from app.core.observability import prometheus as prom
@@ -76,10 +76,15 @@ def _all_alert_files() -> list[Path]:
 
 
 def test_exposed_metric_count():
-    """Sanity : on attend exactement 14 métriques NEXYA (cf. K1)."""
+    """Sanity : on attend exactement 15 métriques NEXYA (K1 + audit 2026-05-01).
+
+    Bump 14→15 le 2026-05-01 avec l'ajout de
+    `nexya_auth_blacklist_check_failed_total` (T3 audit remediation —
+    blacklist JWT fail-open + alerte Prometheus).
+    """
     names = _exposed_metric_names()
-    assert len(names) == 14, (
-        f"Expected 14 NEXYA metrics from prometheus.py, got {len(names)}: {sorted(names)}"
+    assert len(names) == 15, (
+        f"Expected 15 NEXYA metrics from prometheus.py, got {len(names)}: {sorted(names)}"
     )
     for name in names:
         assert name.startswith("nexya_"), f"Non-prefixed metric: {name}"
