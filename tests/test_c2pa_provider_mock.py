@@ -19,7 +19,7 @@ On valide :
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -33,7 +33,6 @@ from app.features.images.c2pa import (
     get_manifest_provider,
     reset_manifest_provider_for_tests,
 )
-
 
 # ══════════════════════════════════════════════════════════════
 # Fixtures
@@ -53,7 +52,7 @@ def _make_request() -> C2PASignRequest:
         prompt="un chat dans un panier",
         provider="gemini-imagen",
         model="imagen-3.0-generate-002",
-        generation_timestamp=datetime(2026, 5, 1, 12, 0, 0, tzinfo=timezone.utc),
+        generation_timestamp=datetime(2026, 5, 1, 12, 0, 0, tzinfo=UTC),
         watermark_applied=True,
         watermark_version="v1-oiseau-bleu-2026-04",
     )
@@ -95,7 +94,7 @@ async def test_mock_provider_signs_png_returns_applied_true() -> None:
     assert result.manifest_id == "mock-c2pa-000001"
     assert result.image_bytes is image_bytes  # mock = bytes inchangés
     assert result.signed_at is not None
-    assert result.signed_at.tzinfo is timezone.utc
+    assert result.signed_at.tzinfo is UTC
     assert result.skip_reason is None
     assert result.metadata["algorithm"] == "mock"
     assert result.metadata["creator"] == "NEXYA-Mock"

@@ -49,7 +49,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
@@ -266,7 +266,7 @@ class RealC2PAProvider(ManifestProvider):
                 image_bytes=signed_bytes,
                 applied=True,
                 manifest_id=manifest_id,
-                signed_at=datetime.now(timezone.utc),
+                signed_at=datetime.now(UTC),
                 metadata={
                     "algorithm": self._signing_algorithm,
                     "creator": self._creator_name,
@@ -396,7 +396,7 @@ class RealC2PAProvider(ManifestProvider):
         # sinon on en construit un déterministe à partir du timestamp.
         manifest_id = (
             getattr(builder, "manifest_label", None)
-            or f"nexya-c2pa-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
+            or f"nexya-c2pa-{datetime.now(UTC).strftime('%Y%m%d%H%M%S%f')}"
         )
 
         return signed_bytes, str(manifest_id)
@@ -463,7 +463,7 @@ class MockManifestProvider(ManifestProvider):
             image_bytes=image_bytes,  # mock = bytes inchangés
             applied=True,
             manifest_id=fake_id,
-            signed_at=datetime.now(timezone.utc),
+            signed_at=datetime.now(UTC),
             metadata={
                 "algorithm": "mock",
                 "creator": "NEXYA-Mock",

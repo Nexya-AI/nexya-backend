@@ -145,7 +145,10 @@ jobs:
         with:
           script: |
             const today = new Date().toISOString().slice(0, 10);
-            const scenario = '${{ github.event.inputs.scenario || "scheduled-weekly" }}';
+            // Backticks JS pour permettre single-quotes dans l'expression
+            // GHA (les double-quotes sont interdits dans ${{ ... }} parsé
+            // par GitHub Actions — fix bug pré-existant 2026-05-01).
+            const scenario = `${{ github.event.inputs.scenario || 'scheduled-weekly' }}`;
             github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,

@@ -219,8 +219,8 @@ def _maybe_escalate_to_crisp(*, request: Request, exc: NexYaException) -> None:
 
         # Import paresseux pour éviter circular imports + ne pas charger
         # le module helpdesk si l'escalation n'est jamais déclenchée.
-        from app.features.helpdesk.service import CrispEscalationService  # noqa: PLC0415
         from app.features.helpdesk.schemas import EscalationCreate  # noqa: PLC0415
+        from app.features.helpdesk.service import CrispEscalationService  # noqa: PLC0415
 
         severity = _CRISP_SEVERITY_BY_CODE.get(exc.code, "high")
         if not CrispEscalationService.should_escalate(

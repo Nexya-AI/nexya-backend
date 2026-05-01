@@ -8,7 +8,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ═══════════════════════════════════════════════════════════════════
 # LITERAL TYPES — alignés CHECK SQL migration 019_helpdesk
 # ═══════════════════════════════════════════════════════════════════

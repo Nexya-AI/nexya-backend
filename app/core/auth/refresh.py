@@ -21,7 +21,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from sqlalchemy import select, update
@@ -54,7 +54,7 @@ async def create_refresh_token(
     """
     raw_token = generate_refresh_token()
     token_hash = hash_token(raw_token)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.jwt_refresh_ttl_days)
+    expires_at = datetime.now(UTC) + timedelta(days=settings.jwt_refresh_ttl_days)
 
     db_token = RefreshToken(
         user_id=user_id,
@@ -79,7 +79,7 @@ async def verify_and_rotate_refresh_token(
         Le service appelant doit vérifier `old_token is None` pour lever l'exception adéquate.
     """
     token_hash = hash_token(raw_token)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Chercher le token en DB (non révoqué, non expiré)
     result = await db.execute(
@@ -115,7 +115,7 @@ async def revoke_all_user_tokens(user_id: uuid.UUID, db: AsyncSession) -> int:
     Utilisé lors du logout ou quand on suspecte une compromission.
     Retourne le nombre de tokens révoqués.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     result = await db.execute(
         update(RefreshToken)
         .where(

@@ -16,7 +16,6 @@ Couvre :
 
 from __future__ import annotations
 
-import os
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -39,7 +38,6 @@ from app.core.health.version import (
     detect_version,
 )
 from app.main import app
-
 
 # ══════════════════════════════════════════════════════════════
 # /version endpoint

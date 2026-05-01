@@ -17,6 +17,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 import base64 as _base64
+from datetime import UTC
 
 import structlog
 from fastapi import Depends, FastAPI, Request
@@ -46,7 +47,6 @@ from app.core.health import (
     detect_version,
     set_app_start_monotonic,
 )
-from app.core.openapi import customize_openapi
 from app.core.observability import (
     TraceIdMiddleware,
     configure_logging,
@@ -62,12 +62,14 @@ from app.core.observability import (
     verify_scrape_token,
 )
 from app.core.observability.trace import get_trace_id
+from app.core.openapi import customize_openapi
 from app.core.security.headers import NexyaSecurityHeadersMiddleware
 from app.features.ai_models.router import router as ai_models_router
 from app.features.auth.models import User
 from app.features.auth.router import router as auth_router
 from app.features.chat.router import router as chat_router
 from app.features.files.router import router as files_router
+from app.features.helpdesk.router import router as helpdesk_router
 from app.features.images.c2pa import (
     C2PASignRequest,
     get_manifest_provider,
@@ -83,7 +85,6 @@ from app.features.notifications.router import router as notifications_router
 from app.features.planner.router import router as planner_router
 from app.features.projects.router import router as projects_router
 from app.features.rag.router import router as rag_router
-from app.features.helpdesk.router import router as helpdesk_router
 from app.features.rgpd.router import router as rgpd_router
 from app.features.suggestions.router import router as suggestions_router
 from app.features.vision.router import router as vision_router
@@ -611,13 +612,13 @@ async def image_generate(
         # ne touche pas les bytes mais trace `has_c2pa=True` (flow
         # bout-en-bout testable). Vraie signature dès qu'Ivan fournit
         # les clés dans `.env` + `pip install c2pa-python`.
-        from datetime import datetime as _dt2, timezone as _tz2
+        from datetime import datetime as _dt2
 
         c2pa_sign_request = C2PASignRequest(
             prompt=body.prompt,
             provider=resolution.provider.name,
             model=resolution.model,
-            generation_timestamp=_dt2.now(_tz2.utc),
+            generation_timestamp=_dt2.now(UTC),
             watermark_applied=has_watermark,
             watermark_version=WATERMARK_VERSION if has_watermark else None,
         )

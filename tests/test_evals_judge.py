@@ -12,8 +12,6 @@ Couvre :
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
 from tests.evals.judge import (
@@ -24,7 +22,6 @@ from tests.evals.judge import (
     _parse_judge_json,
     judge_factory,
 )
-
 
 # ══════════════════════════════════════════════════════════════
 # MockJudge

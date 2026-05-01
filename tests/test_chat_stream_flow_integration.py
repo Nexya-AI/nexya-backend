@@ -35,7 +35,6 @@ from app.features.auth.models import User
 from app.features.chat import router as chat_router_mod
 from app.main import app
 
-
 # ══════════════════════════════════════════════════════════════
 # 1. Singletons runtime.py
 # ══════════════════════════════════════════════════════════════

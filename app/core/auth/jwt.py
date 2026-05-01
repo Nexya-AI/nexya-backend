@@ -13,7 +13,7 @@ Ainsi la révocation est instantanée, sans attendre l'expiration naturelle.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import jwt
 import structlog
@@ -40,7 +40,7 @@ def create_access_token(user_id: uuid.UUID, plan: str = "free") -> str:
     - exp : expiration (15 minutes par défaut)
     - jti : JWT ID unique (pour la blacklist)
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     jti = str(uuid.uuid4())
 
     payload = {
@@ -87,7 +87,7 @@ async def blacklist_token(jti: str, exp: datetime) -> None:
     Le token est stocké avec un TTL = temps restant avant expiration.
     Après expiration, Redis le supprime automatiquement — pas de nettoyage nécessaire.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ttl = int((exp - now).total_seconds())
 
     if ttl <= 0:

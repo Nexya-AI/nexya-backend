@@ -24,7 +24,6 @@ from fastapi import FastAPI
 from app.core.openapi.customizer import NEXYA_TAGS_METADATA, customize_openapi
 from app.main import app
 
-
 # ══════════════════════════════════════════════════════════════
 # Schéma global
 # ══════════════════════════════════════════════════════════════

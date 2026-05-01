@@ -19,7 +19,7 @@ Discipline tests : aucun Redis, aucune DB. Tout en monkeypatch + AsyncMock.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -40,7 +40,6 @@ from app.features.chat.schemas import AbuseReportCreate
 from app.features.chat.service import ReportService
 from app.main import app
 
-
 _FAKE_USER_ID = uuid.UUID("c4a2b9a6-0f01-4a0e-9f3f-0d1b8e3c5a77")
 _FAKE_CONV_ID = uuid.UUID("a1b2c3d4-0000-4000-8000-000000000042")
 _FAKE_MESSAGE_ID = uuid.UUID("5b59c0a7-1b2c-4d5e-8f7a-9b0c1d2e3f4a")
@@ -54,7 +53,7 @@ def _make_fake_user() -> User:
 
 
 def _make_fake_message() -> Message:
-    now = datetime(2026, 4, 21, 14, 31, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 4, 21, 14, 31, 0, tzinfo=UTC)
     msg = Message(
         conversation_id=_FAKE_CONV_ID,
         role="assistant",
@@ -68,7 +67,7 @@ def _make_fake_message() -> Message:
 
 
 def _make_fake_report() -> AbuseReport:
-    now = datetime(2026, 4, 21, 14, 32, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 4, 21, 14, 32, 0, tzinfo=UTC)
     report = AbuseReport(
         user_id=_FAKE_USER_ID,
         message_id=_FAKE_MESSAGE_ID,
