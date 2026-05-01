@@ -65,6 +65,7 @@ notifications_fcm_failures_total: Any = None
 arq_jobs_total: Any = None
 arq_job_duration_seconds: Any = None
 cache_operations_total: Any = None
+auth_blacklist_check_failed_total: Any = None
 
 
 def setup_prometheus(cfg: Settings | None = None) -> bool:
@@ -83,6 +84,7 @@ def setup_prometheus(cfg: Settings | None = None) -> bool:
     global tools_execution_duration_seconds, notifications_dispatched_total
     global notifications_fcm_failures_total, arq_jobs_total
     global arq_job_duration_seconds, cache_operations_total
+    global auth_blacklist_check_failed_total
 
     cfg = cfg or settings
     if _INIT_ATTEMPTED:
@@ -204,11 +206,21 @@ def setup_prometheus(cfg: Settings | None = None) -> bool:
             labelnames=("operation", "outcome"),
             registry=_REGISTRY,
         )
+        auth_blacklist_check_failed_total = Counter(
+            "nexya_auth_blacklist_check_failed_total",
+            (
+                "Échecs de vérification JWT blacklist (Redis down/timeout/error). "
+                "Fail-open : un échec ne refuse pas le token, mais loggue + alerte. "
+                "Une valeur > 0 sur 5 min = Redis instable, intervention ops requise."
+            ),
+            labelnames=("error_type",),
+            registry=_REGISTRY,
+        )
 
         _INIT_OK = True
         log.info(
             "prometheus.initialized",
-            metrics_count=13,
+            metrics_count=14,
             metrics_path=cfg.prometheus_metrics_path,
             token_protected=bool(cfg.prometheus_scrape_token),
         )
@@ -243,6 +255,7 @@ def _reset_for_tests() -> None:
     global tools_execution_duration_seconds, notifications_dispatched_total
     global notifications_fcm_failures_total, arq_jobs_total
     global arq_job_duration_seconds, cache_operations_total
+    global auth_blacklist_check_failed_total
 
     _INIT_ATTEMPTED = False
     _INIT_OK = False
@@ -261,6 +274,7 @@ def _reset_for_tests() -> None:
     arq_jobs_total = None
     arq_job_duration_seconds = None
     cache_operations_total = None
+    auth_blacklist_check_failed_total = None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -412,6 +426,22 @@ def record_cache_operation(operation: str, outcome: str) -> None:
     if not _INIT_OK:
         return
     _safe_call(cache_operations_total.labels(operation=operation, outcome=outcome).inc)
+
+
+def record_auth_blacklist_check_failed(error_type: str) -> None:
+    """Hook depuis `is_token_blacklisted` quand Redis est inaccessible.
+
+    `error_type` ∈ {redis_timeout, redis_connection, redis_unknown}.
+
+    Fail-open : on continue à accepter le token quand on incrémente cette
+    métrique (cf. `app/core/auth/jwt.py:is_token_blacklisted`). L'alerte
+    `NexyaAuthBlacklistDegraded` (à configurer Grafana K2) déclenche dès
+    qu'on en voit > 5 sur 5 min, signal opérationnel pour investiguer
+    Redis avant qu'un attaquant exploite la fenêtre fail-open.
+    """
+    if not _INIT_OK:
+        return
+    _safe_call(auth_blacklist_check_failed_total.labels(error_type=error_type).inc)
 
 
 # ═══════════════════════════════════════════════════════════════════

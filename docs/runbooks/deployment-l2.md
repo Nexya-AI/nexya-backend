@@ -40,6 +40,108 @@ docker compose stack :
 
 ---
 
+## PgBouncer (cap connexions à 9M users — audit 2026-05-01 finding S0)
+
+### Pourquoi
+
+Sans PgBouncer, chaque worker uvicorn ouvre `db_pool_size + db_max_overflow`
+connexions Postgres directes. À l'échelle :
+
+- 1000 workers × 30 connexions = 30 000 connexions Postgres directes
+- Postgres typique plafonne 100-500 connexions par instance
+- Saturation immédiate dès 100k users concurrent
+
+**PgBouncer en transaction pooling mode** multiplexe :
+
+- 10 000 clients × ~200 connexions Postgres effectives (ratio 50:1)
+- Latence ajoutée : ~0.5 ms (négligeable face à la latence DB native)
+
+### Stack
+
+```
+uvicorn → PgBouncer (port 6432, transaction mode) → Postgres (port 5432)
+```
+
+### Config livrée (2026-05-01)
+
+- `docker/pgbouncer/pgbouncer.ini` — transaction mode, pool_size=20,
+  max_client_conn=10 000, scram-sha-256 auth, `server_reset_query=DISCARD ALL`
+- `docker/pgbouncer/userlist.txt.example` — template avec procédure
+  génération hash SCRAM (le vrai `userlist.txt` est exclu via `.gitignore`)
+- `docker/docker-compose.pgbouncer.yml` — overlay docker-compose pour
+  test local optionnel (port host 6433)
+- `app/config.py:database_use_pgbouncer` — flag activable via `.env`
+- `app/core/database/postgres.py:_build_engine_kwargs` — adapte les
+  kwargs SQLAlchemy selon le flag
+
+### Activation L2 staging
+
+1. **Provisioning Postgres + PgBouncer** sur Hetzner staging :
+
+   ```bash
+   docker compose -f docker/docker-compose.yml \
+                  -f docker/docker-compose.pgbouncer.yml \
+                  up -d
+   ```
+
+2. **Générer le hash SCRAM-SHA-256 du user `nexya`** :
+
+   ```bash
+   docker exec -it nexya-postgres psql -U nexya -d postgres -c \
+     "SET password_encryption = 'scram-sha-256';
+      ALTER USER nexya WITH PASSWORD 'votre-pwd-fort-secrets-manager';
+      SELECT rolname, rolpassword FROM pg_authid WHERE rolname='nexya';"
+   ```
+
+   Copier la valeur `rolpassword` (commence par `SCRAM-SHA-256$...`)
+   dans `docker/pgbouncer/userlist.txt` (PAS dans `.example`).
+
+3. **Mettre à jour `.env.production`** :
+
+   ```bash
+   DATABASE_URL=postgresql+psycopg://nexya:<pwd>@pgbouncer:6432/nexya
+   DATABASE_USE_PGBOUNCER=true
+   ```
+
+4. **Smoke test** :
+
+   ```bash
+   docker compose ... exec backend python -c \
+     "import asyncio; from app.core.database.postgres import check_db_connection; \
+     print(asyncio.run(check_db_connection()))"
+   # → True attendu
+   ```
+
+5. **Vérifier les pools depuis PgBouncer** :
+
+   ```bash
+   docker exec -it nexya-pgbouncer psql -U nexya -p 6432 pgbouncer -c "SHOW POOLS;"
+   ```
+
+### Limitations connues (transaction mode)
+
+- **Pas de LISTEN/NOTIFY persistant** — NEXYA n'en utilise pas (vérifié
+  par grep, aucun `LISTEN`/`NOTIFY` dans le code).
+- **Pas de prepared statements server-side** — désactivés via
+  `prepare_threshold=None` côté psycopg dans
+  [`app/core/database/postgres.py`](../../app/core/database/postgres.py).
+- **Sessions courtes obligatoires** — chaque transaction libère sa
+  connexion serveur. Compatible SQLAlchemy async (qui ouvre/ferme une
+  transaction par requête HTTP via `get_db()`).
+
+### Monitoring
+
+Métriques Prometheus à exposer V2 (Phase 14) :
+
+- `pgbouncer_pool_max`, `pgbouncer_clients_active`,
+  `pgbouncer_clients_waiting` (via `pgbouncer_exporter`)
+
+Alerte K2 à ajouter Phase 14 : `NexyaPgBouncerSaturation`
+(`pgbouncer_clients_waiting > 0` sur 5 min) — signal que le pool serveur
+est trop petit, augmenter `default_pool_size` dans `pgbouncer.ini`.
+
+---
+
 ## Steps
 
 ### 1. Provisioning Hetzner (10 min)
@@ -255,20 +357,29 @@ Cron quotidien (V1 manual setup, V2 ansible/terraform) :
 0 3 * * * deploy /opt/nexya/scripts/backup_db.sh
 ```
 
-`scripts/backup_db.sh` (à créer V2) :
+**Le script `scripts/backup_db.sh` est livré (2026-05-01)** avec :
+
+- Mode `--dry-run` (validation sans side effects)
+- Lock `flock` anti double-run concurrent
+- `pg_dump --format=custom --compress=9` (compression maximale)
+- SHA-256 systématique pour vérification d'intégrité
+- Chiffrement GPG optionnel (`BACKUP_GPG_RECIPIENT` recommandé prod)
+- Upload S3 SSE AES256, région configurable
+- Cleanup local après `BACKUP_RETENTION_DAYS` jours
+
+Ajouter au `.env.production` (recommandation prod) :
+
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-TS=$(date -u +%Y%m%d_%H%M%S)
-docker exec nexya-postgres pg_dump -U nexya nexya \
-    | gzip > /backups/nexya-${TS}.sql.gz
-# Upload S3 backup bucket (rétention 30j)
-aws s3 cp /backups/nexya-${TS}.sql.gz s3://nexya-backups/
-# Cleanup local > 7j
-find /backups -name "*.sql.gz" -mtime +7 -delete
+BACKUP_DIR=/backups
+S3_BUCKET=nexya-backups-prod
+S3_REGION=eu-central-1
+BACKUP_RETENTION_DAYS=7
+BACKUP_GPG_RECIPIENT=ops@nexya.ai      # active le chiffrement GPG
 ```
 
-Voir [`db-restore.md`](db-restore.md) pour la restauration.
+Voir [`scripts/backup_db.sh`](../../scripts/backup_db.sh) +
+[`db-restore.md`](db-restore.md) pour la procédure restore via
+`scripts/restore_db.sh`.
 
 ---
 

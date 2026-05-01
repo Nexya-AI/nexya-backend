@@ -1,0 +1,43 @@
+# ══════════════════════════════════════════════════════════════
+# NEXYA PgBouncer overlay — test local optionnel (Session 2026-05-01)
+# ══════════════════════════════════════════════════════════════
+#
+# Usage :
+#   docker compose -f docker/docker-compose.yml \
+#                  -f docker/docker-compose.pgbouncer.yml up -d
+#
+# Cette stack ajoute PgBouncer entre les clients et Postgres pour tester
+# localement le routing pool. À NE PAS utiliser en dev quotidien (overhead
+# inutile) — réservé aux tests de charge N4 et au smoke test avant
+# déploiement L2 staging.
+#
+# Avant le premier démarrage : créer `docker/pgbouncer/userlist.txt`
+# (non-commit) à partir du template `userlist.txt.example`. Cf. la
+# procédure de génération du hash SCRAM-SHA-256 dans le template.
+#
+# Activation côté backend :
+#   .env : DATABASE_USE_PGBOUNCER=true
+#          DATABASE_URL=postgresql+psycopg://nexya:<pwd>@localhost:6433/nexya
+#          (port 6433 host, mappé sur 6432 container)
+
+services:
+  pgbouncer:
+    image: bitnami/pgbouncer:1.23.1
+    container_name: nexya-pgbouncer
+    ports:
+      # 6433 host:6432 container — le 6432 host peut être occupé par un
+      # PgBouncer natif Linux. Convention NEXYA cohérente avec postgres
+      # (5433 docker / 5432 natif Windows).
+      - "6433:6432"
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/bitnami/pgbouncer/conf/pgbouncer.ini:ro
+      - ./pgbouncer/userlist.txt:/bitnami/pgbouncer/conf/userlist.txt:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U nexya || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped

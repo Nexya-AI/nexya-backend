@@ -96,6 +96,27 @@ async def rate_limit_register(request: Request) -> None:
     await check_ip_rate_limit(request, action="register", max_requests=5)
 
 
+async def rate_limit_refresh(request: Request) -> None:
+    """Rate limit pour POST /auth/refresh — 20 requêtes/minute par IP.
+
+    Protège contre un attaquant qui obtient un refresh token leaké (XSS,
+    vol device, MITM, log fuite) et spamme la rotation JWT pour obtenir
+    N access tokens. Sans plafond IP, un seul refresh token compromis
+    permet une exploitation continue ; avec ce rate limit, l'attaquant
+    est borné à 20 rotations par minute par IP source.
+
+    Calibration `20/min` (vs `10/min` sur `/auth/login`) :
+    - Un refresh est moins coûteux qu'un login (pas de bcrypt, pas de
+      SELECT user complet — juste un SELECT refresh_tokens + une
+      rotation).
+    - Les apps mobiles peuvent légitimement faire plusieurs refresh
+      rapprochés sur changement de réseau (WiFi → 4G), hot-reload
+      Flutter, ou recovery après suspension iOS/Android.
+    - 20/min couvre largement un usage humain ; au-delà = abus évident.
+    """
+    await check_ip_rate_limit(request, action="refresh", max_requests=20)
+
+
 # ══════════════════════════════════════════════════════════════
 # RATE LIMIT — user-scoped
 # ══════════════════════════════════════════════════════════════

@@ -441,7 +441,7 @@ async def observability_status(request: Request) -> JSONResponse:
                     "initialized": prometheus_is_initialized(),
                     "metrics_path": settings.prometheus_metrics_path,
                     "token_protected": bool(settings.prometheus_scrape_token),
-                    "metrics_count": 13,
+                    "metrics_count": 14,
                 },
             },
         },

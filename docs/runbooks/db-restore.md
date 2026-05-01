@@ -14,40 +14,45 @@
 0 3 * * * deploy /opt/nexya/scripts/backup_db.sh
 ```
 
-### Script `scripts/backup_db.sh` (à créer V2)
+### Script `scripts/backup_db.sh` (livré 2026-05-01)
+
+Script bash strict (`set -euo pipefail`) avec :
+
+- Mode `--dry-run` (simulation sans side effects + pré-checks réels)
+- Lock `flock` anti double-run concurrent
+- `pg_dump --format=custom --compress=9` via `docker exec`
+- SHA-256 du dump pour vérification d'intégrité
+- Chiffrement GPG optionnel via `BACKUP_GPG_RECIPIENT`
+- Upload S3 SSE AES256 (région configurable)
+- Cleanup local des dumps > `BACKUP_RETENTION_DAYS` jours
+- Rapport final (taille, durée, statut S3)
+
+**Usage cron quotidien (à installer en prod L2)** :
 
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-TS=$(date -u +%Y%m%d_%H%M%S)
-BACKUP_DIR=/backups
-S3_BUCKET=nexya-backups
-
-mkdir -p "$BACKUP_DIR"
-
-# Dump compressé
-docker exec nexya-postgres pg_dump -U nexya -d nexya \
-    --format=custom --compress=9 \
-    > "$BACKUP_DIR/nexya-${TS}.dump"
-
-# Hash SHA-256 pour vérification intégrité
-sha256sum "$BACKUP_DIR/nexya-${TS}.dump" \
-    > "$BACKUP_DIR/nexya-${TS}.dump.sha256"
-
-# Upload S3 (chiffré server-side)
-aws s3 cp "$BACKUP_DIR/nexya-${TS}.dump" \
-    "s3://$S3_BUCKET/$(date +%Y/%m)/" \
-    --sse AES256
-aws s3 cp "$BACKUP_DIR/nexya-${TS}.dump.sha256" \
-    "s3://$S3_BUCKET/$(date +%Y/%m)/" \
-    --sse AES256
-
-# Cleanup local > 7j (S3 conserve 30j via lifecycle policy)
-find "$BACKUP_DIR" -name "nexya-*.dump*" -mtime +7 -delete
-
-# Notification Slack (V2)
-echo "✅ Backup ${TS} uploaded"
+# /etc/cron.d/nexya-backup
+0 3 * * * deploy /opt/nexya/scripts/backup_db.sh
 ```
+
+**Test manuel dry-run** :
+
+```bash
+bash scripts/backup_db.sh --dry-run
+```
+
+**Test manuel exécution réelle (en local Docker dev, sans S3)** :
+
+```bash
+BACKUP_DIR=/tmp/backup-test \
+S3_BUCKET=test-skip \
+bash scripts/backup_db.sh
+# → /tmp/backup-test/nexya-YYYYMMDD_HHMMSS.dump + .sha256
+```
+
+**Exit codes** : 0 ok, 1 dump fail, 2 args fail, 3 deps manquantes,
+4 lock occupé, 5 upload S3 fail (mais dump local conservé).
+
+Voir [`scripts/backup_db.sh`](../../scripts/backup_db.sh) pour les détails.
 
 ### Rétention
 
@@ -58,7 +63,51 @@ echo "✅ Backup ${TS} uploaded"
 
 ---
 
-## Restore manuel
+## Restauration automatisée (livrée 2026-05-01)
+
+Le script `scripts/restore_db.sh` automatise les 12 étapes du Cas 1
+(download S3 + vérif SHA-256 + safety net + DROP/CREATE + pg_restore +
+vérifs intégrité + swap optionnel).
+
+```bash
+# Restauration ponctuelle vers DB temporaire (sans swap)
+bash scripts/restore_db.sh s3://nexya-backups/2026/04/nexya-20260427_030001.dump
+
+# Restauration + swap nexya_restore → nexya (avec confirmation interactive)
+bash scripts/restore_db.sh \
+    s3://nexya-backups/2026/04/nexya-20260427_030001.dump \
+    --swap
+
+# Cible custom
+bash scripts/restore_db.sh \
+    s3://nexya-backups/2026/04/nexya-20260427_030001.dump \
+    --target-db nexya_audit_recovery
+
+# Dry-run (validation chemin S3 + dépendances)
+bash scripts/restore_db.sh \
+    s3://nexya-backups/2026/04/nexya-20260427_030001.dump \
+    --dry-run
+```
+
+**Vérifications post-restore intégrées** :
+
+- `count(users)` ≥ 0
+- `SELECT version_num FROM alembic_version` (présent)
+- `count messages WHERE conversation_id NOT IN (SELECT id FROM conversations)` = 0
+
+**Swap sécurisé** : avant `ALTER DATABASE nexya RENAME`, le script tue
+les connexions actives via `pg_terminate_backend` (sinon Postgres lève
+« database is being accessed »). Une confirmation interactive est
+demandée sauf en `--dry-run`.
+
+Voir [`scripts/restore_db.sh`](../../scripts/restore_db.sh) pour les détails.
+
+---
+
+## Restore manuel (procédure de fallback)
+
+Si le script `restore_db.sh` est indisponible (pas de bash, pas de
+network vers S3, etc.), reproduire manuellement les étapes ci-dessous.
 
 ### Cas 1 — Restauration ponctuelle (ex: corruption d'une table)
 

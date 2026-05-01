@@ -159,3 +159,192 @@ def test_production_settings_accept_valid_configuration() -> None:
     )
     assert settings.is_production is True
     assert settings.cors_origins == ["https://app.nexya.ai", "https://www.nexya.ai"]
+
+
+# ══════════════════════════════════════════════════════════════
+# 6. /auth/refresh — rate limit IP (audit 2026-05-01 finding S0)
+# ══════════════════════════════════════════════════════════════
+
+
+def test_refresh_rate_limit_allows_under_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sous le seuil 20/min, /auth/refresh appelle bien le service."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.core.database.postgres import get_db
+    from app.features.auth import router as auth_router_mod
+    from app.features.auth import service as auth_service
+    from app.features.auth.schemas import TokenResponse
+
+    async def _allow(request) -> None:
+        return None
+
+    monkeypatch.setattr(auth_router_mod, "rate_limit_refresh", _allow)
+
+    fake_tokens = TokenResponse(
+        access_token="fake-access",
+        refresh_token="fake-refresh",
+        token_type="bearer",
+        expires_in=900,
+    )
+    refresh_mock = AsyncMock(return_value=fake_tokens)
+    monkeypatch.setattr(auth_service, "refresh", refresh_mock)
+
+    fake_session = MagicMock()
+    app.dependency_overrides[get_db] = lambda: fake_session
+    try:
+        with TestClient(app) as client:
+            for _ in range(3):
+                response = client.post(
+                    "/auth/refresh",
+                    json={"refresh_token": "some-token"},
+                )
+                assert response.status_code == 200
+                assert response.json()["success"] is True
+        assert refresh_mock.await_count == 3
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_refresh_rate_limit_blocks_over_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Au-delà de 20/min, /auth/refresh retourne 429 RATE_LIMIT_IP.
+
+    Le rate limit est appliqué AVANT le service — `auth_service.refresh`
+    ne doit JAMAIS être appelé quand la limite est franchie.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.core.database.postgres import get_db
+    from app.core.errors.exceptions import RateLimitIPException
+    from app.features.auth import router as auth_router_mod
+    from app.features.auth import service as auth_service
+
+    async def _block(request) -> None:
+        raise RateLimitIPException(retry_after=42)
+
+    monkeypatch.setattr(auth_router_mod, "rate_limit_refresh", _block)
+
+    refresh_mock = AsyncMock()
+    monkeypatch.setattr(auth_service, "refresh", refresh_mock)
+
+    fake_session = MagicMock()
+    app.dependency_overrides[get_db] = lambda: fake_session
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/auth/refresh",
+                json={"refresh_token": "some-token"},
+            )
+        assert response.status_code == 429
+        body = response.json()
+        assert body["success"] is False
+        assert body["code"] == "RATE_LIMIT_IP"
+        assert body["data"]["retry_after"] == 42
+        # Le service ne doit JAMAIS être appelé quand le rate limit bloque
+        refresh_mock.assert_not_awaited()
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+# ══════════════════════════════════════════════════════════════
+# 7. Blacklist JWT — fail-open + métrique Prometheus
+#    (audit 2026-05-01 finding S1)
+# ══════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_blacklist_check_redis_timeout_returns_false_fail_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Si Redis timeout, is_token_blacklisted retourne False (fail-open)."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.core.auth import jwt as jwt_module
+
+    fake_redis = MagicMock()
+    fake_redis.exists = AsyncMock(side_effect=TimeoutError("redis timeout"))
+    monkeypatch.setattr("app.core.auth.jwt.get_redis", lambda: fake_redis)
+
+    result = await jwt_module.is_token_blacklisted("some-jti")
+
+    assert result is False, (
+        "Fail-open obligatoire — un timeout Redis ne doit pas casser l'auth"
+    )
+
+
+@pytest.mark.asyncio
+async def test_blacklist_check_redis_connection_error_returns_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ConnectionError Redis → fail-open (return False)."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.core.auth import jwt as jwt_module
+
+    fake_redis = MagicMock()
+    fake_redis.exists = AsyncMock(side_effect=ConnectionError("connection refused"))
+    monkeypatch.setattr("app.core.auth.jwt.get_redis", lambda: fake_redis)
+
+    result = await jwt_module.is_token_blacklisted("some-jti")
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_blacklist_check_redis_down_increments_metric(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un échec Redis incrémente la métrique Prometheus avec error_type."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.config import settings
+    from app.core.auth import jwt as jwt_module
+    from app.core.observability import prometheus as prom_module
+
+    # Reset + setup propre du registry
+    prom_module._reset_for_tests()
+    prom_module.setup_prometheus(settings)
+
+    fake_redis = MagicMock()
+    fake_redis.exists = AsyncMock(side_effect=ConnectionError("connection refused"))
+    monkeypatch.setattr("app.core.auth.jwt.get_redis", lambda: fake_redis)
+
+    await jwt_module.is_token_blacklisted("some-jti")
+
+    metric = prom_module.auth_blacklist_check_failed_total
+    assert metric is not None, "La métrique doit être initialisée"
+    samples = list(metric.collect())[0].samples
+    matching = [
+        s
+        for s in samples
+        if s.labels.get("error_type") == "redis_connection" and s.value > 0
+    ]
+    assert matching, (
+        "Métrique nexya_auth_blacklist_check_failed_total"
+        "{error_type=redis_connection} doit être > 0 après échec Redis"
+    )
+
+    # Cleanup pour ne pas polluer les autres tests
+    prom_module._reset_for_tests()
+
+
+@pytest.mark.asyncio
+async def test_blacklist_check_redis_ok_returns_correct_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Si Redis OK, le comportement reste inchangé (vrai positif + vrai négatif)."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.core.auth import jwt as jwt_module
+
+    # Token blacklisté → True
+    fake_redis = MagicMock()
+    fake_redis.exists = AsyncMock(return_value=1)
+    monkeypatch.setattr("app.core.auth.jwt.get_redis", lambda: fake_redis)
+    assert await jwt_module.is_token_blacklisted("blacklisted-jti") is True
+
+    # Token clean → False
+    fake_redis.exists = AsyncMock(return_value=0)
+    assert await jwt_module.is_token_blacklisted("clean-jti") is False

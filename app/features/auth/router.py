@@ -28,6 +28,7 @@ from app.core.database.postgres import get_db
 from app.core.security.rate_limiter import (
     rate_limit_forgot_password_ip,
     rate_limit_login,
+    rate_limit_refresh,
     rate_limit_register,
     rate_limit_register_daily_ip,
     rate_limit_reset_password_ip,
@@ -193,9 +194,17 @@ async def reset_password(
 @router.post("/auth/refresh", response_model=NexyaResponse[TokenResponse])
 async def refresh(
     body: RefreshRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> NexyaResponse[TokenResponse]:
-    """Renouvellement du couple access + refresh via rotation."""
+    """Renouvellement du couple access + refresh via rotation.
+
+    Rate limit IP : **20/min**. Un attaquant qui obtient un refresh
+    token leaké ne peut pas l'exploiter pour spammer la rotation
+    au-delà de 20× par minute par IP source — borne le brute-force
+    JWT immédiatement à 1200 access tokens / heure / IP.
+    """
+    await rate_limit_refresh(request)
     tokens = await auth_service.refresh(body.refresh_token, db)
     return NexyaResponse(success=True, data=tokens)
 

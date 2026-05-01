@@ -292,6 +292,9 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_PRO, _OPENROUTER_SONNET),
         system_prompt=_GENERAL_PROMPT,
         temperature=0.7,
+        # Cap anti-runaway facture (audit 2026-05-01 finding S1).
+        # 2048 tokens ≈ 5 pages — couvre largement une réponse conversationnelle.
+        max_tokens=2048,
         tier="flash",
         tags=("general", "conversation"),
     ),
@@ -304,6 +307,9 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_PRO,),
         system_prompt=_COMPUTER_PROMPT,
         temperature=0.3,  # code = peu de créativité, beaucoup de rigueur
+        # 2048 tokens ≈ ~150 lignes de code — suffisant pour un module
+        # autonome ; au-delà l'user devrait découper sa demande.
+        max_tokens=2048,
         tier="flash",
         tags=("code", "technical"),
     ),
@@ -316,6 +322,9 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_FLASH, _OPENROUTER_SONNET),
         system_prompt=_SCIENCE_PROMPT,
         temperature=0.2,
+        # Tier pro = raisonnement multi-étapes (LaTeX, démonstrations,
+        # calculs détaillés). 4096 couvre une preuve complète.
+        max_tokens=4096,
         tier="pro",
         tags=("stem", "reasoning"),
     ),
@@ -328,6 +337,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_PRO,),
         system_prompt=_FINANCE_PROMPT,
         temperature=0.4,
+        max_tokens=2048,
         tier="flash",
         tags=("finance", "business", "africa"),
     ),
@@ -349,6 +359,9 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_FLASH,),
         system_prompt=_LANGUAGE_PROMPT,
         temperature=0.5,
+        # Tier pro = traduction, conjugaisons, explications culturelles
+        # peuvent demander plusieurs paragraphes.
+        max_tokens=4096,
         tier="pro",
         tags=("language", "translation"),
         corpus_enabled=False,
@@ -362,6 +375,9 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_PRO,),
         system_prompt=_COOKING_PROMPT,
         temperature=0.7,  # créativité culinaire bienvenue
+        # 2048 couvre une recette complète (ingrédients + étapes
+        # numérotées + temps + alternatives) sans déborder.
+        max_tokens=2048,
         tier="flash",
         tags=("cooking", "daily"),
     ),
@@ -375,6 +391,9 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(),
         system_prompt=_STUDIO_PROMPT,
         temperature=0.0,  # non-applicable pour image, laissé par convention
+        # Studio est image-only ; max_tokens posé par cohérence si jamais
+        # un fallback texte est introduit (rejet user vers mode Général).
+        max_tokens=2048,
         tier="image",
         tags=("image", "creative"),
     ),
@@ -387,6 +406,8 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_FLASH,),
         system_prompt=_ENGINEERING_PROMPT,
         temperature=0.2,
+        # Tier pro = calculs détaillés + trade-offs + normes citées.
+        max_tokens=4096,
         tier="pro",
         tags=("engineering", "technical"),
     ),
@@ -399,6 +420,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_PRO, _OPENROUTER_SONNET),
         system_prompt=_PRODUCTIVITY_PROMPT,
         temperature=0.6,
+        max_tokens=2048,
         tier="flash",
         tags=("productivity", "habits"),
     ),
@@ -411,6 +433,10 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_FLASH,),
         system_prompt=_MEDICINE_PROMPT,
         temperature=0.1,  # médecine = zéro créativité
+        # Safety-critical : info structurée + disclaimers + redirection
+        # urgences. 3072 cap entre flash (2048) et pro standard (4096) —
+        # pas de génération créative justifiée au-delà.
+        max_tokens=3072,
         tier="pro",
         disclaimer=(
             "Les informations fournies ne remplacent pas l'avis d'un professionnel "
@@ -432,6 +458,10 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_FLASH,),
         system_prompt=_LEGAL_PROMPT,
         temperature=0.1,  # juridique = zéro créativité
+        # Safety-critical : info juridique structurée + références (Code
+        # civil, Acte uniforme OHADA) + redirection avocat. 3072 idem
+        # `medicine` — pas de génération créative au-delà.
+        max_tokens=3072,
         tier="pro",
         disclaimer=(
             "Les informations fournies ne constituent pas un conseil juridique. "
