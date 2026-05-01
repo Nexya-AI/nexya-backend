@@ -88,9 +88,8 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # suffit PAS — il faut patcher `app.main.get_budget_tracker` directement
     # (règle « monkeypatch le namespace qui consomme, pas celui qui définit »
     # documentée dans CLAUDE.md §15 E4 décision (i)).
-    from app.ai import budget_tracker, moderation
-    from app.ai import runtime
     import app.main as main_module
+    from app.ai import budget_tracker, moderation, runtime
 
     bt = MagicMock()
     bt.check_and_consume_image = AsyncMock(return_value=None)
