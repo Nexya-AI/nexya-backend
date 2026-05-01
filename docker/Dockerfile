@@ -74,6 +74,10 @@ COPY --from=builder /opt/venv /opt/venv
 
 # Code applicatif — ownership = utilisateur non-root
 COPY --chown=nexya:nexya app       ./app
+# `workers/` est importé par app/features/chat/router.py (et d'autres)
+# pour les helpers `enqueue_*`. Sans cette copie, l'image fail au boot
+# avec ModuleNotFoundError. Fix audit remediation 2026-05-01.
+COPY --chown=nexya:nexya workers   ./workers
 COPY --chown=nexya:nexya migrations ./migrations
 COPY --chown=nexya:nexya alembic.ini ./alembic.ini
 
