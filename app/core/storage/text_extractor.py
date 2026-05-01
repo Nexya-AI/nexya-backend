@@ -42,7 +42,6 @@ from typing import Final, Literal
 # sont des ZIP contenant du XML (word/document.xml) potentiellement
 # malicieux. Bandit B314 pré-existant fixé 2026-05-01.
 import defusedxml.ElementTree as ET  # noqa: N812
-
 import structlog
 
 log = structlog.get_logger()
