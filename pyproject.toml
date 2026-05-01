@@ -35,7 +35,7 @@ dependencies = [
     "jinja2>=3.1,<4",
 
     # ── Logging ────────────────────────────────────────────────
-    "structlog>=24.1,<25",
+    "structlog>=24.1,<26",
 
     # ── IA — Gemini (Vertex AI, déjà utilisé) ─────────────────
     "google-genai>=1.0,<2",
