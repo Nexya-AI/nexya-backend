@@ -126,7 +126,10 @@ jobs:
         # fail quand un editable est trouvé (« distribution marked as
         # editable » → exit 1) même si on demande explicitement de le
         # skipper. Bug pip-audit connu, fix audit remediation 2026-05-01.
-        run: pip-audit --desc --skip-editable
+        # `--ignore-vuln CVE-2026-3219` : CVE concerne pip lui-même
+        # (pas une dep NEXYA), pas de fix version disponible. À retirer
+        # quand pip publie un fix.
+        run: pip-audit --desc --skip-editable --ignore-vuln CVE-2026-3219
 
   # ─────────────────────────────────────────────────────────────
   # TESTS — services postgres+redis+minio + alembic + pytest cov

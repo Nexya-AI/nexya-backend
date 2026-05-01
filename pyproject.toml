@@ -25,7 +25,7 @@ dependencies = [
     # ── Auth ───────────────────────────────────────────────────
     "bcrypt>=4.2,<6",                  # Hash mots de passe (usage direct, sans passlib)
     "PyJWT>=2.9,<3",                   # JWT RS256 encode/decode
-    "cryptography>=44.0,<45",          # Backend RSA pour PyJWT
+    "cryptography>=46.0.6,<48",        # Backend RSA pour PyJWT — bump audit 2026-05-01 (CVE-2026-26007 ECDSA + CVE-2026-34073 name constraints)
     "email-validator>=2.0,<3",         # Validation Pydantic EmailStr
 
     # ── HTTP client async (Brevo email, futurs webhooks) ──────
@@ -69,14 +69,14 @@ dependencies = [
     # pypdf : extraction texte PDF pure-Python, léger (~500 KB),
     # maintenu activement. Alternative pdfplumber 10× plus lourde —
     # on évalue pdfplumber en D4 si le RAG a besoin de coordonnées.
-    "pypdf>=5,<6",
+    "pypdf>=6.10.2,<7",                # Bump audit 2026-05-01 (22 CVE 5.x : DoS, RAM exhaustion, infinite loops)
 
     # ── Vision multimodale — Session E2 ─────────────────────────
     # Pillow : resize + encoding PNG/JPEG/WEBP pré-envoi LLM pour
     # économiser massivement les tokens image. Une image 4K non-redimensionnée
     # coûte ~4× plus cher qu'une 2K en tokens input Gemini/GPT-4o/Claude.
     # ~5 MB, pure Python + ext C optionnelle, stable depuis 2010.
-    "Pillow>=10,<12",
+    "Pillow>=12.2.0,<14",              # Bump audit 2026-05-01 (CVE-2026-25990 PSD overflow + CVE-2026-40192 FITS bomb)
 
     # ── Mémoire IA pgvector + embeddings — Session D1 ───────────
     # pgvector : bindings Python pour l'extension Postgres `vector`.
@@ -130,8 +130,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0,<9",
-    "pytest-asyncio>=0.24,<1",
+    "pytest>=9.0.3,<10",               # Bump audit 2026-05-01 (CVE-2025-71176 /tmp/pytest-of-{user} DoS)
+    "pytest-asyncio>=1.0,<2",          # Bump audit 2026-05-01 (compat pytest 9.x)
     "ruff>=0.8,<1",                    # Linter + formatter
     # Session L1 — outils CI/CD locaux + GHub Actions
     "mypy>=1.13,<2",                   # Typecheck statique (assoupli V1)
