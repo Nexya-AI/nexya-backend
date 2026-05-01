@@ -81,21 +81,30 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         yield fake_db
 
     # Budget + modération : on bypass pour se concentrer sur l'auto-save.
+    # IMPORTANT : `app.main` fait `from X import Y` au top du fichier, donc
+    # les symboles `get_budget_tracker`, `get_moderation_service`,
+    # `get_ai_router` sont bindés dans `app.main` au moment de l'import.
+    # Patcher uniquement `app.ai.budget_tracker.get_budget_tracker` ne
+    # suffit PAS — il faut patcher `app.main.get_budget_tracker` directement
+    # (règle « monkeypatch le namespace qui consomme, pas celui qui définit »
+    # documentée dans CLAUDE.md §15 E4 décision (i)).
     from app.ai import budget_tracker, moderation
+    from app.ai import runtime
+    import app.main as main_module
 
     bt = MagicMock()
     bt.check_and_consume_image = AsyncMock(return_value=None)
     monkeypatch.setattr(budget_tracker, "get_budget_tracker", lambda: bt)
+    monkeypatch.setattr(main_module, "get_budget_tracker", lambda: bt)
 
     mod = MagicMock()
     decision = MagicMock()
     decision.allowed = True
     mod.check = AsyncMock(return_value=decision)
     monkeypatch.setattr(moderation, "get_moderation_service", lambda: mod)
+    monkeypatch.setattr(main_module, "get_moderation_service", lambda: mod)
 
     # Router IA résout vers un provider factice avec generate_images mocké.
-    from app.ai import runtime
-
     provider = MagicMock()
     provider.name = "gemini-imagen"
     provider.generate_images = AsyncMock(
@@ -118,6 +127,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     resolution.config.expert_id = "studio"
     ai_router.resolve_image = MagicMock(return_value=resolution)
     monkeypatch.setattr(runtime, "get_ai_router", lambda: ai_router)
+    monkeypatch.setattr(main_module, "get_ai_router", lambda: ai_router)
 
     app.dependency_overrides[get_current_user] = _user_override
     app.dependency_overrides[get_db] = _db_override
