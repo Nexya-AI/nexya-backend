@@ -46,12 +46,13 @@ import base64
 import binascii
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Final
 
 import structlog
-from sqlalchemy import func, select, tuple_, update
+from sqlalchemy import exists as sa_exists
+from sqlalchemy import func, or_, select, text, tuple_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -91,6 +92,7 @@ _CONTEXT_MESSAGES_DEFAULT: Final[int] = 30
 # DTO internes — service ↔ router
 # ══════════════════════════════════════════════════════════════
 
+
 @dataclass(frozen=True, slots=True)
 class ConversationsPageOrm:
     """Page paginée de conversations (ORM) + curseur vers la page suivante.
@@ -119,6 +121,7 @@ class MessagesPageOrm:
 # Helpers curseur — opaques côté client
 # ══════════════════════════════════════════════════════════════
 
+
 def _encode_cursor(sort_ts: datetime, row_id: uuid.UUID) -> str:
     """Encode `(sort_ts, row_id)` en base64 urlsafe — opaque côté client.
 
@@ -146,7 +149,7 @@ def _decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
             raise ValueError("cursor missing fields")
         sort_ts = datetime.fromisoformat(iso)
         if sort_ts.tzinfo is None:
-            sort_ts = sort_ts.replace(tzinfo=timezone.utc)
+            sort_ts = sort_ts.replace(tzinfo=UTC)
         row_id = uuid.UUID(row_id_str)
     except (binascii.Error, UnicodeDecodeError, ValueError, TypeError) as exc:
         log.warning("chat.cursor.invalid", cursor=cursor[:40], error=str(exc))
@@ -164,6 +167,7 @@ def _clamp_limit(limit: int | None) -> int:
 # ══════════════════════════════════════════════════════════════
 # ConversationService — namespace de la logique métier Chat
 # ══════════════════════════════════════════════════════════════
+
 
 class ConversationService:
     """Logique métier Chat — CRUD des conversations + lecture paginée des messages.
@@ -284,6 +288,8 @@ class ConversationService:
         is_archived: bool = False,
         is_favorite: bool | None = None,
         expert_id: str | None = None,
+        q: str | None = None,
+        project_id: uuid.UUID | None = None,
     ) -> ConversationsPageOrm:
         """Liste paginée des conversations d'un utilisateur.
 
@@ -297,6 +303,22 @@ class ConversationService:
           liées à ce mode expert uniquement. Utile pour les écrans « par
           expertise » côté Flutter — évite de charger puis filtrer côté
           client sur un historique potentiellement lourd.
+        - `q=None` (défaut) : pas de recherche. Non-vide après strip : une
+          conversation matche si **son titre contient `q`** (ILIKE `%q%`
+          accéléré par l'index GIN trigram `idx_conversations_title_trgm`)
+          **ou** si **au moins un de ses messages** (non supprimé) matche
+          `plainto_tsquery('french', q)` via la colonne générée
+          `messages.search_vector` (index GIN `idx_messages_search_vector`).
+          La sous-requête `EXISTS` court-circuite dès le premier match et
+          évite un JOIN + DISTINCT qui casserait le keyset.
+          Tri inchangé : **on ne trie pas par `ts_rank`** pour préserver
+          le contrat du curseur (même clé de tri quelle que soit `q`).
+          Une itération ultérieure pourra offrir `?sort=relevance` en
+          remplaçant la clé de tri par `ts_rank` *et* le format du curseur.
+        - `project_id=None` (défaut) : pas de filtre projet. UUID explicite :
+          ne renvoie que les conversations attachées à ce projet (Session C2
+          — endpoint `GET /projects/{id}/conversations`). L'index partiel
+          `idx_conversations_project` rend ce filtre O(log N).
 
         Algorithme keyset :
         - Tri sur `COALESCE(last_message_at, created_at) DESC, id DESC`.
@@ -316,14 +338,36 @@ class ConversationService:
             conditions.append(Conversation.is_favorite.is_(is_favorite))
         if expert_id is not None:
             conditions.append(Conversation.expert_id == expert_id)
+        if project_id is not None:
+            conditions.append(Conversation.project_id == project_id)
+
+        if q is not None:
+            q_stripped = q.strip()
+            if q_stripped:
+                # Fuzzy match trigram sur le titre (index gin_trgm_ops).
+                title_match = Conversation.title.ilike(f"%{q_stripped}%")
+                # FTS français sur `messages.search_vector` (colonne générée
+                # STORED, index GIN). `text()` + bind param pour passer
+                # l'opérateur `@@` et `plainto_tsquery` que l'ORM ne modélise
+                # pas nativement — tout en restant à l'abri de l'injection
+                # (le paramètre est bindé, pas interpolé).
+                fts_clause = text(
+                    "messages.search_vector @@ plainto_tsquery('french', :q_fts)"
+                ).bindparams(q_fts=q_stripped)
+                message_match = sa_exists(
+                    select(Message.id).where(
+                        Message.conversation_id == Conversation.id,
+                        Message.deleted_at.is_(None),
+                        fts_clause,
+                    )
+                )
+                conditions.append(or_(title_match, message_match))
 
         if cursor:
             cursor_ts, cursor_id = _decode_cursor(cursor)
             # Keyset DESC : la ligne suivante a un (sort_ts, id) strictement
             # inférieur à (cursor_ts, cursor_id) en ordre lexicographique.
-            conditions.append(
-                tuple_(sort_expr, Conversation.id) < tuple_(cursor_ts, cursor_id)
-            )
+            conditions.append(tuple_(sort_expr, Conversation.id) < tuple_(cursor_ts, cursor_id))
 
         stmt = (
             select(Conversation)
@@ -352,9 +396,7 @@ class ConversationService:
         db: AsyncSession,
     ) -> Conversation:
         """Retourne une conversation précise (propriétaire uniquement)."""
-        return await ConversationService._get_owned_conversation(
-            conversation_id, user.id, db
-        )
+        return await ConversationService._get_owned_conversation(conversation_id, user.id, db)
 
     # ── UPDATE (partiel) ─────────────────────────────────────────
     @staticmethod
@@ -382,7 +424,7 @@ class ConversationService:
             return conversation
         for field, value in update_data.items():
             setattr(conversation, field, value)
-        conversation.updated_at = datetime.now(timezone.utc)
+        conversation.updated_at = datetime.now(UTC)
         await db.commit()
         await db.refresh(conversation)
         log.info(
@@ -414,7 +456,7 @@ class ConversationService:
         conversation = await ConversationService._get_owned_conversation(
             conversation_id, user.id, db
         )
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         conversation.deleted_at = now
         conversation.updated_at = now
         await db.commit()
@@ -465,9 +507,7 @@ class ConversationService:
 
         if cursor:
             cursor_ts, cursor_id = _decode_cursor(cursor)
-            conditions.append(
-                tuple_(sort_expr, Conversation.id) < tuple_(cursor_ts, cursor_id)
-            )
+            conditions.append(tuple_(sort_expr, Conversation.id) < tuple_(cursor_ts, cursor_id))
 
         stmt = (
             select(Conversation)
@@ -510,7 +550,7 @@ class ConversationService:
             conversation_id, user.id, db
         )
         conversation.deleted_at = None
-        conversation.updated_at = datetime.now(timezone.utc)
+        conversation.updated_at = datetime.now(UTC)
         await db.commit()
         await db.refresh(conversation)
         log.info(
@@ -579,9 +619,7 @@ class ConversationService:
         envoie un `conversation_id` qu'il ne possède pas reçoit 404, pas
         une liste vide — on ne laisse aucune place au doute.
         """
-        await ConversationService._get_owned_conversation(
-            conversation_id, user.id, db
-        )
+        await ConversationService._get_owned_conversation(conversation_id, user.id, db)
         effective_limit = _clamp_limit(limit)
 
         conditions = [
@@ -593,9 +631,7 @@ class ConversationService:
             # Keyset ASC : la ligne suivante a un (created_at, id) strictement
             # supérieur à (cursor_ts, cursor_id). L'index idx_messages_conv_time
             # sur (conversation_id, created_at, id) est exactement aligné.
-            conditions.append(
-                tuple_(Message.created_at, Message.id) > tuple_(cursor_ts, cursor_id)
-            )
+            conditions.append(tuple_(Message.created_at, Message.id) > tuple_(cursor_ts, cursor_id))
 
         stmt = (
             select(Message)
@@ -643,7 +679,7 @@ class ConversationService:
         uniquement depuis des chemins qui ont déjà validé la propriété via
         `_get_owned_conversation`.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stmt = (
             update(Conversation)
             .where(Conversation.id == conversation_id)
@@ -704,9 +740,7 @@ class ConversationService:
         plutôt que de tout rollback).
         """
         if conversation_id is not None:
-            return await ConversationService._get_owned_conversation(
-                conversation_id, user.id, db
-            )
+            return await ConversationService._get_owned_conversation(conversation_id, user.id, db)
 
         conversation = Conversation(
             user_id=user.id,
@@ -761,7 +795,8 @@ class ConversationService:
         # `role` en DB est contraint à `user`/`assistant`/`system` par CHECK,
         # on peut donc le passer tel quel au provider IA.
         return [
-            AiChatMessage(role=r.role, content=r.content) for r in rows  # type: ignore[arg-type]
+            AiChatMessage(role=r.role, content=r.content)
+            for r in rows  # type: ignore[arg-type]
         ]
 
     # ── Début d'un tour : user + placeholder assistant ─────────────
@@ -866,7 +901,7 @@ class ConversationService:
         else:
             cost_value = Decimal(str(cost_usd))
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         await db.execute(
             update(Message)
             .where(Message.id == assistant_message_id)
@@ -905,6 +940,7 @@ class ConversationService:
 # ══════════════════════════════════════════════════════════════
 # ReportService — signalements de messages abusifs
 # ══════════════════════════════════════════════════════════════
+
 
 class ReportService:
     """Logique métier des signalements `AbuseReport` (App Store §1.2).
@@ -974,9 +1010,7 @@ class ReportService:
         L'absence de pré-check rend la trame anti-spam bord-à-bord :
         Postgres atomise l'unicité, on traduit son verdict en HTTP propre.
         """
-        message = await ReportService._get_owned_message(
-            body.message_id, user.id, db
-        )
+        message = await ReportService._get_owned_message(body.message_id, user.id, db)
 
         # Capture des identifiants en str AVANT le commit : après un rollback,
         # SQLAlchemy expire toutes les colonnes ORM, et un simple `str(user.id)`

@@ -19,10 +19,10 @@ from app.core.errors.handlers import _safe_body_preview, _safe_errors, _scrub
 from app.features.auth.schemas import RegisterRequest
 from app.main import app
 
-
 # ══════════════════════════════════════════════════════════════
 # 1. Healthz — liveness indépendante des dépendances externes
 # ══════════════════════════════════════════════════════════════
+
 
 def test_healthz_returns_ok_without_dependencies() -> None:
     """La liveness probe ne doit JAMAIS dépendre de DB/Redis."""
@@ -37,6 +37,7 @@ def test_healthz_returns_ok_without_dependencies() -> None:
 # ══════════════════════════════════════════════════════════════
 # 2. Ready — readiness renvoie 503 si une dépendance est down
 # ══════════════════════════════════════════════════════════════
+
 
 def test_ready_returns_503_when_database_unreachable() -> None:
     """En CI sans Postgres joignable, /ready doit signaler 503 (pas 200).
@@ -56,6 +57,7 @@ def test_ready_returns_503_when_database_unreachable() -> None:
 # 3. Register — mot de passe faible rejeté côté schéma
 # ══════════════════════════════════════════════════════════════
 
+
 def test_register_request_rejects_weak_password() -> None:
     """Un mot de passe sans majuscule/chiffre doit échouer AVANT d'atteindre le service."""
     with pytest.raises(ValidationError):
@@ -72,6 +74,7 @@ def test_register_request_accepts_strong_password() -> None:
 # ══════════════════════════════════════════════════════════════
 # 4. Scrubber — aucun secret ne doit transiter en log
 # ══════════════════════════════════════════════════════════════
+
 
 def test_scrub_masks_password_and_token_fields() -> None:
     """Les clés sensibles sont masquées récursivement, même en profondeur."""
@@ -116,6 +119,7 @@ def test_safe_errors_redacts_sensitive_input() -> None:
 # 5. Config production — refus des valeurs de dev
 # ══════════════════════════════════════════════════════════════
 
+
 def test_production_settings_reject_wildcard_cors() -> None:
     """ALLOWED_ORIGINS=* combiné à allow_credentials=True = faille CSRF. Refusé en prod."""
     with pytest.raises(ValidationError) as excinfo:
@@ -142,6 +146,16 @@ def test_production_settings_accept_valid_configuration() -> None:
         allowed_origins="https://app.nexya.ai,https://www.nexya.ai",
         debug=False,
         db_echo=False,
+        # K1 — token Prometheus obligatoire en prod
+        prometheus_scrape_token="prod-scrape-token-not-empty",
+        # K2 — Grafana admin password fort obligatoire en prod
+        grafana_admin_password="prod-grafana-strong-password-x32",
+        # J1 — au moins un email DPO obligatoire en prod
+        rgpd_admin_emails=["dpo@nexya.ai"],
+        # O1 — preset headers sécurité prod obligatoire en prod
+        security_headers_preset="prod",
+        # E4.5 — C2PA désactivé dans tests (évite besoin clés X.509)
+        c2pa_enabled=False,
     )
     assert settings.is_production is True
     assert settings.cors_origins == ["https://app.nexya.ai", "https://www.nexya.ai"]

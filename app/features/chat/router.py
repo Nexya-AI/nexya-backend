@@ -45,7 +45,6 @@ import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass, field
 
 import structlog
 from fastapi import APIRouter, Depends, Query, Request, Response, status
@@ -53,13 +52,25 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.budget_tracker import get_budget_tracker
+from app.ai.cache import CachedResponse, get_prompt_cache
+from app.ai.engine import (
+    QueryEngine,
+    StreamOutcome,
+    observe_sse_event,
+)
 from app.ai.moderation import get_moderation_service
+from app.ai.moderation_rules import check_business_rules
 from app.ai.observability import StreamMetrics
 from app.ai.providers import ChatMessage as AiChatMessage
-from app.ai.runtime import get_stream_handler
+from app.ai.providers.base import ChatUsage
+from app.ai.runtime import get_ai_router, get_stream_handler
 from app.ai.streaming import StreamContext, mark_cancelled
+from app.ai.token_estimator import estimate as estimate_tokens
+from app.ai.tools import get_tool_registry
+from app.config import settings
 from app.core.auth.guards import get_current_user
 from app.core.database.postgres import AsyncSessionLocal, get_db
+from app.core.errors.exceptions import LlmQuotaExceededException
 from app.core.observability.trace import get_trace_id
 from app.core.security.rate_limiter import rate_limit_abuse_reports
 from app.features.auth.models import User
@@ -78,8 +89,14 @@ from app.features.chat.schemas import (
     MessagesPage,
 )
 from app.features.chat.service import ConversationService, ReportService
+from app.features.experts.context_builder import build_expert_corpus_context
+from app.features.memory.context_builder import build_memory_context
 from app.shared.schemas import NexyaResponse
 from workers.chat_tasks import enqueue_title_generation
+from workers.memory_tasks import (
+    EXTRACTION_MIN_MESSAGES,
+    enqueue_memory_extraction,
+)
 
 log = structlog.get_logger()
 
@@ -89,6 +106,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 # ══════════════════════════════════════════════════════════════
 # CONVERSATIONS — CRUD
 # ══════════════════════════════════════════════════════════════
+
 
 @router.post(
     "/conversations",
@@ -124,9 +142,7 @@ async def list_conversations(
         max_length=256,
         description="Curseur opaque renvoyé par la page précédente.",
     ),
-    limit: int = Query(
-        default=20, ge=1, le=50, description="Nombre d'items par page (1–50)."
-    ),
+    limit: int = Query(default=20, ge=1, le=50, description="Nombre d'items par page (1–50)."),
     is_archived: bool = Query(
         default=False,
         description="`false` = onglet principal, `true` = onglet Archivées.",
@@ -141,6 +157,16 @@ async def list_conversations(
         max_length=32,
         description="Filtre par mode expert (ex. `computer`, `cooking`). Absent = tous experts.",
     ),
+    q: str | None = Query(
+        default=None,
+        min_length=1,
+        max_length=200,
+        description=(
+            "Recherche plein texte. Matche sur le titre (trigram fuzzy) "
+            "ou sur le contenu d'au moins un message (tsvector français). "
+            "Absent ou vide = pas de filtre."
+        ),
+    ),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> NexyaResponse[ConversationsPage]:
@@ -149,7 +175,9 @@ async def list_conversations(
     Le Flutter appelle sans `cursor` pour la première page, puis renvoie
     `next_cursor` tel quel à chaque défilement. `next_cursor=null` signale
     la fin de l'historique. Filtre `expert_id` réservé aux écrans
-    « Discussions par expert » (un seul mode à la fois).
+    « Discussions par expert » (un seul mode à la fois). Le paramètre `q`
+    active la recherche plein texte (titre trigram + FTS français sur les
+    messages) sans changer la clé de tri (le curseur reste compatible).
     """
     page = await ConversationService.list_for_user(
         current_user,
@@ -159,6 +187,7 @@ async def list_conversations(
         is_archived=is_archived,
         is_favorite=is_favorite,
         expert_id=expert_id,
+        q=q,
     )
     return NexyaResponse(
         success=True,
@@ -179,9 +208,7 @@ async def list_trash_conversations(
         max_length=256,
         description="Curseur opaque renvoyé par la page précédente.",
     ),
-    limit: int = Query(
-        default=20, ge=1, le=50, description="Nombre d'items par page (1–50)."
-    ),
+    limit: int = Query(default=20, ge=1, le=50, description="Nombre d'items par page (1–50)."),
     expert_id: str | None = Query(
         default=None,
         min_length=1,
@@ -231,9 +258,7 @@ async def get_conversation(
 ) -> NexyaResponse[ConversationResponse]:
     """Détail d'une conversation — 404 si elle n'existe pas OU n'appartient
     pas à l'utilisateur courant (protection IDOR sans fuite d'information)."""
-    conversation = await ConversationService.get_by_id(
-        conversation_id, current_user, db
-    )
+    conversation = await ConversationService.get_by_id(conversation_id, current_user, db)
     return NexyaResponse(
         success=True,
         data=ConversationResponse.model_validate(conversation),
@@ -257,9 +282,7 @@ async def update_conversation(
     ici, puisque les champs modifiables sont soit `title` optionnel, soit
     des booléens). Payload vide = no-op (pas d'incrément d'`updated_at`).
     """
-    conversation = await ConversationService.update(
-        conversation_id, body, current_user, db
-    )
+    conversation = await ConversationService.update(conversation_id, body, current_user, db)
     return NexyaResponse(
         success=True,
         data=ConversationResponse.model_validate(conversation),
@@ -306,9 +329,7 @@ async def restore_conversation(
     404 IDOR-safe si la conversation n'existe pas, n'appartient pas à
     l'utilisateur, ou n'est pas dans la corbeille.
     """
-    conversation = await ConversationService.restore(
-        conversation_id, current_user, db
-    )
+    conversation = await ConversationService.restore(conversation_id, current_user, db)
     return NexyaResponse(
         success=True,
         data=ConversationResponse.model_validate(conversation),
@@ -346,6 +367,7 @@ async def permanent_delete_conversation(
 # MESSAGES — lecture paginée (l'écriture passe par /chat/stream)
 # ══════════════════════════════════════════════════════════════
 
+
 @router.get(
     "/conversations/{conversation_id}/messages",
     response_model=NexyaResponse[MessagesPage],
@@ -357,9 +379,7 @@ async def list_conversation_messages(
         max_length=256,
         description="Curseur opaque renvoyé par la page précédente.",
     ),
-    limit: int = Query(
-        default=20, ge=1, le=50, description="Nombre d'items par page (1–50)."
-    ),
+    limit: int = Query(default=20, ge=1, le=50, description="Nombre d'items par page (1–50)."),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> NexyaResponse[MessagesPage]:
@@ -401,35 +421,12 @@ async def list_conversation_messages(
 #      - finalize_assistant_stream dans le `finally`, session fraîche, shieldée
 # ══════════════════════════════════════════════════════════════
 
-# Mapping SSE `done.reason` → `Message.status` final (aligné sur le CHECK SQL).
-_DONE_REASON_TO_STATUS: dict[str, str] = {
-    "stop": "completed",
-    "cancelled": "cancelled",
-    "error": "failed",
-}
-
 # Seuil d'auto-titre : on enqueue dès que la conversation a au moins 4
 # messages `completed` (≈ 2 tours user/assistant). Le « >= » plutôt que
 # « == » est volontaire — si l'enqueue d'un tour précédent a échoué (Redis
 # flap, bug arq), un tour ultérieur déclenche une nouvelle tentative ; la
 # sentinelle `title_generated_at` en DB protège du doublon de titre.
 _TITLE_AUTOGENERATE_THRESHOLD = 4
-
-
-@dataclass(slots=True)
-class _StreamOutcome:
-    """Accumulateur mutable partagé entre le scan SSE et la finalisation.
-
-    - `done_reason` : dernière raison vue dans un événement `done`. Si on n'en
-      voit jamais (cas d'un disconnect avant la fin), on retombe sur le défaut
-      `'error'` → status `failed`.
-    - `error_code` : code d'erreur vu dans le dernier événement `error` (pris
-      comme `error_code` final si on termine en échec ou annulation).
-    """
-
-    done_reason: str = "error"
-    error_code: str | None = None
-    content_parts: list[str] = field(default_factory=list)
 
 
 @router.post("/stream")
@@ -460,7 +457,7 @@ async def chat_stream(
     # ── 1. Budget : cap absolu user/jour (pré-consommation) ──────────
     await get_budget_tracker().check_and_consume_chat(user_id_str)
 
-    # ── 2. Modération du prompt utilisateur (fail-open si clé absente) ─
+    # ── 2. Modération OpenAI du prompt (fail-open si clé absente) ────
     decision = await get_moderation_service().check(
         body.message, kind="input", user_id=user_id_str, trace_id=trace_id
     )
@@ -474,7 +471,47 @@ async def chat_stream(
             ).model_dump(mode="json"),
         )
 
-    # ── 3. Décision de mode : persisté vs legacy stateless ───────────
+    # ── 3. Règles de modération métier B2 (prescription, acte juridique) ─
+    # Appliqué APRÈS la modération générique pour laisser OpenAI catch le
+    # contenu toxique, puis appliquer nos règles spécifiques NEXYA.
+    rules_decision = check_business_rules(
+        text=body.message,
+        expert_id=body.expert_id or "general",
+        kind="input",
+    )
+    if not rules_decision.allowed:
+        return JSONResponse(
+            status_code=400,
+            content=NexyaResponse(
+                success=False,
+                error=rules_decision.message or "Cette requête sort du cadre autorisé pour NEXYA.",
+                code="CONTENT_FILTERED",
+                data={"rule": rules_decision.reason},
+            ).model_dump(mode="json"),
+        )
+
+    # ── 4. Résolution de la chaîne IA pour expert_id → provider/model ─
+    # Nécessaire pour estimer les tokens et construire la clé de cache.
+    resolution = get_ai_router().resolve(body.expert_id)
+    config = resolution.config
+
+    # ── 4.5. F2.5 — Tools LLM (function calling). Injection des 4 tools
+    # Planner si (a) le kill-switch global est ON et (b) l'expert courant
+    # autorise les tools (`tools_allowed=True`, False par défaut sur
+    # `medicine` et `legal`). `build_openai_tools()` produit le format
+    # natif OpenAI `[{type:function, function:{name,description,parameters}}]`,
+    # consommé tel quel par le provider OpenAI/Qwen, ré-écrit en
+    # `input_schema` côté Anthropic et `function_declarations` côté
+    # Gemini par les helpers privés des providers. `tools_for_request`
+    # peut être None ou liste vide → le `StreamContext.tools` reste None
+    # et les providers se comportent comme F2 (sans tools).
+    tools_for_request: list[dict] | None = None
+    if settings.tools_enabled_in_chat and config.tools_allowed:
+        registry_tools = get_tool_registry().build_openai_tools()
+        if registry_tools:
+            tools_for_request = registry_tools
+
+    # ── 5. Préparation des messages IA selon le mode ────────────────
     is_legacy_stateless = body.conversation_id is None and bool(body.history)
     response_headers: dict[str, str] = {
         "Cache-Control": "no-cache",
@@ -483,45 +520,147 @@ async def chat_stream(
         "X-Session-Id": session_id,
     }
 
+    # Compose la liste finale des `ChatMessage` qui servira à l'estimation
+    # tokens + clé de cache. Le mode persisté ajoute l'historique DB, le mode
+    # legacy utilise `body.history`.
     if is_legacy_stateless:
-        # Chemin legacy : pas de persistance. Le message n'entre jamais en DB.
-        # Gardé pour la compat du Flutter actuel qui envoie toujours `history`.
         ai_messages = _build_ai_messages_from_history(body)
+        conversation = None
+        placeholder = None
+    else:
+        conversation = await ConversationService.ensure_conversation_for_stream(
+            body.conversation_id,
+            current_user,
+            db,
+            expert_id_hint=body.expert_id,
+        )
+        context_messages = await ConversationService.load_context_messages(conversation, db)
+        ai_messages = list(context_messages)
+        ai_messages.append(AiChatMessage(role="user", content=body.message))
+
+    # ── 5.5. D3 — Récupération des memories pertinentes ──────────────
+    # L'injection mémoire IA se fait AVANT le token estimator pour que
+    # le cap 30 000 tokens (B2) prenne en compte le bloc mémoire injecté.
+    # Fail-safe absolue : `build_memory_context` catche toute exception
+    # en interne et retourne `None` si la recherche échoue (pgvector
+    # lent, embeddings API down, budget embeddings dépassé). Le chat
+    # ne doit JAMAIS être bloqué par un dysfonctionnement mémoire.
+    memory_context = await build_memory_context(current_user, db, query=body.message)
+
+    # ── 5.6. G1 — Récupération des chunks corpus expert pertinents ──
+    # Même discipline que D3 : fail-safe absolue, shortcut si
+    # `config.corpus_enabled=False` OU si le kill-switch global
+    # `settings.expert_corpus_enabled=False`. Consomme 1 embed query
+    # Gemini (task_type=RETRIEVAL_QUERY, ~$0 dans le quota gratuit).
+    expert_corpus_context: str | None = None
+    if config.corpus_enabled:
+        expert_corpus_context = await build_expert_corpus_context(
+            expert_slug=config.expert_id,
+            query=body.message,
+            db=db,
+        )
+
+    # Pour le token estimator + cache key, on compose localement le
+    # system_prompt final dans le même ordre que `_stream_link` :
+    # memory → corpus → expert. La concat définitive est refaite dans
+    # `_stream_link` à partir des champs `ctx.memory_context` +
+    # `ctx.expert_corpus_context` — Single Source of Truth.
+    _prompt_parts = [
+        memory_context,
+        expert_corpus_context,
+        config.system_prompt or None,
+    ]
+    system_prompt_for_check = "\n\n".join(p for p in _prompt_parts if p)
+
+    # ── 6. Estimation tokens pré-appel + cap anti-abus (402) ────────
+    # On estime AVANT toute écriture DB pour qu'un user qui dépasse le cap
+    # soit refusé sans que son message user soit persisté (expérience plus
+    # propre : pas de conversation orpheline en DB avec un placeholder failed).
+    estimate = estimate_tokens(
+        provider=resolution.provider.name,
+        model=resolution.model,
+        messages=ai_messages,
+        system_prompt=system_prompt_for_check,
+        max_tokens=config.max_tokens,
+    )
+    if estimate.prompt_tokens > settings.chat_prompt_tokens_per_request_max:
+        log.warning(
+            "ai.chat.prompt_tokens_over_cap",
+            user_id=user_id_str,
+            trace_id=trace_id,
+            expert_id=body.expert_id,
+            provider=resolution.provider.name,
+            model=resolution.model,
+            prompt_tokens=estimate.prompt_tokens,
+            cap=settings.chat_prompt_tokens_per_request_max,
+        )
+        raise LlmQuotaExceededException()
+
+    # ── 7. Cache prompt : lookup avant stream (brique B2) ────────────
+    # Seul le mode legacy stateless est cachable pour B2 — le mode persisté
+    # demanderait d'insérer le message user + placeholder et de simuler
+    # un stream après hit, complexe à valider en un lot. La prochaine
+    # itération étendra le cache au mode persisté une fois le legacy
+    # retiré (contrat Flutter figé sur l'historique côté serveur).
+    cache = get_prompt_cache()
+    cache_key: str | None = None
+    if is_legacy_stateless and cache.is_cacheable(config, ai_messages):
+        cache_key = cache.build_key(
+            model=resolution.model,
+            messages=ai_messages,
+            system_prompt=system_prompt_for_check,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+            expert_id=config.expert_id,
+        )
+        hit = await cache.get(cache_key)
+        if hit is not None:
+            log.info(
+                "ai.cache.hit",
+                user_id=user_id_str,
+                trace_id=trace_id,
+                expert_id=config.expert_id,
+                provider=hit.provider,
+                model=hit.model,
+                cache_key=cache_key,
+            )
+            return StreamingResponse(
+                _replay_cached_stream(hit, trace_id=trace_id),
+                media_type="text/event-stream",
+                headers={**response_headers, "X-Cache": "HIT"},
+            )
+
+    # ── 8a. Stream legacy stateless (pas de persistance DB) ──────────
+    if is_legacy_stateless:
         ctx = StreamContext(
             expert_id=body.expert_id,
             user_messages=ai_messages,
             user_id=user_id_str,
             trace_id=trace_id,
             session_id=session_id,
+            memory_context=memory_context,
+            expert_corpus_context=expert_corpus_context,
+            tools=tools_for_request,
         )
         handler = get_stream_handler()
         return StreamingResponse(
-            handler.stream(request, ctx),
+            _legacy_stream_with_cache_put(
+                handler=handler,
+                request=request,
+                ctx=ctx,
+                cache_key=cache_key,
+                provider_name=resolution.provider.name,
+                model=resolution.model,
+            ),
             media_type="text/event-stream",
-            headers=response_headers,
+            headers={**response_headers, "X-Cache": "MISS" if cache_key else "BYPASS"},
         )
 
-    # ── 4. Résolution de la conversation cible (persistance active) ──
-    conversation = await ConversationService.ensure_conversation_for_stream(
-        body.conversation_id,
-        current_user,
-        db,
-        expert_id_hint=body.expert_id,
-    )
-
-    # Historique : on rejoue toujours la version en base — `body.history` est
-    # ignoré dans les chemins persistés (la vérité est en DB).
-    context_messages = await ConversationService.load_context_messages(
-        conversation, db
-    )
-
-    # Insertion atomique user + placeholder assistant, compteur +2.
+    # ── 8b. Stream persisté : user + placeholder déjà insérés ───────
+    assert conversation is not None  # garanti par le branchement ci-dessus
     _user_msg, placeholder = await ConversationService.start_stream_turn(
         conversation, body.message, db
     )
-
-    ai_messages = list(context_messages)
-    ai_messages.append(AiChatMessage(role="user", content=body.message))
 
     metrics = StreamMetrics(
         user_id=user_id_str,
@@ -536,6 +675,9 @@ async def chat_stream(
         trace_id=trace_id,
         session_id=session_id,
         metrics=metrics,
+        memory_context=memory_context,
+        expert_corpus_context=expert_corpus_context,
+        tools=tools_for_request,
     )
 
     response_headers["X-Conversation-Id"] = str(conversation.id)
@@ -565,14 +707,13 @@ async def chat_stop(
     + `done reason=cancelled`), ce qui déclenche la finalisation du message
     avec `status='cancelled'`."""
     await mark_cancelled(body.session_id)
-    return NexyaResponse(
-        success=True, data={"session_id": body.session_id, "cancelled": True}
-    )
+    return NexyaResponse(success=True, data={"session_id": body.session_id, "cancelled": True})
 
 
 # ══════════════════════════════════════════════════════════════
 # ABUSE REPORTS — POST /chat/reports
 # ══════════════════════════════════════════════════════════════
+
 
 @router.post(
     "/reports",
@@ -611,6 +752,7 @@ async def create_abuse_report(
 # ══════════════════════════════════════════════════════════════
 # HELPERS — stream persisté
 # ══════════════════════════════════════════════════════════════
+
 
 def _build_ai_messages_from_history(body: ChatStreamRequest) -> list[AiChatMessage]:
     """Convertit `body.history + body.message` au format IA (chemin legacy)."""
@@ -663,11 +805,11 @@ async def _persisted_stream(
     a été rendu à l'utilisateur. Alignement RGPD : le contenu affiché
     côté client est le contenu stocké.
     """
-    outcome = _StreamOutcome()
+    outcome = StreamOutcome()
+    engine = QueryEngine(handler=handler)
     try:
-        async for event in handler.stream(request, ctx):
+        async for event in engine.run(request, ctx, outcome=outcome):
             yield event
-            _observe_sse_event(event, outcome)
     finally:
         await asyncio.shield(
             _finalize_in_fresh_session(
@@ -679,54 +821,11 @@ async def _persisted_stream(
         )
 
 
-def _observe_sse_event(event: str, outcome: _StreamOutcome) -> None:
-    """Parse un événement SSE pour extraire `delta`, `done.reason`, `error.code`.
-
-    Format attendu (cf. streaming._sse) :
-        event: <type>\n
-        data: <json>\n
-        \n
-
-    Les commentaires (`: keepalive`) sont ignorés silencieusement. Un
-    événement malformé est loggé en warning et ignoré — on préfère perdre
-    un fragment de trace plutôt que faire crasher la finalisation.
-    """
-    if event.startswith(":"):
-        return
-    event_type: str | None = None
-    data_str: str | None = None
-    for line in event.split("\n"):
-        if line.startswith("event: "):
-            event_type = line[len("event: "):].strip()
-        elif line.startswith("data: "):
-            data_str = line[len("data: "):]
-    if event_type is None or data_str is None:
-        return
-    try:
-        payload = json.loads(data_str)
-    except (ValueError, TypeError):
-        log.warning("chat.stream.sse_parse_failed", raw=event[:120])
-        return
-
-    if event_type == "chunk":
-        delta = payload.get("delta")
-        if isinstance(delta, str):
-            outcome.content_parts.append(delta)
-    elif event_type == "done":
-        reason = payload.get("reason")
-        if isinstance(reason, str):
-            outcome.done_reason = reason
-    elif event_type == "error":
-        code = payload.get("code")
-        if isinstance(code, str):
-            outcome.error_code = code
-
-
 async def _finalize_in_fresh_session(
     *,
     assistant_message_id: uuid.UUID,
     conversation_id: uuid.UUID,
-    outcome: _StreamOutcome,
+    outcome: StreamOutcome,
     metrics: StreamMetrics,
 ) -> None:
     """Ouvre une session DB indépendante et finalise le placeholder.
@@ -742,11 +841,12 @@ async def _finalize_in_fresh_session(
     une erreur ici masquerait un éventuel `CancelledError` légitime du
     caller.
     """
-    status_final = _DONE_REASON_TO_STATUS.get(outcome.done_reason, "failed")
-    content = "".join(outcome.content_parts)
+    status_final = outcome.final_status()
+    content = outcome.final_content()
     usage = metrics.usage
 
     should_enqueue_title = False
+    should_enqueue_memory_extraction = False
     try:
         async with AsyncSessionLocal() as db:
             await ConversationService.finalize_assistant_stream(
@@ -774,6 +874,21 @@ async def _finalize_in_fresh_session(
                     and conv.title is None
                     and conv.message_count >= _TITLE_AUTOGENERATE_THRESHOLD
                 )
+                # Décide d'enqueuer l'extraction de faits durables (D2)
+                # — mêmes principes que le titre auto :
+                # - stream finalisé proprement uniquement,
+                # - sentinelle `memory_extracted_at` pas encore posée,
+                # - seuil `>= EXTRACTION_MIN_MESSAGES` (6 messages =
+                #   3 tours user/assistant minimum pour avoir du signal
+                #   exploitable par le LLM extractif).
+                # Seuil `>=` (pas `==`) : si l'enqueue du précédent run
+                # a raté, un tour ultérieur déclenche un nouveau essai,
+                # la sentinelle protège du double travail.
+                should_enqueue_memory_extraction = bool(
+                    conv
+                    and conv.memory_extracted_at is None
+                    and conv.message_count >= EXTRACTION_MIN_MESSAGES
+                )
     except Exception as exc:  # noqa: BLE001
         log.error(
             "chat.stream.finalize_failed",
@@ -790,3 +905,202 @@ async def _finalize_in_fresh_session(
         # de l'I/O Redis. L'enqueue fail-safe : `enqueue_title_generation`
         # log et avale l'erreur si Redis est down.
         await enqueue_title_generation(conversation_id)
+
+    if should_enqueue_memory_extraction:
+        # Même discipline fail-safe : `enqueue_memory_extraction` log et
+        # avale l'erreur si Redis est down (l'extraction est cosmétique,
+        # jamais bloquante pour l'utilisateur).
+        await enqueue_memory_extraction(conversation_id)
+
+
+# ══════════════════════════════════════════════════════════════
+# HELPERS — cache prompt (brique B2)
+# ══════════════════════════════════════════════════════════════
+
+
+def _sse_chunk(delta: str) -> str:
+    """Format SSE `event: chunk` avec un delta texte — aligné sur `_sse` de `streaming.py`."""
+    payload = json.dumps({"delta": delta}, ensure_ascii=False, separators=(",", ":"))
+    return f"event: chunk\ndata: {payload}\n\n"
+
+
+def _sse_done(reason: str, *, usage: dict | None = None) -> str:
+    """Format SSE `event: done` — `reason` toujours présent, `usage` si connu."""
+    data: dict[str, object] = {"reason": reason}
+    if usage is not None:
+        data["usage"] = usage
+    payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return f"event: done\ndata: {payload}\n\n"
+
+
+async def _replay_cached_stream(
+    hit: CachedResponse,
+    *,
+    trace_id: str,
+) -> AsyncIterator[str]:
+    """Rejoue une réponse cachée sous forme de SSE — single chunk + done.
+
+    On ne reconstitue pas la séquence originale de chunks (impossible :
+    seule la réponse finale est stockée). Le Flutter reçoit donc le texte
+    entier dans un unique événement `chunk`, puis un `done reason=stop`.
+    Cohérent avec le contrat SSE actuel — le client n'assume aucune
+    granularité particulière sur les deltas.
+    """
+    usage_payload = {
+        "prompt_tokens": hit.prompt_tokens,
+        "completion_tokens": hit.completion_tokens,
+        "total_tokens": hit.total_tokens,
+    }
+    log.info(
+        "ai.cache.replayed",
+        trace_id=trace_id,
+        provider=hit.provider,
+        model=hit.model,
+        total_tokens=hit.total_tokens,
+    )
+    yield _sse_chunk(hit.text)
+    yield _sse_done("stop", usage=usage_payload)
+
+
+async def _legacy_stream_with_cache_put(
+    *,
+    handler,
+    request: Request,
+    ctx: StreamContext,
+    cache_key: str | None,
+    provider_name: str,
+    model: str,
+) -> AsyncIterator[str]:
+    """Enveloppe le stream legacy pour capturer le texte final et le mettre
+    en cache à la fin — si et seulement si la génération s'est terminée
+    proprement (done reason = stop, pas d'erreur).
+
+    Contrairement au mode persisté, on ne finalise rien en DB ici — on
+    accumule juste les deltas localement et on appelle `cache.put()` à
+    la fin. `cache.put()` est fail-open (Redis down → log + no-op).
+    """
+    outcome = StreamOutcome()
+    finish_reason: str | None = None
+    prompt_tokens = 0
+    completion_tokens = 0
+    total_tokens = 0
+
+    # Pas de try/finally ici : si le stream est interrompu par une exception
+    # ou un disconnect client, la boucle s'arrête et on ne cache rien — c'est
+    # exactement ce qu'on veut (on ne cache que les streams cleanly terminés).
+    async for event in handler.stream(request, ctx):
+        yield event
+        observe_sse_event(event, outcome)
+        # Tente d'extraire `finish_reason` + `usage` du dernier chunk.
+        if event.startswith("event: chunk"):
+            _, _, data_line = event.partition("data: ")
+            data_str = data_line.split("\n", 1)[0] if data_line else ""
+            if data_str:
+                try:
+                    payload = json.loads(data_str)
+                except (ValueError, TypeError):
+                    payload = None
+                if isinstance(payload, dict):
+                    fr = payload.get("finish_reason")
+                    if isinstance(fr, str):
+                        finish_reason = fr
+                    usage = payload.get("usage")
+                    if isinstance(usage, dict):
+                        prompt_tokens = int(usage.get("prompt_tokens", 0) or 0)
+                        completion_tokens = int(usage.get("completion_tokens", 0) or 0)
+                        total_tokens = int(
+                            usage.get("total_tokens", prompt_tokens + completion_tokens) or 0
+                        )
+
+    # Stream terminé naturellement. On décide du cache-put ci-dessous.
+    if cache_key is None:
+        return
+    # Ne cache QUE les streams cleanly terminés (done reason=stop,
+    # pas d'erreur, pas de troncature). `cache.put` re-vérifie
+    # aussi ces invariants — ceinture + bretelles.
+    if outcome.done_reason != "stop" or outcome.error_code:
+        return
+    content = "".join(outcome.content_parts)
+    if not content.strip():
+        return
+    usage_obj = ChatUsage(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        total_tokens=total_tokens or (prompt_tokens + completion_tokens),
+    )
+    cache = get_prompt_cache()
+    try:
+        await cache.put(
+            cache_key,
+            text=content,
+            provider=provider_name,
+            model=model,
+            usage=usage_obj,
+            status="completed",
+            error_code=None,
+            finish_reason=finish_reason,
+        )
+        log.info(
+            "ai.cache.stored",
+            trace_id=ctx.trace_id,
+            provider=provider_name,
+            model=model,
+            cache_key=cache_key,
+            total_tokens=usage_obj.total_tokens,
+        )
+    except Exception as exc:  # noqa: BLE001 — fail-open
+        log.warning(
+            "ai.cache.store_failed",
+            trace_id=ctx.trace_id,
+            cache_key=cache_key,
+            error=str(exc),
+        )
+
+
+# ══════════════════════════════════════════════════════════════════
+# Session N1 — Feedback chat (thumbs up/down)
+# ══════════════════════════════════════════════════════════════════
+
+from app.features.feedback.schemas import (  # noqa: E402
+    FeedbackCreate,
+    FeedbackResponse,
+)
+from app.features.feedback.service import FeedbackService  # noqa: E402
+
+
+@router.post(
+    "/messages/{message_id}/feedback",
+    response_model=NexyaResponse[FeedbackResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def post_feedback(
+    message_id: uuid.UUID,
+    body: FeedbackCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> NexyaResponse[FeedbackResponse]:
+    """UPSERT atomique du feedback (thumbs up/down) sur un message.
+
+    Idempotent : re-poste même rating = no-op DB-level. Change rating =
+    update via `on_conflict_do_update`.
+    """
+    row = await FeedbackService.record_feedback(current_user, message_id, body, db)
+    return NexyaResponse(success=True, data=FeedbackResponse.model_validate(row))
+
+
+@router.delete(
+    "/messages/{message_id}/feedback",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_feedback(
+    message_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Annule le feedback (idempotent — 204 même si pas de row).
+
+    Anti-énumération : ne distingue pas « j'avais un feedback » vs
+    « j'en avais pas » pour un message d'un autre user.
+    """
+    await FeedbackService.delete_feedback(current_user, message_id, db)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

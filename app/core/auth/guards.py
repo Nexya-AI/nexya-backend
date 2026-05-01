@@ -20,11 +20,9 @@ Usage dans un endpoint :
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 import jwt
 import structlog
-from fastapi import Depends, Request
+from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +32,7 @@ from app.core.database.postgres import get_db
 from app.core.errors.exceptions import (
     AuthTokenExpiredException,
     AuthTokenInvalidException,
+    PermissionDeniedException,
     PlanRequiredException,
 )
 from app.features.auth.models import User
@@ -109,4 +108,27 @@ async def require_pro(
     """
     if not current_user.is_pro:
         raise PlanRequiredException()
+    return current_user
+
+
+async def require_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Vérifie que l'utilisateur est dans la liste `RGPD_ADMIN_EMAILS`.
+
+    V1 : ACL simple par liste d'emails (DPO Ivan en V1, prévoir DPO
+    externe pour 950k users en V2). Pas de table `admin_users` ni
+    de RBAC complexe — V2 si besoin réel multi-admin.
+
+    Utilisé par l'endpoint admin `/rgpd/admin/ai-act-registry`.
+    Production safety guard refuse le boot en prod si la liste est
+    vide (un endpoint admin sans ACL = fuite catastrophique du
+    registre AI Act complet).
+    """
+    from app.config import settings  # local import — évite le cycle
+
+    if not current_user.email or current_user.email.lower() not in {
+        e.lower() for e in settings.rgpd_admin_emails
+    }:
+        raise PermissionDeniedException()
     return current_user

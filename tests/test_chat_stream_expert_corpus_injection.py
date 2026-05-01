@@ -20,6 +20,15 @@ import pytest
 from app.ai.experts import get_expert_config
 
 
+@pytest.mark.xfail(
+    reason=(
+        "G1 cleanup 2026-04-24 : scope « Expert Langues via Tatoeba » abandonné "
+        "produit, `corpus_enabled=False` posé sur l'expert `language` dans "
+        "experts.py. Test maintenu en xfail pour réactivation V2 quand G2 Cuisine "
+        "ou G4 Ingénierie ré-activeront un expert avec corpus_enabled=True."
+    ),
+    strict=True,
+)
 @pytest.mark.asyncio
 async def test_corpus_enabled_expert_triggers_builder(monkeypatch) -> None:
     """Expert `language` (corpus_enabled=True) → helper appelé."""
@@ -126,6 +135,14 @@ async def test_builder_exception_does_not_propagate(monkeypatch) -> None:
     assert result is None
 
 
+@pytest.mark.xfail(
+    reason=(
+        "G1 cleanup 2026-04-24 : `corpus_enabled=False` posé sur expert `language` "
+        "(scope Tatoeba abandonné). Voir CLAUDE.md §15 entrée 2026-04-24 — invariant "
+        "G1 inversé. Test gardé en xfail strict pour signal de ré-activation V2."
+    ),
+    strict=True,
+)
 def test_language_expert_config_corpus_enabled() -> None:
     """Invariant G1 : l'expert `language` a bien `corpus_enabled=True`."""
     cfg = get_expert_config("language")

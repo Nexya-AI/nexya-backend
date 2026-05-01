@@ -68,6 +68,10 @@ from app.features.auth.models import User
 from app.features.auth.router import router as auth_router
 from app.features.chat.router import router as chat_router
 from app.features.files.router import router as files_router
+from app.features.images.c2pa import (
+    C2PASignRequest,
+    get_manifest_provider,
+)
 from app.features.images.watermark import (
     WATERMARK_VERSION,
     apply_nexya_watermark,
@@ -572,6 +576,9 @@ async def image_generate(
     apply_watermark = not body.remove_watermark
     # Liste parallèle : base64 final (watermarké ou pas) par image.
     final_b64_per_image: list[str] = [img.base64_data for img in images]
+    # E4.5 — accumule les résultats C2PA par image pour l'agrégat response.
+    c2pa_manifest_ids: list[str | None] = []
+    c2pa_applied_flags: list[bool] = []
 
     for idx, img in enumerate(images):
         try:
@@ -595,6 +602,37 @@ async def image_generate(
                 # client contient le watermark incrusté.
                 final_b64_per_image[idx] = _base64.b64encode(data).decode()
 
+        # E4.5 — Signature C2PA APRÈS watermark (la signature couvre
+        # l'image telle qu'elle sortira au client + en Library), AVANT
+        # l'INSERT Library (les bytes persistés et le manifest_id sont
+        # cohérents). Fail-safe absolu : exception → image inchangée +
+        # `has_c2pa=False` + `c2pa_skip_reason` tracé en metadata.
+        # Mock-first par défaut : sans clés X.509 fournies, le mock
+        # ne touche pas les bytes mais trace `has_c2pa=True` (flow
+        # bout-en-bout testable). Vraie signature dès qu'Ivan fournit
+        # les clés dans `.env` + `pip install c2pa-python`.
+        from datetime import datetime as _dt2, timezone as _tz2
+
+        c2pa_sign_request = C2PASignRequest(
+            prompt=body.prompt,
+            provider=resolution.provider.name,
+            model=resolution.model,
+            generation_timestamp=_dt2.now(_tz2.utc),
+            watermark_applied=has_watermark,
+            watermark_version=WATERMARK_VERSION if has_watermark else None,
+        )
+        c2pa_result = await get_manifest_provider().sign_image(
+            data, img.mime_type, c2pa_sign_request
+        )
+        c2pa_manifest_ids.append(c2pa_result.manifest_id)
+        c2pa_applied_flags.append(c2pa_result.applied)
+        if c2pa_result.applied and c2pa_result.image_bytes is not data:
+            # Bytes modifiés par la signature réelle — re-encode base64
+            # pour le client. Mock retourne les mêmes bytes (identité
+            # `is`) donc cette branche est skip en mode mock.
+            data = c2pa_result.image_bytes
+            final_b64_per_image[idx] = _base64.b64encode(data).decode()
+
         try:
             item = await LibraryService.create_from_bytes(
                 current_user,
@@ -611,6 +649,14 @@ async def image_generate(
                     "has_watermark": has_watermark,
                     "watermark_version": (WATERMARK_VERSION if has_watermark else None),
                     "no_watermark_was_requested": body.remove_watermark,
+                    "has_c2pa": c2pa_result.applied,
+                    "c2pa_manifest_id": c2pa_result.manifest_id,
+                    "c2pa_signed_at": (
+                        c2pa_result.signed_at.isoformat()
+                        if c2pa_result.signed_at
+                        else None
+                    ),
+                    "c2pa_skip_reason": c2pa_result.skip_reason,
                 },
             )
             library_ids.append(str(item.id))
@@ -639,5 +685,14 @@ async def image_generate(
             "library_ids": library_ids,
             "watermark_applied": apply_watermark,
             "watermark_version": (WATERMARK_VERSION if apply_watermark else None),
+            # E4.5 — Conformité AI Act UE 2026 : signature C2PA par image.
+            # `c2pa_applied` = True ssi TOUTES les images ont été signées
+            # (anti-régression : un seul échec coupe le flag, le client
+            # peut afficher un badge ⚠️). `c2pa_manifest_ids` indexé par
+            # image (None si skip pour cette image).
+            "c2pa_applied": (
+                bool(c2pa_applied_flags) and all(c2pa_applied_flags)
+            ),
+            "c2pa_manifest_ids": c2pa_manifest_ids,
         },
     )

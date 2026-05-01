@@ -350,6 +350,20 @@ class Settings(BaseSettings):
     image_watermark_scale_ratio: float = Field(default=0.12, ge=0.05, le=0.25)
     image_watermark_opacity: float = Field(default=0.70, ge=0.3, le=1.0)
 
+    # ── C2PA Content Credentials (Session E4.5 — AI Act UE août 2026) ──
+    # Signature cryptographique des images générées par IA. Mock-first
+    # par défaut : les clés X.509 absentes → MockManifestProvider qui
+    # ne touche pas l'image mais trace la tentative en metadata.
+    # Voir `app/features/images/c2pa.py` pour la procédure d'installation
+    # des clés (option A : openssl perso / option B : Adobe Content
+    # Credentials gratuit).
+    c2pa_enabled: bool = Field(default=True)
+    c2pa_signing_certificate_path: str = Field(default="")
+    c2pa_signing_key_path: str = Field(default="")
+    c2pa_creator_name: str = Field(default="NEXYA")
+    c2pa_signing_algorithm: str = Field(default="es256")
+    c2pa_mock_enabled: bool = Field(default=False)
+
     # ── Vision (Bloc E2) — Free + Pro asymétrie par tier ───────
     # Free : tier='flash' imposé → Gemini 2.0 Flash (cheap).
     # Pro  : choix tier 'flash' ou 'pro' → Gemini 2.0 Pro ou GPT-4o.
@@ -879,6 +893,25 @@ class Settings(BaseSettings):
                 "production (endpoint /rgpd/admin/* sans ACL = fuite "
                 "registre AI Act)"
             )
+
+        # E4.5 — C2PA Content Credentials : conformité AI Act UE août 2026.
+        # Si `c2pa_enabled=True` en prod sans clés X.509 fournies, on
+        # signerait silencieusement avec MockManifestProvider — l'image
+        # sortirait en prod marquée « has_c2pa=True » dans la DB mais
+        # SANS manifest cryptographique réel embarqué. Pseudo-conformité
+        # = pire que pas de conformité (faux sentiment de sécurité +
+        # responsabilité légale aggravée). Solution : soit fournir les
+        # clés, soit désactiver explicitement via `c2pa_enabled=False`.
+        if self.c2pa_enabled and not self.c2pa_mock_enabled:
+            if not self.c2pa_signing_certificate_path or not self.c2pa_signing_key_path:
+                problems.append(
+                    "C2PA_SIGNING_CERTIFICATE_PATH et C2PA_SIGNING_KEY_PATH "
+                    "sont obligatoires en production quand C2PA_ENABLED=true. "
+                    "Voir app/features/images/c2pa.py pour la procédure de "
+                    "génération des clés (option openssl perso ou Adobe "
+                    "Content Credentials gratuit). "
+                    "Pour désactiver explicitement, poser C2PA_ENABLED=false."
+                )
 
         # O1 — preset headers sécurité : `dev`/`staging` interdits en prod
         # (laxistes — Swagger UI fonctionne mais CSP relâché). On accepte

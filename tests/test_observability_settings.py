@@ -30,6 +30,10 @@ def _base_prod_kwargs(**overrides):
         "grafana_admin_password": "strong-admin-password-32+chars-x",
         # J1 — liste admin RGPD non-vide obligatoire en prod
         "rgpd_admin_emails": ["dpo@nexya.ai"],
+        # O1 — preset headers sécurité prod obligatoire en prod
+        "security_headers_preset": "prod",
+        # E4.5 — C2PA désactivé par défaut dans tests (évite besoin clés X.509)
+        "c2pa_enabled": False,
     }
     base.update(overrides)
     return base
