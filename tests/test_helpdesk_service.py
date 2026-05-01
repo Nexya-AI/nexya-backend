@@ -96,9 +96,7 @@ def test_should_escalate_critical_severity_true() -> None:
 
 def test_should_escalate_user_none_false() -> None:
     assert (
-        CrispEscalationService.should_escalate(
-            user=None, category="payment", severity="high"
-        )
+        CrispEscalationService.should_escalate(user=None, category="payment", severity="high")
         is False
     )
 
@@ -142,9 +140,7 @@ def test_build_crisp_request_pro_user_includes_email_and_segments() -> None:
 
 
 def test_build_crisp_request_no_user_uses_anonyme() -> None:
-    body = EscalationCreate(
-        user_id=None, category="security", severity="critical", payload=None
-    )
+    body = EscalationCreate(user_id=None, category="security", severity="critical", payload=None)
     req = _build_crisp_request(body=body, user=None)
     assert req.nickname == "Anonyme"
     assert req.email is None
@@ -255,9 +251,7 @@ async def test_escalate_fail_safe_on_unexpected_crisp_exception(
         lambda: _BoomClient(),
     )
 
-    body = EscalationCreate(
-        user_id=user.id, category="security", severity="critical", payload={}
-    )
+    body = EscalationCreate(user_id=user.id, category="security", severity="critical", payload={})
     row = await CrispEscalationService.escalate(body=body, user=user, db=db)
 
     # Row toujours insérée, jamais raise

@@ -61,8 +61,7 @@ _HEADERS_STAGING: Final[dict[str, str]] = {
     "Strict-Transport-Security": "max-age=31536000",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": (
-        "camera=(), microphone=(), geolocation=(), "
-        "payment=(), usb=(), magnetometer=()"
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=()"
     ),
     "Content-Security-Policy": (
         "default-src 'self' 'unsafe-inline'; "
@@ -80,8 +79,7 @@ _HEADERS_PROD: Final[dict[str, str]] = {
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": (
-        "camera=(), microphone=(), geolocation=(), "
-        "payment=(), usb=(), magnetometer=()"
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=()"
     ),
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-origin",
@@ -137,10 +135,7 @@ class NexyaSecurityHeadersMiddleware(BaseHTTPMiddleware):
     ) -> None:
         super().__init__(app)
         if preset not in _PRESET_TO_HEADERS:
-            raise ValueError(
-                f"Preset inconnu : {preset!r}. "
-                f"Utilise dev|staging|prod|off."
-            )
+            raise ValueError(f"Preset inconnu : {preset!r}. Utilise dev|staging|prod|off.")
         self._preset = preset
         self._headers = _PRESET_TO_HEADERS[preset]
 

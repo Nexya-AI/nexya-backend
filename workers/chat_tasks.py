@@ -21,14 +21,15 @@ de tout doublon.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import structlog
 from sqlalchemy import update
 
-from app.ai.providers import ChatCompletionRequest, ChatMessage as AiChatMessage
+from app.ai.providers import ChatCompletionRequest
+from app.ai.providers import ChatMessage as AiChatMessage
 from app.ai.providers.base import ProviderError
 from app.ai.runtime import get_ai_router
 from app.config import settings
@@ -108,9 +109,8 @@ async def enqueue_title_generation(conversation_id: UUID) -> None:
 # WORKER — generate_conversation_title
 # ══════════════════════════════════════════════════════════════
 
-async def generate_conversation_title(
-    ctx: dict[str, Any], conversation_id: str
-) -> dict[str, Any]:
+
+async def generate_conversation_title(ctx: dict[str, Any], conversation_id: str) -> dict[str, Any]:
     """Génère et persiste un titre pour une conversation.
 
     Idempotence stricte : double-check `title IS NULL AND title_generated_at
@@ -174,9 +174,7 @@ async def generate_conversation_title(
             )
             return {"skipped": True, "reason": "not_enough_messages"}
 
-        ai_messages = [
-            AiChatMessage(role=row.role, content=row.content) for row in rows
-        ]
+        ai_messages = [AiChatMessage(role=row.role, content=row.content) for row in rows]
 
         # Appel IA — la moindre erreur est swallowed : le titre n'est pas
         # critique, on n'écrit rien et on laisse retenter plus tard.
@@ -196,7 +194,7 @@ async def generate_conversation_title(
             log.warning("chat.title.empty_response", conversation_id=conversation_id)
             return {"skipped": True, "reason": "empty"}
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         await db.execute(
             update(Conversation)
             .where(
@@ -218,6 +216,7 @@ async def generate_conversation_title(
 # ══════════════════════════════════════════════════════════════
 # Helpers internes
 # ══════════════════════════════════════════════════════════════
+
 
 async def _call_llm_for_title(history: list[AiChatMessage]) -> str:
     """Appelle Gemini Flash et retourne la concaténation du stream.

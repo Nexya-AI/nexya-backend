@@ -9,7 +9,7 @@ Exécution : déclenchée par cron dans `workers.worker.WorkerSettings`.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
@@ -35,7 +35,7 @@ async def cleanup_refresh_tokens(ctx: dict[str, Any]) -> dict[str, int]:
     monitorer le volume purgé et repérer une anomalie (zéro suppression =
     rotation en panne, des millions = fuite mémoire côté DB).
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expired_cutoff = now - EXPIRED_RETENTION
     revoked_cutoff = now - REVOKED_RETENTION
 
@@ -43,8 +43,7 @@ async def cleanup_refresh_tokens(ctx: dict[str, Any]) -> dict[str, int]:
         stmt = delete(RefreshToken).where(
             or_(
                 RefreshToken.expires_at < expired_cutoff,
-                RefreshToken.revoked_at.is_not(None)
-                & (RefreshToken.revoked_at < revoked_cutoff),
+                RefreshToken.revoked_at.is_not(None) & (RefreshToken.revoked_at < revoked_cutoff),
             )
         )
         result = await session.execute(stmt)

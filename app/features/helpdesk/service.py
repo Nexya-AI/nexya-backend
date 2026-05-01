@@ -154,7 +154,8 @@ def _build_crisp_request(
             getattr(user, "display_name", None)
             or getattr(user, "username", None)
             or getattr(user, "email", None)
-            or str(getattr(user, "id", "")) or "Anonyme"
+            or str(getattr(user, "id", ""))
+            or "Anonyme"
         )
         email = getattr(user, "email", None)
 

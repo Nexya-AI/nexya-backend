@@ -86,7 +86,7 @@ log.info(
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
-    expire_on_commit=False,    # les objets restent utilisables après commit
+    expire_on_commit=False,  # les objets restent utilisables après commit
 )
 
 

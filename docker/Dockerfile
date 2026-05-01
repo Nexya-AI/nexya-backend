@@ -38,7 +38,13 @@ WORKDIR /build
 # tant que les dépendances ne changent pas.
 COPY pyproject.toml ./
 
-RUN uv venv /opt/venv --python 3.12 \
+# Le venv utilise le Python de l'image base (3.14) plutôt qu'un Python
+# managé par uv. `--python python3` pointe sur le binaire système, qui
+# correspond à python:3.14-slim-bookworm de l'image FROM. Avant le fix
+# 2026-05-01, on avait `--python 3.12` qui faisait fail uv en CI car
+# Python 3.12 n'est pas installé dans l'image 3.14 et UV_PYTHON_DOWNLOADS=0
+# interdit le download automatique.
+RUN uv venv /opt/venv --python python3 \
     && . /opt/venv/bin/activate \
     && uv pip install --no-cache -e .
 

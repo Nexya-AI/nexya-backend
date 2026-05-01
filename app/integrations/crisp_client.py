@@ -122,9 +122,7 @@ class RealCrispClient(CrispClient):
         timeout_seconds: float = 5.0,
     ) -> None:
         if not website_id or not identifier or not api_key:
-            raise ValueError(
-                "RealCrispClient exige website_id + identifier + api_key non vides."
-            )
+            raise ValueError("RealCrispClient exige website_id + identifier + api_key non vides.")
         self._website_id = website_id
         self._identifier = identifier
         self._api_key = api_key
@@ -177,10 +175,7 @@ class RealCrispClient(CrispClient):
         session_id: str,
         request: CrispConversationRequest,
     ) -> None:
-        url = (
-            f"{_CRISP_BASE_URL}/website/{self._website_id}"
-            f"/conversation/{session_id}/message"
-        )
+        url = f"{_CRISP_BASE_URL}/website/{self._website_id}/conversation/{session_id}/message"
         payload = {
             "type": "text",
             "from": "operator",
@@ -207,10 +202,7 @@ class RealCrispClient(CrispClient):
         filtrer par segment (`payment_bug`, `pro_user`, etc.) directement
         dans le panel Crisp.
         """
-        url = (
-            f"{_CRISP_BASE_URL}/website/{self._website_id}"
-            f"/conversation/{session_id}/meta"
-        )
+        url = f"{_CRISP_BASE_URL}/website/{self._website_id}/conversation/{session_id}/meta"
         meta_payload: dict[str, Any] = {"nickname": request.nickname}
         if request.email:
             meta_payload["email"] = request.email

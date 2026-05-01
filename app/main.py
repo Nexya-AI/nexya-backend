@@ -293,9 +293,7 @@ async def ready() -> JSONResponse:
         from app.core.database.postgres import AsyncSessionLocal  # noqa: PLC0415
 
         async with AsyncSessionLocal() as session:
-            extended = await ExtendedHealthService.compute(
-                db=session, redis=redis_client
-            )
+            extended = await ExtendedHealthService.compute(db=session, redis=redis_client)
     except Exception:  # noqa: BLE001 — fail-safe absolu
         # DB indisponible — on retourne un payload dégradé
         extended = await ExtendedHealthService.compute(db=None, redis=redis_client)
@@ -653,9 +651,7 @@ async def image_generate(
                     "has_c2pa": c2pa_result.applied,
                     "c2pa_manifest_id": c2pa_result.manifest_id,
                     "c2pa_signed_at": (
-                        c2pa_result.signed_at.isoformat()
-                        if c2pa_result.signed_at
-                        else None
+                        c2pa_result.signed_at.isoformat() if c2pa_result.signed_at else None
                     ),
                     "c2pa_skip_reason": c2pa_result.skip_reason,
                 },
@@ -691,9 +687,7 @@ async def image_generate(
             # (anti-régression : un seul échec coupe le flag, le client
             # peut afficher un badge ⚠️). `c2pa_manifest_ids` indexé par
             # image (None si skip pour cette image).
-            "c2pa_applied": (
-                bool(c2pa_applied_flags) and all(c2pa_applied_flags)
-            ),
+            "c2pa_applied": (bool(c2pa_applied_flags) and all(c2pa_applied_flags)),
             "c2pa_manifest_ids": c2pa_manifest_ids,
         },
     )

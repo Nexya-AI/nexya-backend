@@ -30,9 +30,7 @@ SCENARIOS_DIR = LOAD_DIR / "scenarios"
 DOCKER_DIR = LOAD_DIR / "docker"
 THRESHOLDS_PATH = LOAD_DIR / "thresholds.json"
 COMPOSE_PATH = DOCKER_DIR / "docker-compose.load.yml"
-WORKFLOW_PATH = (
-    Path(__file__).parent.parent / ".github" / "workflows" / "load.yml"
-)
+WORKFLOW_PATH = Path(__file__).parent.parent / ".github" / "workflows" / "load.yml"
 
 EXPECTED_SCENARIOS: tuple[str, ...] = (
     "auth_burst",
@@ -79,10 +77,7 @@ def test_at_least_one_p95_threshold_per_scenario() -> None:
     for scenario in EXPECTED_SCENARIOS:
         block = data["scenarios"][scenario]
         # Cherche au moins un dict avec une clé `p95_ms` à l'intérieur du block.
-        has_p95 = any(
-            isinstance(v, dict) and "p95_ms" in v
-            for v in block.values()
-        )
+        has_p95 = any(isinstance(v, dict) and "p95_ms" in v for v in block.values())
         assert has_p95, f"{scenario} sans aucun p95_ms"
 
 
@@ -111,9 +106,7 @@ def test_scenarios_dir_has_no_extra_files() -> None:
     Si quelqu'un ajoute un .js sans mettre à jour EXPECTED_SCENARIOS,
     le test casse. Force la maintenance synchronisée du registre.
     """
-    actual = {
-        p.stem for p in SCENARIOS_DIR.glob("*.js")
-    }
+    actual = {p.stem for p in SCENARIOS_DIR.glob("*.js")}
     extra = actual - set(EXPECTED_SCENARIOS)
     assert not extra, f"Scénarios non listés : {extra}"
 
@@ -174,9 +167,7 @@ def test_bash_script_has_valid_syntax(script_path: Path) -> None:
         text=True,
         check=False,
     )
-    assert result.returncode == 0, (
-        f"{script_path} bash syntax error: {result.stderr}"
-    )
+    assert result.returncode == 0, f"{script_path} bash syntax error: {result.stderr}"
 
 
 @pytest.mark.parametrize(
@@ -190,9 +181,7 @@ def test_bash_script_has_valid_syntax(script_path: Path) -> None:
 def test_bash_script_uses_strict_mode(script_path: Path) -> None:
     """Chaque script bash NEXYA doit utiliser `set -euo pipefail`."""
     content = script_path.read_text(encoding="utf-8")
-    assert "set -euo pipefail" in content, (
-        f"{script_path.name} sans set -euo pipefail"
-    )
+    assert "set -euo pipefail" in content, f"{script_path.name} sans set -euo pipefail"
 
 
 # ══════════════════════════════════════════════════════════════
@@ -223,9 +212,7 @@ def test_load_workflow_lists_expected_scenarios() -> None:
     raw = WORKFLOW_PATH.read_text(encoding="utf-8")
     assert "- all" in raw
     for scenario in EXPECTED_SCENARIOS:
-        assert f"- {scenario}" in raw, (
-            f"Scenario {scenario} absent du dropdown workflow_dispatch"
-        )
+        assert f"- {scenario}" in raw, f"Scenario {scenario} absent du dropdown workflow_dispatch"
 
 
 def test_load_workflow_has_issue_creation_on_breach() -> None:

@@ -33,10 +33,15 @@ from __future__ import annotations
 
 import io
 import logging
-import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
 from typing import Final, Literal
+
+# Sécurité : `defusedxml` parse les XML user-uploaded sans risque
+# d'attaques XXE / billion laughs / external entity expansion. Les DOCX
+# sont des ZIP contenant du XML (word/document.xml) potentiellement
+# malicieux. Bandit B314 pré-existant fixé 2026-05-01.
+import defusedxml.ElementTree as ET  # noqa: N812
 
 import structlog
 

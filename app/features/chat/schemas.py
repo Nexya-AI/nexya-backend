@@ -35,9 +35,7 @@ from pydantic import BaseModel, Field, field_validator
 
 MessageRole = Literal["user", "assistant", "system"]
 MessageStatus = Literal["streaming", "completed", "failed", "cancelled"]
-AbuseReason = Literal[
-    "offensive", "dangerous", "illegal", "harassment", "misinformation", "other"
-]
+AbuseReason = Literal["offensive", "dangerous", "illegal", "harassment", "misinformation", "other"]
 AbuseStatus = Literal["pending", "reviewed", "dismissed", "action_taken"]
 
 
@@ -50,6 +48,7 @@ _MESSAGE_MAX_CHARS = 32_000
 # ══════════════════════════════════════════════════════════════
 # CONVERSATION — CRUD
 # ══════════════════════════════════════════════════════════════
+
 
 class ConversationCreate(BaseModel):
     """Création explicite d'une conversation (sans envoyer de message).
@@ -149,6 +148,7 @@ class ConversationsPage(BaseModel):
 # MESSAGE — lecture paginée cursor-based
 # ══════════════════════════════════════════════════════════════
 
+
 class MessageResponse(BaseModel):
     """Message unitaire — complet, incluant métriques de coût et statut.
 
@@ -191,6 +191,7 @@ class MessagesPage(BaseModel):
 # ══════════════════════════════════════════════════════════════
 # CHAT STREAM — SSE
 # ══════════════════════════════════════════════════════════════
+
 
 class ChatStreamInlineMessage(BaseModel):
     """Message inline du champ `history` (chemin legacy stateless).
@@ -242,6 +243,7 @@ class ChatStopRequest(BaseModel):
 # IMAGE — génération
 # ══════════════════════════════════════════════════════════════
 
+
 class ImageGenerateRequest(BaseModel):
     """Corps de POST /image/generate."""
 
@@ -253,6 +255,7 @@ class ImageGenerateRequest(BaseModel):
 # ══════════════════════════════════════════════════════════════
 # ABUSE REPORTS — signalement de messages
 # ══════════════════════════════════════════════════════════════
+
 
 class AbuseReportCreate(BaseModel):
     """Corps de POST /reports — signalement d'un message abusif.

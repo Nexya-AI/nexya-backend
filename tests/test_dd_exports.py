@@ -74,9 +74,7 @@ def test_glossary_exists_and_has_30_plus_terms() -> None:
     content = GLOSSARY.read_text(encoding="utf-8")
     # Compter les bullet items (lignes commençant par `- **<terme>**`)
     bullets = [l for l in content.splitlines() if l.lstrip().startswith("- **")]
-    assert len(bullets) >= 30, (
-        f"Glossary ne contient que {len(bullets)} termes (cible 30+)"
-    )
+    assert len(bullets) >= 30, f"Glossary ne contient que {len(bullets)} termes (cible 30+)"
 
 
 # ══════════════════════════════════════════════════════════════
@@ -100,9 +98,7 @@ def test_architecture_doc_exists(filename: str) -> None:
     path = ARCH_DIR / filename
     assert path.exists(), f"docs/architecture/{filename} manquant"
     content = path.read_text(encoding="utf-8")
-    assert len(content) > 500, (
-        f"docs/architecture/{filename} trop court (< 500 chars)"
-    )
+    assert len(content) > 500, f"docs/architecture/{filename} trop court (< 500 chars)"
 
 
 def test_architecture_overview_has_mermaid_diagram() -> None:
@@ -138,7 +134,9 @@ def test_rgpd_doc_mentions_articles() -> None:
 def test_security_checklist_mentions_owasp_top_10() -> None:
     content = (COMP_DIR / "security-checklist.md").read_text(encoding="utf-8")
     # Au moins 8 catégories OWASP A0X mentionnées
-    matches = sum(1 for i in range(1, 11) if f"A0{i}:2021" in content or f"A1{i-10}:2021" in content)
+    matches = sum(
+        1 for i in range(1, 11) if f"A0{i}:2021" in content or f"A1{i - 10}:2021" in content
+    )
     assert matches >= 8, f"OWASP Top 10 incomplet ({matches}/10)"
 
 
@@ -158,8 +156,7 @@ def test_api_doc_exists(filename: str) -> None:
 
 def test_openapi_json_exists_and_valid() -> None:
     assert OPENAPI_JSON.exists(), (
-        "docs/api/openapi.json manquant — runner "
-        "'python -m scripts.export_openapi'"
+        "docs/api/openapi.json manquant — runner 'python -m scripts.export_openapi'"
     )
     data = json.loads(OPENAPI_JSON.read_text(encoding="utf-8"))
     assert isinstance(data, dict)
@@ -169,17 +166,13 @@ def test_openapi_json_exists_and_valid() -> None:
 def test_openapi_json_has_50_plus_paths() -> None:
     data = json.loads(OPENAPI_JSON.read_text(encoding="utf-8"))
     paths = data.get("paths", {})
-    assert len(paths) >= 50, (
-        f"openapi.json contient seulement {len(paths)} paths (cible ≥ 50)"
-    )
+    assert len(paths) >= 50, f"openapi.json contient seulement {len(paths)} paths (cible ≥ 50)"
 
 
 def test_openapi_json_has_18_plus_tags() -> None:
     data = json.loads(OPENAPI_JSON.read_text(encoding="utf-8"))
     tags = data.get("tags", [])
-    assert len(tags) >= 18, (
-        f"openapi.json contient seulement {len(tags)} tags (cible ≥ 18)"
-    )
+    assert len(tags) >= 18, f"openapi.json contient seulement {len(tags)} tags (cible ≥ 18)"
 
 
 def test_error_codes_mentions_critical_codes() -> None:

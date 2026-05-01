@@ -153,6 +153,7 @@ def _install_c2pa_mock(
     provider = MockManifestProvider(force_skip=force_skip)
 
     if raise_exc:
+
         async def _raising_sign(*args, **kwargs):
             raise RuntimeError("simulated c2pa crash")
 
@@ -287,9 +288,7 @@ def test_c2pa_multi_images_each_gets_distinct_manifest_id(
 
     # Chaque INSERT Library a son propre manifest_id.
     for idx, call in enumerate(mock_create.await_args_list):
-        assert call.kwargs["metadata_json"]["c2pa_manifest_id"] == (
-            f"mock-c2pa-00000{idx + 1}"
-        )
+        assert call.kwargs["metadata_json"]["c2pa_manifest_id"] == (f"mock-c2pa-00000{idx + 1}")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -452,9 +451,7 @@ def test_c2pa_applied_global_is_false_if_any_image_skipped(
     monkeypatch.setattr(main_module, "get_manifest_provider", lambda: selective_provider)
 
     saved_items = [_make_saved_item(idx=i) for i in range(2)]
-    monkeypatch.setattr(
-        LibraryService, "create_from_bytes", AsyncMock(side_effect=saved_items)
-    )
+    monkeypatch.setattr(LibraryService, "create_from_bytes", AsyncMock(side_effect=saved_items))
 
     response = free_client.post(
         "/image/generate",

@@ -445,6 +445,9 @@ class MemoryStore:
             source_clause = "AND source = :source"
             bindparams["source"] = source
 
+        # nosec B608 — `source_clause` est une constante littérale construite
+        # côté serveur (jamais user input). Tous les vrais paramètres user
+        # passent par `.bindparams(**bindparams)` (sécurisé psycopg).
         sql = text(
             f"""
             SELECT
@@ -461,7 +464,7 @@ class MemoryStore:
               AND 1 - (embedding <=> CAST(:q_vec AS vector)) >= :min_sim
             ORDER BY embedding <=> CAST(:q_vec AS vector)
             LIMIT :k
-            """
+            """  # nosec B608
         ).bindparams(**bindparams)
 
         result = await db.execute(sql)

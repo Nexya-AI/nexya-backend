@@ -125,6 +125,9 @@ class RagQueryService:
             file_ids_clause = "AND dc.file_id = ANY(CAST(:file_ids AS uuid[]))"
             bindparams["file_ids"] = [str(fid) for fid in file_ids]
 
+        # nosec B608 — `file_ids_clause` est une constante littérale construite
+        # côté serveur (jamais user input). Tous les vrais paramètres user
+        # passent par `.bindparams(**bindparams)` (sécurisé psycopg).
         sql = text(
             f"""
             SELECT
@@ -147,7 +150,7 @@ class RagQueryService:
               {file_ids_clause}
             ORDER BY dc.embedding <=> CAST(:q_vec AS vector)
             LIMIT :k
-            """
+            """  # nosec B608
         ).bindparams(**bindparams)
 
         result = await db.execute(sql)

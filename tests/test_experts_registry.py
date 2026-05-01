@@ -245,9 +245,7 @@ def test_all_experts_have_explicit_max_tokens_cap() -> None:
 
 def test_max_tokens_aligned_with_tier() -> None:
     """Le cap max_tokens doit être cohérent : tier=flash plus serré que tier=pro."""
-    flash_caps = [
-        c.max_tokens for c in EXPERT_REGISTRY.values() if c.tier == "flash"
-    ]
+    flash_caps = [c.max_tokens for c in EXPERT_REGISTRY.values() if c.tier == "flash"]
     pro_caps = [
         c.max_tokens
         for c in EXPERT_REGISTRY.values()

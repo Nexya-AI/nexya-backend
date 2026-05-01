@@ -34,7 +34,9 @@ async def stream_gemini(prompt: str, history: list | None = None):
     if history:
         for msg in history:
             role = "user" if msg.role == "user" else "model"
-            contents.append(types.Content(role=role, parts=[types.Part.from_text(text=msg.content)]))
+            contents.append(
+                types.Content(role=role, parts=[types.Part.from_text(text=msg.content)])
+            )
     contents.append(types.Content(role="user", parts=[types.Part.from_text(text=prompt)]))
 
     async for chunk in await client.aio.models.generate_content_stream(

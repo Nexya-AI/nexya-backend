@@ -20,9 +20,7 @@ RESTORE = ROOT / "scripts" / "restore_db.sh"
 # Résout le chemin absolu de bash (Git Bash sur Windows, /usr/bin/bash sur Linux).
 # Skip gracieux si bash absent.
 bash = shutil.which("bash")
-requires_bash = pytest.mark.skipif(
-    bash is None, reason="bash required (Git Bash sur Windows)"
-)
+requires_bash = pytest.mark.skipif(bash is None, reason="bash required (Git Bash sur Windows)")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -42,9 +40,7 @@ def test_backup_script_strict_bash() -> None:
 @requires_bash
 def test_backup_script_syntax_check() -> None:
     """`bash -n` vérifie la syntaxe sans exécuter le script."""
-    result = subprocess.run(
-        [bash, "-n", str(BACKUP)], capture_output=True, text=True
-    )
+    result = subprocess.run([bash, "-n", str(BACKUP)], capture_output=True, text=True)
     assert result.returncode == 0, f"Syntax error: {result.stderr}"
 
 
@@ -136,9 +132,7 @@ def test_restore_script_strict_bash() -> None:
 
 @requires_bash
 def test_restore_script_syntax_check() -> None:
-    result = subprocess.run(
-        [bash, "-n", str(RESTORE)], capture_output=True, text=True
-    )
+    result = subprocess.run([bash, "-n", str(RESTORE)], capture_output=True, text=True)
     assert result.returncode == 0, f"Syntax error: {result.stderr}"
 
 

@@ -141,9 +141,7 @@ def test_pause_task_delegates_to_service(
     paused_task.paused = True
     paused_task.next_run_at = None
     pause_mock = AsyncMock(return_value=paused_task)
-    monkeypatch.setattr(
-        planner_service_mod.TaskSchedulerService, "pause_task", pause_mock
-    )
+    monkeypatch.setattr(planner_service_mod.TaskSchedulerService, "pause_task", pause_mock)
 
     resp = planner_client.post(f"/tasks/{paused_task.id}/pause")
     assert resp.status_code == 200
@@ -161,9 +159,7 @@ def test_resume_task_delegates_to_service(
     resumed_task = _fake_task()
     resumed_task.paused = False
     resume_mock = AsyncMock(return_value=resumed_task)
-    monkeypatch.setattr(
-        planner_service_mod.TaskSchedulerService, "resume_task", resume_mock
-    )
+    monkeypatch.setattr(planner_service_mod.TaskSchedulerService, "resume_task", resume_mock)
 
     resp = planner_client.post(f"/tasks/{resumed_task.id}/resume")
     assert resp.status_code == 200
@@ -186,9 +182,7 @@ def test_list_task_results_forwards_cursor_and_limit(
     list_mock = AsyncMock(
         return_value=TaskResultsPageOrm(items=[], next_cursor="next-curseur-base64")
     )
-    monkeypatch.setattr(
-        planner_service_mod.TaskSchedulerService, "list_results", list_mock
-    )
+    monkeypatch.setattr(planner_service_mod.TaskSchedulerService, "list_results", list_mock)
 
     task_id = uuid.uuid4()
     resp = planner_client.get(
@@ -233,9 +227,7 @@ def test_delete_task_returns_204_no_body(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     delete_mock = AsyncMock(return_value=None)
-    monkeypatch.setattr(
-        planner_service_mod.TaskSchedulerService, "soft_delete_task", delete_mock
-    )
+    monkeypatch.setattr(planner_service_mod.TaskSchedulerService, "soft_delete_task", delete_mock)
 
     task_id = uuid.uuid4()
     resp = planner_client.delete(f"/tasks/{task_id}")

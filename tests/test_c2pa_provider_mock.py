@@ -309,12 +309,8 @@ def test_factory_falls_back_to_mock_when_real_init_fails(
 
     monkeypatch.setattr(app_settings, "c2pa_enabled", True)
     monkeypatch.setattr(app_settings, "c2pa_mock_enabled", False)
-    monkeypatch.setattr(
-        app_settings, "c2pa_signing_certificate_path", "/nonexistent/cert.pem"
-    )
-    monkeypatch.setattr(
-        app_settings, "c2pa_signing_key_path", "/nonexistent/key.pem"
-    )
+    monkeypatch.setattr(app_settings, "c2pa_signing_certificate_path", "/nonexistent/cert.pem")
+    monkeypatch.setattr(app_settings, "c2pa_signing_key_path", "/nonexistent/key.pem")
 
     provider = get_manifest_provider()
 

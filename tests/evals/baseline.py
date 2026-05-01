@@ -87,9 +87,7 @@ class BaselineDiff:
         return any(drop > threshold_pp for drop in self.pp_drop_per_category.values())
 
     def regressed_categories(self, threshold_pp: float) -> list[str]:
-        return sorted(
-            cat for cat, drop in self.pp_drop_per_category.items() if drop > threshold_pp
-        )
+        return sorted(cat for cat, drop in self.pp_drop_per_category.items() if drop > threshold_pp)
 
     def total_pp_drop(self) -> float:
         return sum(self.pp_drop_per_category.values())

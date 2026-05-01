@@ -356,9 +356,7 @@ class RealC2PAProvider(ManifestProvider):
                     "data": {
                         "provider": request.provider,
                         "model": request.model,
-                        "generation_timestamp": (
-                            request.generation_timestamp.isoformat()
-                        ),
+                        "generation_timestamp": (request.generation_timestamp.isoformat()),
                         "watermark_applied": request.watermark_applied,
                         "watermark_version": request.watermark_version,
                         "prompt_truncated": request.prompt[:500],
@@ -377,9 +375,7 @@ class RealC2PAProvider(ManifestProvider):
         builder = builder_cls(manifest_definition)
 
         # Signer local via clés X.509 chargées au boot.
-        sign_method = getattr(builder, "sign", None) or getattr(
-            builder, "sign_bytes", None
-        )
+        sign_method = getattr(builder, "sign", None) or getattr(builder, "sign_bytes", None)
         if sign_method is None:  # pragma: no cover
             raise C2PASignError("Builder.sign(_bytes) introuvable dans la lib.")
 

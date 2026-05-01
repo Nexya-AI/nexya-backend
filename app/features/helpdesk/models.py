@@ -36,9 +36,7 @@ class HelpdeskEscalation(Base, UUIDMixin):
     payload_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     crisp_conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
-    created_at: Mapped[datetime] = mapped_column(
-        nullable=False, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(nullable=False, server_default=func.now())
     resolved_at: Mapped[datetime | None] = mapped_column(nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(nullable=True)
 

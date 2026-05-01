@@ -130,13 +130,13 @@ def test_parse_judge_json_passe_1_direct() -> None:
 
 
 def test_parse_judge_json_passe_2_markdown_wrapper() -> None:
-    raw = "Voici ma note :\n```json\n{\"score\": 8.0, \"reasoning\": \"ok\"}\n```\nFin."
+    raw = 'Voici ma note :\n```json\n{"score": 8.0, "reasoning": "ok"}\n```\nFin.'
     parsed = _parse_judge_json(raw)
     assert parsed["score"] == 8.0
 
 
 def test_parse_judge_json_passe_3_first_object_detected() -> None:
-    raw = "Note finale: {\"score\": 6.5, \"reasoning\": \"moyen\"} merci."
+    raw = 'Note finale: {"score": 6.5, "reasoning": "moyen"} merci.'
     parsed = _parse_judge_json(raw)
     assert parsed["score"] == 6.5
 
