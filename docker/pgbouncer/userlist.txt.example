@@ -1,0 +1,33 @@
+;; ════════════════════════════════════════════════════════════════
+;; NEXYA PgBouncer userlist — TEMPLATE (Session 2026-05-01)
+;; ════════════════════════════════════════════════════════════════
+;;
+;; Format : "user" "scram_hash"
+;;
+;; Procédure de génération du hash SCRAM-SHA-256 (à exécuter une fois
+;; par déploiement L2/prod, avant le premier démarrage de PgBouncer) :
+;;
+;;   1. Connecte-toi au Postgres en superuser :
+;;      docker exec -it nexya-postgres psql -U nexya postgres
+;;
+;;   2. Force l'encodage SCRAM-SHA-256 (déjà défaut Postgres 14+) :
+;;      SET password_encryption = 'scram-sha-256';
+;;
+;;   3. Pose le mot de passe fort généré par le secrets manager
+;;      (Doppler / 1Password / AWS SSM) :
+;;      ALTER USER nexya WITH PASSWORD 'votre-mot-de-passe-fort-ici';
+;;
+;;   4. Récupère le hash :
+;;      SELECT rolname, rolpassword FROM pg_authid WHERE rolname = 'nexya';
+;;
+;;   5. Copier la valeur `rolpassword` (commence par "SCRAM-SHA-256$...")
+;;      dans `userlist.txt` (PAS dans `userlist.txt.example` qui reste un template).
+;;
+;; ⚠️ SÉCURITÉ — IMPORTANT
+;; - Ce fichier `.example` est commit dans git avec un placeholder.
+;; - Le vrai `userlist.txt` (sans le suffixe `.example`) NE DOIT PAS être
+;;   commit. Le `.gitignore` racine l'exclut explicitement.
+;; - En L2/prod, le vrai `userlist.txt` est généré au déploiement par le
+;;   secrets manager et monté en read-only dans le conteneur PgBouncer.
+
+"nexya" "SCRAM-SHA-256$4096:REPLACE_AVEC_LE_VRAI_HASH_GENERE_AU_DEPLOIEMENT_L2"

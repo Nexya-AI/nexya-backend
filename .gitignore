@@ -17,6 +17,10 @@ venv/
 private.pem
 public.pem
 
+# PgBouncer userlist — contient les hash SCRAM des passwords Postgres
+# Le `.example` est commité comme template, le vrai userlist.txt non
+docker/pgbouncer/userlist.txt
+
 # IDE
 .vscode/
 .idea/
@@ -37,6 +41,7 @@ docs/*
 !docs/api/
 !docs/runbooks/
 !docs/adr/
+!docs/audit/
 !docs/glossary.md
 !docs/ROADMAP.md
 !docs/BACKEND_SESSIONS_PLAN.md

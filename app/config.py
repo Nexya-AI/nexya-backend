@@ -597,6 +597,28 @@ class Settings(BaseSettings):
     db_max_overflow: int = 10
     db_echo: bool = False
 
+    # ── PgBouncer routing (préparation L2 staging — non actif en dev) ──
+    # Quand True, indique que `database_url` pointe vers un PgBouncer en
+    # transaction mode (port 6432 typique). Le code adapte alors les kwargs
+    # SQLAlchemy :
+    #   - `pool_pre_ping=False` (PgBouncer gère ses propres healthchecks)
+    #   - `pool_recycle=300` (plus court — PgBouncer masque les coupures Postgres)
+    #   - `connect_args.prepare_threshold=None` côté psycopg (les prepared
+    #     statements server-side sont incompatibles avec le transaction mode
+    #     PgBouncer car la connexion serveur change entre transactions)
+    #
+    # Sans PgBouncer (`False`, défaut V1 dev) :
+    #   - 1 worker uvicorn × (db_pool_size+db_max_overflow) = 30 connexions
+    #     Postgres directes — intenable au-delà de 100k users concurrent.
+    #
+    # Avec PgBouncer (`True`, prévu V1 prod L2) :
+    #   - 10 000 connexions client × ~200 connexions Postgres effectives via
+    #     transaction multiplexing.
+    #
+    # Voir docker/pgbouncer/pgbouncer.ini + docs/runbooks/deployment-l2.md
+    # section "PgBouncer".
+    database_use_pgbouncer: bool = False
+
     # ── Redis pool ─────────────────────────────────────────────
     redis_max_connections: int = 50
 

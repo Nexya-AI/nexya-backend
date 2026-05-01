@@ -104,7 +104,7 @@ def test_observability_status_endpoint() -> None:
     assert "sentry" in data
     assert "prometheus" in data
     assert data["otel"]["enabled"] == settings.otel_enabled
-    assert data["prometheus"]["metrics_count"] == 13
+    assert data["prometheus"]["metrics_count"] == 14
     assert data["sentry"]["release"] == settings.app_version
 
 

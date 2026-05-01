@@ -217,3 +217,60 @@ def test_expert_config_dataclass_attrs_are_frozen() -> None:
     assert dataclasses.is_dataclass(ExpertConfig)
     params = ExpertConfig.__dataclass_params__  # type: ignore[attr-defined]
     assert params.frozen is True
+
+
+# ══════════════════════════════════════════════════════════════
+# 8. Cap max_tokens — anti-runaway facture (audit 2026-05-01 finding S1)
+# ══════════════════════════════════════════════════════════════
+
+
+def test_all_experts_have_explicit_max_tokens_cap() -> None:
+    """Chaque ExpertConfig doit poser max_tokens explicitement.
+
+    Sans cap, Gemini Pro peut générer 8000+ tokens × $5/1M = $0.04 par
+    réponse runaway. À 950k users × 50 chats/jour × 1% runaway, la
+    facture worst-case dépasse $19k/jour. Cap obligatoire par expert.
+    """
+    for expert_id, cfg in EXPERT_REGISTRY.items():
+        assert cfg.max_tokens is not None, (
+            f"Expert '{expert_id}' n'a pas de max_tokens — risque output "
+            f"runaway facture (Gemini Pro ~$0.04 par réponse non-bornée)"
+        )
+        assert cfg.max_tokens > 0, f"{expert_id}: max_tokens doit être positif"
+        assert cfg.max_tokens <= 8192, (
+            f"{expert_id}: max_tokens={cfg.max_tokens} suspect "
+            f"(au-delà de 8192 = créativité débridée non justifiée)"
+        )
+
+
+def test_max_tokens_aligned_with_tier() -> None:
+    """Le cap max_tokens doit être cohérent : tier=flash plus serré que tier=pro."""
+    flash_caps = [
+        c.max_tokens for c in EXPERT_REGISTRY.values() if c.tier == "flash"
+    ]
+    pro_caps = [
+        c.max_tokens
+        for c in EXPERT_REGISTRY.values()
+        if c.tier == "pro" and "safety-critical" not in c.tags
+    ]
+
+    assert flash_caps, "Au moins un expert tier=flash attendu"
+    assert pro_caps, "Au moins un expert tier=pro non-safety attendu"
+
+    # Tous les flash <= max des pro non-safety (attendu : flash=2048, pro=4096)
+    assert max(flash_caps) <= max(pro_caps), (
+        f"Un expert tier=flash a max_tokens > tier=pro — incohérent. "
+        f"flash_max={max(flash_caps)}, pro_max={max(pro_caps)}"
+    )
+
+
+def test_safety_critical_experts_have_capped_max_tokens() -> None:
+    """`medicine` et `legal` doivent avoir un cap raisonnable (info structurée
+    + disclaimers, pas de génération créative au-delà de 4096)."""
+    for expert_id in SAFETY_CRITICAL_IDS:
+        cfg = EXPERT_REGISTRY[expert_id]
+        assert cfg.max_tokens is not None
+        assert cfg.max_tokens <= 4096, (
+            f"{expert_id} (safety-critical) max_tokens={cfg.max_tokens} > 4096 — "
+            f"info médicale/juridique doit rester structurée et concise"
+        )
