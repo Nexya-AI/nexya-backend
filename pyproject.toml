@@ -25,7 +25,7 @@ dependencies = [
     # ── Auth ───────────────────────────────────────────────────
     "bcrypt>=4.2,<6",                  # Hash mots de passe (usage direct, sans passlib)
     "PyJWT>=2.9,<3",                   # JWT RS256 encode/decode
-    "cryptography>=44.0,<45",          # Backend RSA pour PyJWT
+    "cryptography>=44.0,<48",          # Backend RSA pour PyJWT
     "email-validator>=2.0,<3",         # Validation Pydantic EmailStr
 
     # ── HTTP client async (Brevo email, futurs webhooks) ──────
