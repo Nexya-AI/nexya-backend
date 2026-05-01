@@ -22,7 +22,7 @@ ASC/DESC exact sur N pages) requièrent Postgres et arrivent en Phase 5.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
@@ -40,7 +40,6 @@ from app.features.chat import service as chat_service_module
 from app.features.chat.models import Conversation, Message
 from app.features.chat.service import ConversationService
 from app.main import app
-
 
 # ══════════════════════════════════════════════════════════════
 # Fixtures communes
@@ -81,7 +80,7 @@ def _make_fake_conversation(
 
     `deleted_at` (F2.0) : passer une date pour simuler un item de corbeille.
     """
-    now = datetime(2026, 4, 21, 14, 30, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 4, 21, 14, 30, 0, tzinfo=UTC)
     conv = Conversation(
         user_id=_FAKE_USER_ID,
         title=title,
@@ -106,7 +105,7 @@ def _make_fake_message(
     content: str = "Bonjour",
     status_: str = "completed",
 ) -> Message:
-    now = datetime(2026, 4, 21, 14, 35, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 4, 21, 14, 35, 0, tzinfo=UTC)
     msg = Message(
         conversation_id=conversation_id,
         role=role,
@@ -159,6 +158,7 @@ def client() -> TestClient:
 # 1. POST /chat/conversations — happy path
 # ══════════════════════════════════════════════════════════════
 
+
 def test_create_conversation_returns_201_with_payload(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -199,6 +199,7 @@ def test_create_conversation_accepts_empty_body(
 # 2. GET /chat/conversations — liste paginée
 # ══════════════════════════════════════════════════════════════
 
+
 def test_list_conversations_returns_page_with_cursor(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -208,9 +209,7 @@ def test_list_conversations_returns_page_with_cursor(
         items=[conv1, conv2],
         next_cursor="opaque-cursor-abc",
     )
-    monkeypatch.setattr(
-        ConversationService, "list_for_user", AsyncMock(return_value=page)
-    )
+    monkeypatch.setattr(ConversationService, "list_for_user", AsyncMock(return_value=page))
 
     response = client.get("/chat/conversations?limit=20")
 
@@ -237,9 +236,7 @@ def test_list_conversations_forwards_filters_to_service(
     mock = AsyncMock(return_value=empty)
     monkeypatch.setattr(ConversationService, "list_for_user", mock)
 
-    response = client.get(
-        "/chat/conversations?is_archived=true&is_favorite=true&limit=10"
-    )
+    response = client.get("/chat/conversations?is_archived=true&is_favorite=true&limit=10")
 
     assert response.status_code == 200
     kwargs = mock.await_args.kwargs
@@ -271,13 +268,12 @@ def test_list_conversations_returns_422_on_malformed_cursor(
 # 3. GET /chat/conversations/{id} — détail + isolation
 # ══════════════════════════════════════════════════════════════
 
+
 def test_get_conversation_returns_detail(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     conv = _make_fake_conversation(title="À lire")
-    monkeypatch.setattr(
-        ConversationService, "get_by_id", AsyncMock(return_value=conv)
-    )
+    monkeypatch.setattr(ConversationService, "get_by_id", AsyncMock(return_value=conv))
 
     response = client.get(f"/chat/conversations/{conv.id}")
 
@@ -317,13 +313,12 @@ def test_get_conversation_rejects_malformed_uuid(client: TestClient) -> None:
 # 4. PATCH /chat/conversations/{id} — update + isolation
 # ══════════════════════════════════════════════════════════════
 
+
 def test_update_conversation_applies_partial_fields(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     updated = _make_fake_conversation(title="Nouveau titre", is_favorite=True)
-    monkeypatch.setattr(
-        ConversationService, "update", AsyncMock(return_value=updated)
-    )
+    monkeypatch.setattr(ConversationService, "update", AsyncMock(return_value=updated))
 
     response = client.patch(
         f"/chat/conversations/{updated.id}",
@@ -367,6 +362,7 @@ def test_update_conversation_returns_404_for_non_owner(
 # 5. DELETE /chat/conversations/{id} — soft-delete + isolation
 # ══════════════════════════════════════════════════════════════
 
+
 def test_delete_conversation_returns_204_on_success(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -400,22 +396,15 @@ def test_delete_conversation_returns_404_for_non_owner(
 # 6. GET /chat/conversations/{id}/messages — pagination + isolation
 # ══════════════════════════════════════════════════════════════
 
-def test_list_messages_returns_page(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+
+def test_list_messages_returns_page(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     conv_id = uuid.uuid4()
     messages = [
         _make_fake_message(conversation_id=conv_id, role="user", content="Hello"),
-        _make_fake_message(
-            conversation_id=conv_id, role="assistant", content="Salut !"
-        ),
+        _make_fake_message(conversation_id=conv_id, role="assistant", content="Salut !"),
     ]
-    page = chat_service_module.MessagesPageOrm(
-        items=messages, next_cursor="next-messages-cursor"
-    )
-    monkeypatch.setattr(
-        ConversationService, "list_messages", AsyncMock(return_value=page)
-    )
+    page = chat_service_module.MessagesPageOrm(items=messages, next_cursor="next-messages-cursor")
+    monkeypatch.setattr(ConversationService, "list_messages", AsyncMock(return_value=page))
 
     response = client.get(f"/chat/conversations/{conv_id}/messages?limit=20")
 
@@ -447,6 +436,7 @@ def test_list_messages_returns_404_for_non_owner(
 # ══════════════════════════════════════════════════════════════
 # 7. F2.0 — Filtre `expert_id` sur la liste active
 # ══════════════════════════════════════════════════════════════
+
 
 def test_list_conversations_forwards_expert_id_filter(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
@@ -482,19 +472,18 @@ def test_list_conversations_without_expert_id_passes_none(
 # 8. F2.0 — GET /chat/conversations/trash
 # ══════════════════════════════════════════════════════════════
 
+
 def test_list_trash_conversations_happy_path(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """La route corbeille renvoie la page avec `deleted_at` peuplé."""
-    deleted_at = datetime(2026, 4, 20, 10, 0, 0, tzinfo=timezone.utc)
+    deleted_at = datetime(2026, 4, 20, 10, 0, 0, tzinfo=UTC)
     conv = _make_fake_conversation(
         conversation_id=uuid.uuid4(),
         title="Vieille conv",
         deleted_at=deleted_at,
     )
-    page = chat_service_module.ConversationsPageOrm(
-        items=[conv], next_cursor="trash-cursor-xyz"
-    )
+    page = chat_service_module.ConversationsPageOrm(items=[conv], next_cursor="trash-cursor-xyz")
     mock = AsyncMock(return_value=page)
     monkeypatch.setattr(ConversationService, "list_trash_for_user", mock)
 
@@ -549,6 +538,7 @@ def test_list_trash_route_takes_precedence_over_uuid_route(
 # 9. F2.0 — POST /chat/conversations/{id}/restore
 # ══════════════════════════════════════════════════════════════
 
+
 def test_restore_conversation_returns_200_with_payload(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -597,6 +587,7 @@ def test_restore_conversation_rejects_malformed_uuid(client: TestClient) -> None
 # 10. F2.0 — DELETE /chat/conversations/{id}/permanent
 # ══════════════════════════════════════════════════════════════
 
+
 def test_permanent_delete_conversation_returns_204(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -631,6 +622,7 @@ def test_permanent_delete_conversation_returns_404_when_not_in_trash(
 # 11. F2.0 — ConversationResponse expose `deleted_at`
 # ══════════════════════════════════════════════════════════════
 
+
 def test_conversation_response_exposes_deleted_at_field(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -639,9 +631,7 @@ def test_conversation_response_exposes_deleted_at_field(
     Le Flutter lit ce champ pour afficher la date de suppression dans
     l'écran TrashScreen."""
     conv = _make_fake_conversation(title="Conv vivante")
-    monkeypatch.setattr(
-        ConversationService, "get_by_id", AsyncMock(return_value=conv)
-    )
+    monkeypatch.setattr(ConversationService, "get_by_id", AsyncMock(return_value=conv))
 
     response = client.get(f"/chat/conversations/{conv.id}")
 
@@ -649,3 +639,71 @@ def test_conversation_response_exposes_deleted_at_field(
     data = response.json()["data"]
     assert "deleted_at" in data
     assert data["deleted_at"] is None
+
+
+# ══════════════════════════════════════════════════════════════
+# 12. C1 — GET /chat/conversations?q=… (FTS titre + messages)
+# ══════════════════════════════════════════════════════════════
+
+
+def test_list_conversations_forwards_q_to_service(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le query param `q` arrive dans les kwargs du service tel quel."""
+    empty = chat_service_module.ConversationsPageOrm(items=[], next_cursor=None)
+    mock = AsyncMock(return_value=empty)
+    monkeypatch.setattr(ConversationService, "list_for_user", mock)
+
+    response = client.get("/chat/conversations?q=migration%20postgres")
+
+    assert response.status_code == 200
+    kwargs = mock.await_args.kwargs
+    assert kwargs["q"] == "migration postgres"
+
+
+def test_list_conversations_q_default_is_none(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sans `q=` dans l'URL, le service reçoit `q=None` (pas de recherche)."""
+    empty = chat_service_module.ConversationsPageOrm(items=[], next_cursor=None)
+    mock = AsyncMock(return_value=empty)
+    monkeypatch.setattr(ConversationService, "list_for_user", mock)
+
+    response = client.get("/chat/conversations")
+
+    assert response.status_code == 200
+    assert mock.await_args.kwargs["q"] is None
+
+
+def test_list_conversations_rejects_empty_q(client: TestClient) -> None:
+    """`q=` vide → 422 (Pydantic Query min_length=1). Protège d'un
+    ILIKE `%%` qui matcherait tout et saturerait le serveur."""
+    response = client.get("/chat/conversations?q=")
+    assert response.status_code == 422
+
+
+def test_list_conversations_rejects_q_longer_than_200_chars(
+    client: TestClient,
+) -> None:
+    """`q` au-delà de 200 chars → 422. Cap défensif : une query FTS raisonnable
+    tient largement en 200 chars, au-delà c'est un abus."""
+    long_q = "a" * 201
+    response = client.get(f"/chat/conversations?q={long_q}")
+    assert response.status_code == 422
+
+
+def test_list_conversations_q_and_expert_id_combine(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`q` et `expert_id` sont additifs — les deux atteignent le service.
+    Le Flutter « écran Expert X avec recherche » utilise cette combinaison."""
+    empty = chat_service_module.ConversationsPageOrm(items=[], next_cursor=None)
+    mock = AsyncMock(return_value=empty)
+    monkeypatch.setattr(ConversationService, "list_for_user", mock)
+
+    response = client.get("/chat/conversations?q=docker&expert_id=ingenierie")
+
+    assert response.status_code == 200
+    kwargs = mock.await_args.kwargs
+    assert kwargs["q"] == "docker"
+    assert kwargs["expert_id"] == "ingenierie"

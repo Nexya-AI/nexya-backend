@@ -16,7 +16,7 @@ en charge) viendront dans le Lot 3 quand la suite DB sera provisionnée.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -32,10 +32,10 @@ from app.features.chat.service import (
     _encode_cursor,
 )
 
-
 # ══════════════════════════════════════════════════════════════
 # 1. Curseur — round-trip exact
 # ══════════════════════════════════════════════════════════════
+
 
 def test_cursor_round_trip_preserves_timestamp_and_id() -> None:
     """Encode puis décode : les deux valeurs doivent ressortir intactes.
@@ -43,7 +43,7 @@ def test_cursor_round_trip_preserves_timestamp_and_id() -> None:
     Vérifie qu'un client peut stocker un curseur, le renvoyer N minutes
     plus tard, et le service comprend exactement la même position.
     """
-    sort_ts = datetime(2026, 4, 21, 14, 32, 15, 123456, tzinfo=timezone.utc)
+    sort_ts = datetime(2026, 4, 21, 14, 32, 15, 123456, tzinfo=UTC)
     row_id = uuid.UUID("9b8c0d6e-51f4-4a43-8d2a-01e2c0a7b612")
 
     cursor = _encode_cursor(sort_ts, row_id)
@@ -57,13 +57,14 @@ def test_cursor_round_trip_preserves_timestamp_and_id() -> None:
 # 2. Curseur — malformé → ValidationException (pas 500)
 # ══════════════════════════════════════════════════════════════
 
+
 @pytest.mark.parametrize(
     "bad_cursor",
     [
-        "not-base64!",                                       # base64 cassé
-        "aGVsbG8=",                                          # base64 valide mais sans séparateur
-        "MjAyNi0wNC0yMXwxMjM=",                              # séparateur OK mais UUID absent
-        "fHgteHw=",                                          # deux séparateurs, rien dedans
+        "not-base64!",  # base64 cassé
+        "aGVsbG8=",  # base64 valide mais sans séparateur
+        "MjAyNi0wNC0yMXwxMjM=",  # séparateur OK mais UUID absent
+        "fHgteHw=",  # deux séparateurs, rien dedans
     ],
 )
 def test_malformed_cursor_raises_validation_exception(bad_cursor: str) -> None:
@@ -79,6 +80,7 @@ def test_malformed_cursor_raises_validation_exception(bad_cursor: str) -> None:
 # ══════════════════════════════════════════════════════════════
 # 3. Isolation cross-user — owner → renvoie la conversation
 # ══════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_get_owned_conversation_returns_conversation_for_owner() -> None:
@@ -97,9 +99,7 @@ async def test_get_owned_conversation_returns_conversation_for_owner() -> None:
     db = MagicMock()
     db.execute = AsyncMock(return_value=result_mock)
 
-    returned = await ConversationService._get_owned_conversation(
-        conv_id, owner_id, db
-    )
+    returned = await ConversationService._get_owned_conversation(conv_id, owner_id, db)
 
     assert returned is conversation
     db.execute.assert_awaited_once()
@@ -108,6 +108,7 @@ async def test_get_owned_conversation_returns_conversation_for_owner() -> None:
 # ══════════════════════════════════════════════════════════════
 # 4. Isolation cross-user — non-owner → 404 (jamais 403)
 # ══════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_get_owned_conversation_raises_not_found_for_non_owner() -> None:
@@ -127,9 +128,108 @@ async def test_get_owned_conversation_raises_not_found_for_non_owner() -> None:
     db.execute = AsyncMock(return_value=result_mock)
 
     with pytest.raises(ResourceNotFoundException) as excinfo:
-        await ConversationService._get_owned_conversation(
-            conv_id, intruder_id, db
-        )
+        await ConversationService._get_owned_conversation(conv_id, intruder_id, db)
 
     assert excinfo.value.code == "RESOURCE_NOT_FOUND"
     assert excinfo.value.status_code == 404
+
+
+# ══════════════════════════════════════════════════════════════
+# 5. C1 — `list_for_user` avec param `q` : forme SQL attendue
+# ══════════════════════════════════════════════════════════════
+#
+# On ne démarre pas Postgres ici. On capture la statement SQLAlchemy passée
+# à `db.execute` et on inspecte sa compilation littérale pour vérifier :
+#
+# - quand `q` est posé, le WHERE contient l'opérateur FTS `@@` +
+#   `plainto_tsquery('french', …)` (côté messages) et un `ILIKE` (côté titre
+#   pour le trigram) reliés par un `OR`.
+# - quand `q` est absent (None ou whitespace-only), AUCUNE de ces clauses
+#   n'apparaît — la requête reste identique à la version pré-C1 pour ne pas
+#   régresser le plan d'exécution des listes sans recherche.
+
+
+def _compiled_sql(stmt) -> str:
+    """Renvoie la statement compilée avec literal binds, tout en minuscules,
+    pour grep insensible à la casse."""
+    return str(stmt.compile(compile_kwargs={"literal_binds": True})).lower()
+
+
+@pytest.mark.asyncio
+async def test_list_for_user_with_q_injects_fts_and_trigram_clauses() -> None:
+    captured: dict[str, object] = {}
+
+    result_mock = MagicMock()
+    result_mock.scalars.return_value.all.return_value = []
+    db = MagicMock()
+
+    async def _capture_execute(stmt, *args, **kwargs):
+        captured["stmt"] = stmt
+        return result_mock
+
+    db.execute = _capture_execute
+
+    user = MagicMock()
+    user.id = uuid.uuid4()
+
+    await ConversationService.list_for_user(user, db, q="postgres migration")
+
+    sql = _compiled_sql(captured["stmt"])
+    # Trigram côté titre
+    assert "ilike" in sql or "like" in sql
+    # FTS côté messages
+    assert "plainto_tsquery" in sql
+    assert "search_vector" in sql
+    assert "@@" in sql
+    # Rattachement via OR + EXISTS
+    assert "exists" in sql
+    assert " or " in sql
+
+
+@pytest.mark.asyncio
+async def test_list_for_user_without_q_does_not_inject_fts_clauses() -> None:
+    captured: dict[str, object] = {}
+
+    result_mock = MagicMock()
+    result_mock.scalars.return_value.all.return_value = []
+    db = MagicMock()
+
+    async def _capture_execute(stmt, *args, **kwargs):
+        captured["stmt"] = stmt
+        return result_mock
+
+    db.execute = _capture_execute
+
+    user = MagicMock()
+    user.id = uuid.uuid4()
+
+    await ConversationService.list_for_user(user, db, q=None)
+
+    sql = _compiled_sql(captured["stmt"])
+    assert "plainto_tsquery" not in sql
+    assert "search_vector" not in sql
+
+
+@pytest.mark.asyncio
+async def test_list_for_user_with_whitespace_only_q_skips_fts() -> None:
+    """Un `q='   '` strippé donne `""` — on ne filtre pas (équivalent à None)."""
+    captured: dict[str, object] = {}
+
+    result_mock = MagicMock()
+    result_mock.scalars.return_value.all.return_value = []
+    db = MagicMock()
+
+    async def _capture_execute(stmt, *args, **kwargs):
+        captured["stmt"] = stmt
+        return result_mock
+
+    db.execute = _capture_execute
+
+    user = MagicMock()
+    user.id = uuid.uuid4()
+
+    await ConversationService.list_for_user(user, db, q="   ")
+
+    sql = _compiled_sql(captured["stmt"])
+    assert "plainto_tsquery" not in sql
+    assert "search_vector" not in sql

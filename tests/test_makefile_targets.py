@@ -7,8 +7,11 @@ from pathlib import Path
 
 MAKEFILE = Path(__file__).resolve().parents[1] / "Makefile"
 
-# Tranche 1 actée 2026-04-26 : 16 targets confirmés.
+# Tranche 1 actée 2026-04-26 : 16 targets L1.
+# O2 (2026-04-27) ajoute 3 targets DD-ready : export-openapi, export-schema, export-dd.
+# Total après O2 : 19 targets.
 EXPECTED_TARGETS = {
+    # L1 — 16 targets
     "help",
     "install",
     "test",
@@ -25,6 +28,10 @@ EXPECTED_TARGETS = {
     "clean",
     "ci",
     "check",
+    # O2 — 3 targets DD exports
+    "export-openapi",
+    "export-schema",
+    "export-dd",
 }
 
 TARGET_REGEX = re.compile(r"^([a-zA-Z][a-zA-Z_-]*?):\s*(?:[^=]|$)")
@@ -56,7 +63,7 @@ def test_makefile_exists():
 
 
 def test_makefile_has_exactly_16_targets():
-    """Tranche 1 (2026-04-26) : 16 targets, ni plus ni moins."""
+    """L1 (2026-04-26) : 16 targets initiales + O2 (2026-04-27) : 3 export-dd targets = 19 total."""
     targets = _extract_targets()
     # On exclut les targets implicites qui auraient pu être capturés
     # par la regex sur des lignes mal parsées (`.PHONY:` etc.).

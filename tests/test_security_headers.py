@@ -246,4 +246,6 @@ def _base_prod_kwargs() -> dict:
         "prometheus_scrape_token": "prod-scrape-token-32-chars-minimum-secret",
         "grafana_admin_password": "strong-grafana-password-for-prod",
         "rgpd_admin_emails": ["dpo@nexya.ai"],
+        # E4.5 — C2PA désactivé dans tests (évite besoin clés X.509)
+        "c2pa_enabled": False,
     }

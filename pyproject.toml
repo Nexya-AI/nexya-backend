@@ -28,6 +28,12 @@ dependencies = [
     "cryptography>=44.0,<45",          # Backend RSA pour PyJWT
     "email-validator>=2.0,<3",         # Validation Pydantic EmailStr
 
+    # ── HTTP client async (Brevo email, futurs webhooks) ──────
+    "httpx>=0.27,<1",
+
+    # ── Templating (emails transactionnels) ───────────────────
+    "jinja2>=3.1,<4",
+
     # ── Logging ────────────────────────────────────────────────
     "structlog>=24.1,<25",
 
@@ -35,16 +41,101 @@ dependencies = [
     "google-genai>=1.0,<2",
     "google-cloud-aiplatform>=1.40,<2",
 
+    # ── IA — OpenAI + Anthropic (+ Qwen via compat OpenAI) ────
+    # Qwen n'a pas de SDK Python officiel stable côté international :
+    # on utilise le SDK openai en mode `base_url` override pour parler
+    # au endpoint DashScope-intl qui expose un API compatible OpenAI.
+    "openai>=1.55,<2",
+    "anthropic>=0.42,<1",
+
+    # ── Tokenisation (estimation pré-appel des tokens OpenAI/Qwen) ─
+    # tiktoken = tokenizer BPE officiel d'OpenAI, on l'utilise AVANT
+    # chaque appel LLM pour estimer le coût et couper à 402 si le user
+    # dépasse son budget, AVANT que le provider ne facture.
+    "tiktoken>=0.8,<1",
+
     # ── Workers (tâches asynchrones + cron) ────────────────────
     "arq>=0.26,<1",                    # Worker Redis — cleanup, Prompt Scheduler
+
+    # ── Object storage (S3 + MinIO + R2) ──────────────────────
+    # aioboto3 = client async officiel AWS/boto3 — compatible MinIO et R2
+    # via le contrat `endpoint_url`. Utilisé par le wrapper ObjectStore
+    # pour la Library (C3), Files (E3) et Watermark C2PA (E4 futur).
+    "aioboto3>=13,<15",
+
+    # ── Files upload (multipart + extraction texte) — Session E3 ─
+    # python-multipart : requis par FastAPI pour UploadFile/Form.
+    "python-multipart>=0.0.12,<1",
+    # pypdf : extraction texte PDF pure-Python, léger (~500 KB),
+    # maintenu activement. Alternative pdfplumber 10× plus lourde —
+    # on évalue pdfplumber en D4 si le RAG a besoin de coordonnées.
+    "pypdf>=5,<6",
+
+    # ── Vision multimodale — Session E2 ─────────────────────────
+    # Pillow : resize + encoding PNG/JPEG/WEBP pré-envoi LLM pour
+    # économiser massivement les tokens image. Une image 4K non-redimensionnée
+    # coûte ~4× plus cher qu'une 2K en tokens input Gemini/GPT-4o/Claude.
+    # ~5 MB, pure Python + ext C optionnelle, stable depuis 2010.
+    "Pillow>=10,<12",
+
+    # ── Mémoire IA pgvector + embeddings — Session D1 ───────────
+    # pgvector : bindings Python pour l'extension Postgres `vector`.
+    # Fournit `pgvector.sqlalchemy.Vector(N)` + helpers requêtes
+    # cosinus/L2/inner-product. Pure Python + extension C optionnelle
+    # pour le (dé)pack compact des floats 4 bytes.
+    "pgvector>=0.3,<1",
+
+    # ── Notifications push FCM — Session F2 ─────────────────────
+    # google-auth : signe les JWT OAuth2 RS256 côté client pour
+    # obtenir un access token Firebase via un service account JSON.
+    # Pur Python + cryptography (déjà installé pour JWT NEXYA), aucun
+    # binaire système. L'appel HTTP FCM v1 est fait via httpx async
+    # (déjà installé), donc pas besoin du SDK firebase-admin complet
+    # qui pèse ~30 MB et embarque un gros runtime synchrone.
+    "google-auth>=2.30,<3",
+
+    # ── Observabilité prod (Session K1) ─────────────────────────
+    # Trois piliers complémentaires :
+    # 1) OpenTelemetry — tracing distribué (W3C Trace Context),
+    #    auto-instrumentation FastAPI/SQLAlchemy/httpx/Redis/asgi
+    #    + spans manuels sur les chemins critiques NEXYA. Export
+    #    OTLP/HTTP vers un collector (Jaeger/Tempo/Honeycomb) qui
+    #    sera déployé en L2 staging — fail-open silencieux si
+    #    l'endpoint est inaccessible.
+    # 2) Sentry — capture des exceptions non rattrapées + breadcrumbs.
+    #    DSN env-aware : vide = sentry désactivé silencieux (zéro
+    #    overhead, zéro outbound). Scrubber secrets ponté depuis
+    #    `core/errors/handlers.py` (import direct, pas de duplication).
+    # 3) Prometheus — métriques applicatives (Counter/Histogram/Gauge)
+    #    exposées sur /metrics avec auth token. 13 métriques NEXYA
+    #    custom (IA, tools, notifications, workers, cache, breaker).
+    #    `prometheus-client` direct (pas exporter-prometheus OTel —
+    #    risque double-init du registry).
+    #
+    # Toutes pure-Python, ~5 MB total. Compatible Py 3.12/3.13/3.14.
+    "opentelemetry-api>=1.27,<2",
+    "opentelemetry-sdk>=1.27,<2",
+    "opentelemetry-instrumentation-fastapi>=0.48b0,<1",
+    "opentelemetry-instrumentation-sqlalchemy>=0.48b0,<1",
+    "opentelemetry-instrumentation-httpx>=0.48b0,<1",
+    "opentelemetry-instrumentation-redis>=0.48b0,<1",
+    "opentelemetry-instrumentation-asgi>=0.48b0,<1",
+    "opentelemetry-exporter-otlp-proto-http>=1.27,<2",
+    "sentry-sdk[fastapi]>=2.18,<3",
+    "prometheus-client>=0.21,<1",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0,<9",
     "pytest-asyncio>=0.24,<1",
-    "httpx>=0.27,<1",                  # TestClient async
     "ruff>=0.8,<1",                    # Linter + formatter
+    # Session L1 — outils CI/CD locaux + GHub Actions
+    "mypy>=1.13,<2",                   # Typecheck statique (assoupli V1)
+    "coverage[toml]>=7.6,<8",          # Coverage XML pour CI
+    "bandit>=1.8,<2",                  # Scan sécurité patterns dangereux
+    "pip-audit>=2.7,<3",               # Audit CVE des deps (PyPA officiel)
+    "pre-commit>=4.0,<5",              # Hooks Git locaux opt-in
 ]
 
 [build-system]
@@ -61,7 +152,34 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "TCH"]
-ignore = ["E501"]
+# L1 V1 : ignore les patterns intentionnels NEXYA pour ne pas bloquer
+# le CI sur des refactors invasifs.
+# - E501  : line-length déjà 100, suffisant.
+# - B008  : `Depends(...)` en default arg = pattern FastAPI intentionnel.
+# - TC001/TC002/TC003 : déplacer les imports dans `if TYPE_CHECKING:`
+#   est trop invasif pour L1 (197 fichiers à refactor). TODO Phase 19.
+# - B017  : `pytest.raises(Exception)` dans certains tests d'intégration
+#   où on veut juste vérifier qu'une exception lève sans typer.
+ignore = [
+    "E501",   # line-length déjà 100
+    "B008",   # `Depends(...)` default arg = pattern FastAPI intentionnel
+    "TC001",  # typing-only-first-party-import (refactor TYPE_CHECKING invasif)
+    "TC002",  # typing-only-third-party-import
+    "TC003",  # typing-only-standard-library-import
+    "B017",   # `pytest.raises(Exception)` dans certains tests d'intégration
+    # L1 V1 (TODO Phase 19 — durcissement progressif)
+    "F841",   # unused-variable (tests + code défensif)
+    "B904",   # raise-without-from-inside-except (cosmétique V1)
+    "B905",   # zip-without-explicit-strict (cosmétique V1)
+    "B007",   # unused-loop-control-variable
+    "SIM102", # collapsible-if (lisibilité subjective)
+    "SIM103", # needless-bool (lisibilité subjective)
+    "SIM105", # suppressible-exception (`try/except: pass` parfois clair)
+    "SIM108", # if-else-block-instead-of-if-exp (lisibilité subjective)
+    "SIM117", # multiple-with-statements
+    "UP046",  # non-pep695-generic-class (refactor invasif)
+    "E741",   # ambiguous-variable-name (1 cas isolé pré-existant)
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
@@ -69,3 +187,67 @@ known-first-party = ["app"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+# ── Session L1 — typecheck statique mypy ────────────────────
+# Stratégie pragmatique V1 (tranche 4 actée 2026-04-26) : démarrer
+# avec `disallow_untyped_defs=false` sur `app.*` plutôt que mypy
+# strict full puis reculer. Le code existant a beaucoup de
+# `MagicMock`/`AsyncMock` mal typés + des dict | None partout
+# (pydantic.mypy plugin compense partiellement). TODO Phase 19 :
+# durcir progressivement par module.
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true       # SDK externes peuvent manquer de stubs
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+plugins = ["pydantic.mypy"]         # support Pydantic v2
+
+[[tool.mypy.overrides]]
+module = ["app.*"]
+# V1 : `ignore_errors = true` sur app.* — le code historique a 78
+# erreurs mypy strict (typing.Result.rowcount, generic args, etc.)
+# que durcir progressivement en Phase 19. Mypy reste activé pour
+# capturer les bugs sur les NOUVEAUX modules (les futurs `app.foo`
+# qui désactivent l'override hériteront du mode global non-strict).
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false       # tests assouplis V1+V2
+
+[[tool.mypy.overrides]]
+module = ["migrations.*"]
+ignore_errors = true                # SQL Alembic — bruit non utile
+
+# ── Session L1 — coverage ──────────────────────────────────
+# Seuil V1 = couverture réelle - 5 % (tranche 3 actée 2026-04-26).
+# Évite un blocage CI au premier run. À monter progressivement en
+# V2 (75 %) et V3 (80 %).
+[tool.coverage.run]
+source = ["app"]
+branch = true
+omit = [
+    "app/main.py",                  # entry point — testé via integration
+    "app/config.py",                # validators Pydantic — couvert ailleurs
+]
+
+[tool.coverage.report]
+fail_under = 60                     # TODO V2: 75 %, V3: 80 %
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "@overload",
+]
+show_missing = true
+skip_covered = false
+
+# ── Session L1 — bandit (scan sécurité) ───────────────────
+# B101 (assert) ignoré : assert légitimes dans tests + code défensif.
+# Tests + migrations exclus : assert/SQL généré attendus.
+[tool.bandit]
+exclude_dirs = ["tests", "migrations", ".venv"]
+skips = ["B101"]

@@ -27,6 +27,8 @@ ALLOWED_ORGS = {
     "softprops",
     "github",
     "dependabot",
+    # N4 — k6 load tests (org Grafana Labs, action officielle)
+    "grafana",
 }
 
 # Pattern action use : `org/action@ref`
@@ -61,6 +63,7 @@ def test_workflows_dir_exists():
 
 
 def test_four_workflows_present():
+    """Workflows GHA livrés (L1=4 + N3 evals + N4 load + O2 dd-exports = 7)."""
     files = _all_workflow_files()
     names = {p.name for p in files}
     expected = {
@@ -68,6 +71,12 @@ def test_four_workflows_present():
         "release.yml",
         "codeql.yml",
         "dependabot-auto-merge.yml",
+        # N3 — évals IA reproductibles (cron nightly + PR comment)
+        "evals.yml",
+        # N4 — tests de charge k6 (workflow_dispatch + cron weekly)
+        "load.yml",
+        # O2 — DD exports freshness (push main)
+        "dd-exports-fresh.yml",
     }
     assert names == expected, f"Workflow files mismatch: {names} vs {expected}"
 

@@ -25,26 +25,29 @@ Discipline tests :
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.ai.engine.query_engine import (
+    DONE_REASON_TO_STATUS as _DONE_REASON_TO_STATUS,
+)
+from app.ai.engine.query_engine import (
+    StreamOutcome as _StreamOutcome,
+)
+from app.ai.engine.query_engine import (
+    observe_sse_event as _observe_sse_event,
+)
 from app.core.auth.guards import get_current_user
 from app.core.database.postgres import get_db
 from app.features.auth.models import User
 from app.features.chat import router as chat_router_module
 from app.features.chat.models import Conversation, Message
-from app.features.chat.router import (
-    _DONE_REASON_TO_STATUS,
-    _StreamOutcome,
-    _observe_sse_event,
-)
 from app.features.chat.service import ConversationService
 from app.main import app
-
 
 # ══════════════════════════════════════════════════════════════
 # Fixtures communes (aux tests d'intégration router)
@@ -61,7 +64,7 @@ def _make_fake_user() -> User:
 
 
 def _make_fake_conversation(expert_id: str = "general") -> Conversation:
-    now = datetime(2026, 4, 21, 14, 30, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 4, 21, 14, 30, 0, tzinfo=UTC)
     conv = Conversation(user_id=_FAKE_USER_ID, title=None, expert_id=expert_id)
     conv.id = uuid.UUID("a1b2c3d4-0000-4000-8000-000000000042")
     conv.last_message_at = None
@@ -76,7 +79,7 @@ def _make_fake_conversation(expert_id: str = "general") -> Conversation:
 
 
 def _make_fake_message(role: str, content: str, status_: str) -> Message:
-    now = datetime(2026, 4, 21, 14, 31, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 4, 21, 14, 31, 0, tzinfo=UTC)
     msg = Message(
         conversation_id=uuid.UUID("a1b2c3d4-0000-4000-8000-000000000042"),
         role=role,
@@ -123,6 +126,7 @@ def client() -> TestClient:
 # ══════════════════════════════════════════════════════════════
 # Helpers monkeypatch (modules de dépendances IA)
 # ══════════════════════════════════════════════════════════════
+
 
 class _FakeBudgetTracker:
     """Autorise tout par défaut. Surchargeable pour simuler un quota dépassé."""
@@ -196,6 +200,7 @@ def _install_fake_stream_handler(
 # 1. Parsing SSE — `_observe_sse_event`
 # ══════════════════════════════════════════════════════════════
 
+
 def test_observe_accumulates_deltas_from_chunk_events() -> None:
     outcome = _StreamOutcome()
     _observe_sse_event('event: chunk\ndata: {"delta":"Bon"}\n\n', outcome)
@@ -240,6 +245,7 @@ def test_observe_survives_malformed_json() -> None:
 # 2. Mapping done.reason → Message.status
 # ══════════════════════════════════════════════════════════════
 
+
 def test_done_reason_status_mapping_is_aligned_with_check_constraint() -> None:
     """Le vocabulaire doit être EXACTEMENT celui du CHECK SQL messages.status."""
     assert _DONE_REASON_TO_STATUS["stop"] == "completed"
@@ -250,6 +256,7 @@ def test_done_reason_status_mapping_is_aligned_with_check_constraint() -> None:
 # ══════════════════════════════════════════════════════════════
 # 3. Service — ensure_conversation_for_stream
 # ══════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_ensure_conversation_for_stream_creates_new_when_id_is_none() -> None:
@@ -296,6 +303,7 @@ async def test_ensure_conversation_for_stream_loads_owned_when_id_provided(
 # 4. Service — start_stream_turn
 # ══════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_start_stream_turn_inserts_user_placeholder_and_bumps_by_two(
     monkeypatch: pytest.MonkeyPatch,
@@ -332,6 +340,7 @@ async def test_start_stream_turn_inserts_user_placeholder_and_bumps_by_two(
 # ══════════════════════════════════════════════════════════════
 # 5. Service — finalize_assistant_stream
 # ══════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_finalize_assistant_stream_updates_message_and_conversation() -> None:
@@ -427,6 +436,7 @@ async def test_finalize_assistant_stream_converts_float_cost_to_decimal() -> Non
 # 6. Router — POST /chat/stop
 # ══════════════════════════════════════════════════════════════
 
+
 def test_chat_stop_posts_redis_key_via_mark_cancelled(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -447,6 +457,7 @@ def test_chat_stop_posts_redis_key_via_mark_cancelled(
 # 7. Router — /chat/stream legacy stateless
 # ══════════════════════════════════════════════════════════════
 
+
 def test_chat_stream_legacy_mode_skips_persistence(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -463,12 +474,8 @@ def test_chat_stream_legacy_mode_skips_persistence(
 
     ensure_mock = AsyncMock()
     finalize_mock = AsyncMock()
-    monkeypatch.setattr(
-        ConversationService, "ensure_conversation_for_stream", ensure_mock
-    )
-    monkeypatch.setattr(
-        ConversationService, "finalize_assistant_stream", finalize_mock
-    )
+    monkeypatch.setattr(ConversationService, "ensure_conversation_for_stream", ensure_mock)
+    monkeypatch.setattr(ConversationService, "finalize_assistant_stream", finalize_mock)
 
     response = client.post(
         "/chat/stream",
@@ -490,6 +497,7 @@ def test_chat_stream_legacy_mode_skips_persistence(
 # ══════════════════════════════════════════════════════════════
 # 8. Router — /chat/stream persisté (happy path)
 # ══════════════════════════════════════════════════════════════
+
 
 def test_chat_stream_persisted_finalizes_with_completed_status(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
@@ -532,9 +540,7 @@ def test_chat_stream_persisted_finalizes_with_completed_status(
     )
 
     finalize_mock = AsyncMock()
-    monkeypatch.setattr(
-        ConversationService, "finalize_assistant_stream", finalize_mock
-    )
+    monkeypatch.setattr(ConversationService, "finalize_assistant_stream", finalize_mock)
 
     # AsyncSessionLocal() doit se comporter comme un context manager async
     monkeypatch.setattr(
@@ -564,6 +570,7 @@ def test_chat_stream_persisted_finalizes_with_completed_status(
 # ══════════════════════════════════════════════════════════════
 # 9. Router — /chat/stream persisté : flux en erreur
 # ══════════════════════════════════════════════════════════════
+
 
 def test_chat_stream_persisted_finalizes_with_failed_on_error(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
@@ -601,9 +608,7 @@ def test_chat_stream_persisted_finalizes_with_failed_on_error(
     )
 
     finalize_mock = AsyncMock()
-    monkeypatch.setattr(
-        ConversationService, "finalize_assistant_stream", finalize_mock
-    )
+    monkeypatch.setattr(ConversationService, "finalize_assistant_stream", finalize_mock)
 
     monkeypatch.setattr(
         chat_router_module,
@@ -626,6 +631,7 @@ def test_chat_stream_persisted_finalizes_with_failed_on_error(
 # 10. Router — /chat/stream modération bloquante (400)
 # ══════════════════════════════════════════════════════════════
 
+
 def test_chat_stream_returns_400_when_moderation_blocks(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -636,9 +642,7 @@ def test_chat_stream_returns_400_when_moderation_blocks(
     )
 
     ensure_mock = AsyncMock()
-    monkeypatch.setattr(
-        ConversationService, "ensure_conversation_for_stream", ensure_mock
-    )
+    monkeypatch.setattr(ConversationService, "ensure_conversation_for_stream", ensure_mock)
 
     response = client.post("/chat/stream", json={"message": "payload flagged"})
 
@@ -652,6 +656,7 @@ def test_chat_stream_returns_400_when_moderation_blocks(
 # ══════════════════════════════════════════════════════════════
 # 11. Router — /chat/stream rejette un message vide (422)
 # ══════════════════════════════════════════════════════════════
+
 
 def test_chat_stream_rejects_whitespace_only_message(client: TestClient) -> None:
     """Validator Pydantic `message_not_only_whitespace` → 422, avant tout service."""
@@ -668,7 +673,10 @@ def test_chat_stream_rejects_whitespace_only_message(client: TestClient) -> None
 # on ne déclenche pas — la sentinelle protège du doublon.
 # ══════════════════════════════════════════════════════════════
 
-def _setup_persisted_stream(monkeypatch, *, conv: Conversation, conv_after_finalize: Conversation | None):
+
+def _setup_persisted_stream(
+    monkeypatch, *, conv: Conversation, conv_after_finalize: Conversation | None
+):
     """Câblage commun aux tests d'enqueue de titre."""
     _install_ai_mocks(monkeypatch)
     _install_fake_stream_handler(
@@ -756,7 +764,7 @@ def test_chat_stream_skips_title_enqueue_when_sentinel_already_set(
     conv = _make_fake_conversation()
     conv_after = _make_fake_conversation()
     conv_after.message_count = 6
-    conv_after.title_generated_at = datetime(2026, 4, 21, 14, 35, 0, tzinfo=timezone.utc)
+    conv_after.title_generated_at = datetime(2026, 4, 21, 14, 35, 0, tzinfo=UTC)
     conv_after.title = "Titre déjà posé"
 
     _setup_persisted_stream(monkeypatch, conv=conv, conv_after_finalize=conv_after)

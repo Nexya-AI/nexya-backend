@@ -36,7 +36,6 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
-    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -44,10 +43,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database.base import Base, UUIDMixin
 
-
 # ══════════════════════════════════════════════════════════════
 # Conversation — un fil de discussion appartenant à un user
 # ══════════════════════════════════════════════════════════════
+
 
 class Conversation(Base, UUIDMixin):
     """Fil de chat persisté.
@@ -72,6 +71,15 @@ class Conversation(Base, UUIDMixin):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
+    # Rattachement optionnel à un projet — `ON DELETE SET NULL` côté FK :
+    # une purge physique d'un projet détache ses conversations sans les
+    # perdre (voir migration 006 + note dans Project). Le soft-delete d'un
+    # projet se traduit par un UPDATE côté service (`SET project_id = NULL`).
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     title: Mapped[str | None] = mapped_column(String(120))
     expert_id: Mapped[str] = mapped_column(
         String(32), server_default="general", default="general", nullable=False
@@ -87,6 +95,11 @@ class Conversation(Base, UUIDMixin):
         Boolean, server_default="false", default=False, nullable=False
     )
     title_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Sentinelle one-shot pour le worker D2 `extract_durable_facts` —
+    # posée à `NOW()` dès que le job a tourné (même si 0 fait extrait),
+    # empêche toute ré-exécution ultérieure sur la même conversation.
+    # Même discipline que `title_generated_at` (B5 auto-title).
+    memory_extracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # ── Relations ──────────────────────────────────────────────
@@ -100,12 +113,8 @@ class Conversation(Base, UUIDMixin):
     )
 
     __table_args__ = (
-        CheckConstraint(
-            "char_length(expert_id) > 0", name="ck_conversations_expert_id_not_empty"
-        ),
-        CheckConstraint(
-            "message_count >= 0", name="ck_conversations_message_count_non_negative"
-        ),
+        CheckConstraint("char_length(expert_id) > 0", name="ck_conversations_expert_id_not_empty"),
+        CheckConstraint("message_count >= 0", name="ck_conversations_message_count_non_negative"),
         # Liste principale paginée : convs d'un user, non supprimées, triées par récence.
         Index(
             "idx_conversations_user_time",
@@ -126,6 +135,7 @@ class Conversation(Base, UUIDMixin):
 # ══════════════════════════════════════════════════════════════
 # Message — un tour de parole dans une conversation
 # ══════════════════════════════════════════════════════════════
+
 
 class Message(Base, UUIDMixin):
     """Message unitaire — user, assistant ou system.
@@ -170,9 +180,7 @@ class Message(Base, UUIDMixin):
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
 
     __table_args__ = (
-        CheckConstraint(
-            "role IN ('user', 'assistant', 'system')", name="ck_messages_role"
-        ),
+        CheckConstraint("role IN ('user', 'assistant', 'system')", name="ck_messages_role"),
         CheckConstraint(
             "status IN ('streaming', 'completed', 'failed', 'cancelled')",
             name="ck_messages_status",
@@ -188,6 +196,7 @@ class Message(Base, UUIDMixin):
 # ══════════════════════════════════════════════════════════════
 # AbuseReport — signalement d'un message par un utilisateur
 # ══════════════════════════════════════════════════════════════
+
 
 class AbuseReport(Base, UUIDMixin):
     """Signalement d'un message abusif — exigence App Store §1.2.
