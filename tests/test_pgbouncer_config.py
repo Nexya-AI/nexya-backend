@@ -59,9 +59,7 @@ def test_pgbouncer_ini_max_client_conn_reasonable() -> None:
     m = re.search(r"^max_client_conn\s*=\s*(\d+)", content, re.M)
     assert m, "max_client_conn doit être défini"
     value = int(m.group(1))
-    assert 1000 <= value <= 100_000, (
-        f"max_client_conn={value} hors range raisonnable"
-    )
+    assert 1000 <= value <= 100_000, f"max_client_conn={value} hors range raisonnable"
 
 
 def test_pgbouncer_ini_database_nexya_declared() -> None:
@@ -170,9 +168,7 @@ def test_compose_overlay_has_healthcheck() -> None:
 
 def test_postgres_engine_supports_pgbouncer_mode() -> None:
     """Le code postgres.py doit ajuster les kwargs en mode PgBouncer."""
-    src = (ROOT / "app" / "core" / "database" / "postgres.py").read_text(
-        encoding="utf-8"
-    )
+    src = (ROOT / "app" / "core" / "database" / "postgres.py").read_text(encoding="utf-8")
     assert "database_use_pgbouncer" in src
     assert "pool_pre_ping" in src
     assert "prepare_threshold" in src
@@ -180,9 +176,7 @@ def test_postgres_engine_supports_pgbouncer_mode() -> None:
 
 def test_postgres_engine_disables_pre_ping_with_pgbouncer() -> None:
     """En mode PgBouncer, pool_pre_ping doit être False (sinon double check inutile)."""
-    src = (ROOT / "app" / "core" / "database" / "postgres.py").read_text(
-        encoding="utf-8"
-    )
+    src = (ROOT / "app" / "core" / "database" / "postgres.py").read_text(encoding="utf-8")
     # Cherche le bloc PgBouncer + pool_pre_ping=False à proximité
     assert "pool_pre_ping" in src and "False" in src
 
@@ -207,9 +201,7 @@ def test_env_example_documents_pgbouncer() -> None:
 def test_deployment_l2_runbook_documents_pgbouncer() -> None:
     """`deployment-l2.md` doit documenter la procédure PgBouncer (Pourquoi,
     Stack, Config, Activation, Limitations)."""
-    content = (
-        ROOT / "docs" / "runbooks" / "deployment-l2.md"
-    ).read_text(encoding="utf-8")
+    content = (ROOT / "docs" / "runbooks" / "deployment-l2.md").read_text(encoding="utf-8")
     assert "PgBouncer" in content
     assert "transaction mode" in content.lower()
     assert "userlist.txt" in content

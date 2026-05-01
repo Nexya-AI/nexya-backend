@@ -36,8 +36,8 @@ from app.features.chat.models import AbuseReport, Conversation, Message  # noqa:
 from app.features.experts.models import ExpertCorpusChunk  # noqa: F401
 from app.features.feedback.models import MessageFeedback  # noqa: F401
 from app.features.files.chunk_models import DocumentChunk  # noqa: F401
-from app.features.helpdesk.models import HelpdeskEscalation  # noqa: F401
 from app.features.files.models import UploadedFile  # noqa: F401
+from app.features.helpdesk.models import HelpdeskEscalation  # noqa: F401
 from app.features.library.models import LibraryItem  # noqa: F401
 from app.features.memory.models import Memory  # noqa: F401
 from app.features.notifications.models import (  # noqa: F401

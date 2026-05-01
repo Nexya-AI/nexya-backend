@@ -107,6 +107,7 @@ def client() -> TestClient:
 # Service — ReportService.create_report
 # ══════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_create_report_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """Insert + commit + denormalisation conversation_id depuis le message."""
@@ -123,9 +124,7 @@ async def test_create_report_happy_path(monkeypatch: pytest.MonkeyPatch) -> None
     db.rollback = AsyncMock()
     db.refresh = AsyncMock()
 
-    body = AbuseReportCreate(
-        message_id=_FAKE_MESSAGE_ID, reason="offensive", detail="Insultes"
-    )
+    body = AbuseReportCreate(message_id=_FAKE_MESSAGE_ID, reason="offensive", detail="Insultes")
     report = await ReportService.create_report(user, body, db)
 
     assert len(added) == 1
@@ -184,9 +183,7 @@ async def test_create_report_translates_integrity_error_into_duplicate(
 
     db = MagicMock()
     db.add = MagicMock()
-    db.commit = AsyncMock(
-        side_effect=IntegrityError("INSERT", params={}, orig=Exception("UNIQUE"))
-    )
+    db.commit = AsyncMock(side_effect=IntegrityError("INSERT", params={}, orig=Exception("UNIQUE")))
     db.rollback = AsyncMock()
     db.refresh = AsyncMock()
 
@@ -203,6 +200,7 @@ async def test_create_report_translates_integrity_error_into_duplicate(
 # ══════════════════════════════════════════════════════════════
 # Router — POST /chat/reports
 # ══════════════════════════════════════════════════════════════
+
 
 def _patch_rate_limit_noop(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     """Court-circuite le rate limiter (autorise tout)."""

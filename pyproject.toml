@@ -123,6 +123,9 @@ dependencies = [
     "opentelemetry-exporter-otlp-proto-http>=1.27,<2",
     "sentry-sdk[fastapi]>=2.18,<3",
     "prometheus-client>=0.21,<1",
+    # Sécurité XML — parse DOCX user-uploaded sans risque XXE/billion laughs
+    # (fix Bandit B314 sur app/core/storage/text_extractor.py).
+    "defusedxml>=0.7,<1",
 ]
 
 [project.optional-dependencies]
@@ -133,6 +136,7 @@ dev = [
     # Session L1 — outils CI/CD locaux + GHub Actions
     "mypy>=1.13,<2",                   # Typecheck statique (assoupli V1)
     "coverage[toml]>=7.6,<8",          # Coverage XML pour CI
+    "pytest-cov>=5,<8",                # plugin pytest pour --cov=app (CI)
     "bandit>=1.8,<2",                  # Scan sécurité patterns dangereux
     "pip-audit>=2.7,<3",               # Audit CVE des deps (PyPA officiel)
     "pre-commit>=4.0,<5",              # Hooks Git locaux opt-in

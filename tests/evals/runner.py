@@ -233,8 +233,5 @@ def _aggregate(
         cat: (sum(1 for p in items if p) / max(1, len(items)))
         for cat, items in by_cat_passed.items()
     }
-    score_avg = {
-        cat: (sum(items) / max(1, len(items)))
-        for cat, items in by_cat_score.items()
-    }
+    score_avg = {cat: (sum(items) / max(1, len(items))) for cat, items in by_cat_score.items()}
     return pass_rate, score_avg

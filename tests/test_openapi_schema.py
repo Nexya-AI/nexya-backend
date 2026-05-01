@@ -161,9 +161,7 @@ def test_health_endpoints_tagged_health(schema: dict) -> None:
     """`/healthz`, `/ready`, `/version` doivent être taggés `health`."""
     for path in ("/healthz", "/ready", "/version"):
         op = schema["paths"][path]["get"]
-        assert "health" in op.get("tags", []), (
-            f"{path} non taggé 'health' : {op.get('tags')}"
-        )
+        assert "health" in op.get("tags", []), f"{path} non taggé 'health' : {op.get('tags')}"
 
 
 def test_admin_helpdesk_tagged_admin_and_helpdesk(schema: dict) -> None:
@@ -209,10 +207,26 @@ def test_nexya_tags_metadata_alphabetical_consistency() -> None:
     names = [t["name"] for t in NEXYA_TAGS_METADATA]
     # On vérifie juste que les 18+ tags sont dans la liste
     expected = {
-        "auth", "user", "chat", "projects", "library", "files",
-        "voice", "vision", "memory", "rag", "ai_models", "tasks",
-        "notifications", "feedback", "suggestions", "rgpd", "admin",
-        "helpdesk", "observability", "health",
+        "auth",
+        "user",
+        "chat",
+        "projects",
+        "library",
+        "files",
+        "voice",
+        "vision",
+        "memory",
+        "rag",
+        "ai_models",
+        "tasks",
+        "notifications",
+        "feedback",
+        "suggestions",
+        "rgpd",
+        "admin",
+        "helpdesk",
+        "observability",
+        "health",
     }
     missing = expected - set(names)
     assert not missing, f"Tags attendus manquants : {missing}"

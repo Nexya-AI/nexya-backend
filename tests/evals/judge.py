@@ -201,9 +201,7 @@ class GeminiJudge(JudgeBase):
             reasoning=str(parsed.get("reasoning", "no reasoning"))[:300],
         )
 
-    async def _call_gemini(
-        self, question: str, answer: str, criteria: list[str]
-    ) -> str:
+    async def _call_gemini(self, question: str, answer: str, criteria: list[str]) -> str:
         from google import genai  # noqa: PLC0415
 
         from app.config import settings

@@ -56,9 +56,7 @@ async def test_mock_crisp_accumulates_calls_and_returns_fake_id() -> None:
 @pytest.mark.asyncio
 async def test_mock_crisp_force_fail_returns_none() -> None:
     client = MockCrispClient(force_fail=True)
-    req = CrispConversationRequest(
-        nickname="x", email=None, message="m", metadata={}
-    )
+    req = CrispConversationRequest(nickname="x", email=None, message="m", metadata={})
     sid = await client.create_conversation(req)
     assert sid is None
     # Le call est tout de même tracé pour assertions tests

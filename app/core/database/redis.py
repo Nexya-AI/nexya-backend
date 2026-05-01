@@ -17,7 +17,7 @@ log = structlog.get_logger()
 redis_pool = aioredis.ConnectionPool.from_url(
     settings.redis_url,
     max_connections=settings.redis_max_connections,
-    decode_responses=True,     # retourne des str Python, pas des bytes
+    decode_responses=True,  # retourne des str Python, pas des bytes
     socket_connect_timeout=3,  # timeout 3s (évite de bloquer si Redis est down)
     socket_timeout=3,
 )

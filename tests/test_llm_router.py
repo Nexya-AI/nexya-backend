@@ -110,9 +110,7 @@ def test_router_init_copies_chat_providers_dict_defensively() -> None:
 
 def test_router_init_copies_image_providers_dict_defensively() -> None:
     src_img: dict[str, ImageProvider] = {"gemini-imagen": _FakeImageProvider()}
-    router = LlmRouter(
-        chat_providers={"gemini": _gemini_mock()}, image_providers=src_img
-    )
+    router = LlmRouter(chat_providers={"gemini": _gemini_mock()}, image_providers=src_img)
     src_img.pop("gemini-imagen")
     assert router.has_image_provider("gemini-imagen") is True
 

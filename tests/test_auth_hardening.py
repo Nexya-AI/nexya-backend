@@ -270,9 +270,7 @@ async def test_blacklist_check_redis_timeout_returns_false_fail_open(
 
     result = await jwt_module.is_token_blacklisted("some-jti")
 
-    assert result is False, (
-        "Fail-open obligatoire — un timeout Redis ne doit pas casser l'auth"
-    )
+    assert result is False, "Fail-open obligatoire — un timeout Redis ne doit pas casser l'auth"
 
 
 @pytest.mark.asyncio
@@ -317,9 +315,7 @@ async def test_blacklist_check_redis_down_increments_metric(
     assert metric is not None, "La métrique doit être initialisée"
     samples = list(metric.collect())[0].samples
     matching = [
-        s
-        for s in samples
-        if s.labels.get("error_type") == "redis_connection" and s.value > 0
+        s for s in samples if s.labels.get("error_type") == "redis_connection" and s.value > 0
     ]
     assert matching, (
         "Métrique nexya_auth_blacklist_check_failed_total"

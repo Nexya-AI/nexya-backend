@@ -100,8 +100,12 @@ def render_markdown(
     # Tableau par catégorie
     lines.append("## 📈 Pass rate par catégorie")
     lines.append("")
-    lines.append("| Catégorie | Pass rate | Score moyen | Δ pp baseline | Δ score baseline | Verdict |")
-    lines.append("|-----------|-----------|-------------|---------------|------------------|---------|")
+    lines.append(
+        "| Catégorie | Pass rate | Score moyen | Δ pp baseline | Δ score baseline | Verdict |"
+    )
+    lines.append(
+        "|-----------|-----------|-------------|---------------|------------------|---------|"
+    )
     for cat in sorted(run.pass_rate_per_category.keys()):
         pr = run.pass_rate_per_category[cat] * 100.0
         sc = run.score_avg_per_category.get(cat, 0.0)
