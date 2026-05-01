@@ -16,7 +16,7 @@ Couvre :
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -24,7 +24,6 @@ import pytest
 from app.integrations import crisp_client as crisp_module
 from app.integrations.crisp_client import (
     CrispAuthError,
-    CrispClient,
     CrispConversationRequest,
     CrispUnavailableError,
     MockCrispClient,
@@ -32,7 +31,6 @@ from app.integrations.crisp_client import (
     get_crisp_client,
     reset_crisp_client_for_tests,
 )
-
 
 # ══════════════════════════════════════════════════════════════
 # MockCrispClient

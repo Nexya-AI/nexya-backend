@@ -17,7 +17,7 @@ On teste :
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -102,5 +102,5 @@ async def test_cleanup_refresh_tokens_uses_expected_retention_constants() -> Non
     le contrat documenté côté ops — anti-régression."""
     from datetime import timedelta
 
-    assert auth_tasks.EXPIRED_RETENTION == timedelta(days=1)
-    assert auth_tasks.REVOKED_RETENTION == timedelta(days=7)
+    assert timedelta(days=1) == auth_tasks.EXPIRED_RETENTION
+    assert timedelta(days=7) == auth_tasks.REVOKED_RETENTION

@@ -196,7 +196,7 @@
           "auth"
         ],
         "summary": "Refresh",
-        "description": "Renouvellement du couple access + refresh via rotation.",
+        "description": "Renouvellement du couple access + refresh via rotation.\n\nRate limit IP : **20/min**. Un attaquant qui obtient un refresh\ntoken leaké ne peut pas l'exploiter pour spammer la rotation\nau-delà de 20× par minute par IP source — borne le brute-force\nJWT immédiatement à 1200 access tokens / heure / IP.",
         "operationId": "refresh_auth_refresh_post",
         "requestBody": {
           "content": {

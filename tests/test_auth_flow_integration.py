@@ -26,14 +26,12 @@ Mock-first strict : aucun Postgres, aucun Redis. Service patché via
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
-import jwt as pyjwt
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import settings
 from app.core.auth.guards import get_current_user
 from app.core.auth.jwt import create_access_token
 from app.core.database.postgres import get_db
@@ -41,7 +39,6 @@ from app.features.auth import service as auth_service
 from app.features.auth.models import User
 from app.features.auth.schemas import TokenResponse, UserProfile
 from app.main import app
-
 
 # ══════════════════════════════════════════════════════════════
 # Fixtures

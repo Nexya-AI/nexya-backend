@@ -21,12 +21,11 @@ Pipeline strict :
 
 from __future__ import annotations
 
-import uuid
 from collections import defaultdict
 from typing import Any
 
 import structlog
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings

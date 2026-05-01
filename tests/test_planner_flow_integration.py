@@ -30,7 +30,6 @@ from app.features.planner import service as planner_service_mod
 from app.features.planner.scheduler import compute_next_run
 from app.main import app
 
-
 # ══════════════════════════════════════════════════════════════
 # Fixtures
 # ══════════════════════════════════════════════════════════════

@@ -19,19 +19,13 @@ Couvre :
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core.security.headers import (
-    _HEADERS_DEV,
-    _HEADERS_PROD,
-    _HEADERS_STAGING,
     NexyaSecurityHeadersMiddleware,
 )
-
 
 # ══════════════════════════════════════════════════════════════
 # Helper — fabrique d'app FastAPI minimale avec preset configurable

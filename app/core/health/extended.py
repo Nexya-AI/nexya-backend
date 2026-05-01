@@ -18,7 +18,6 @@ jamais cascade. Le caller (endpoint `/ready`) décide si globalement
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
 from typing import Any
 
 import structlog
@@ -26,7 +25,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.health.version import VersionInfo, detect_version
+from app.core.health.version import detect_version
 
 log = structlog.get_logger(__name__)
 

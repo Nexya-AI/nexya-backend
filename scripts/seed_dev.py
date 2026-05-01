@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import bcrypt
 import structlog
@@ -54,7 +54,7 @@ DEMO_ACCOUNTS: list[dict[str, object]] = [
         "password": "DemoPro2026!",
         "display_name": "Démo Pro",
         "plan": "pro",
-        "plan_expires_at": datetime.now(timezone.utc) + timedelta(days=365),
+        "plan_expires_at": datetime.now(UTC) + timedelta(days=365),
         "bio": "Compte de démonstration — plan Pro (quotas étendus).",
     },
 ]

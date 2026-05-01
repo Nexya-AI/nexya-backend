@@ -15,7 +15,7 @@ Couvre :
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -29,7 +29,6 @@ from app.integrations.crisp_client import (
     CrispConversationRequest,
     MockCrispClient,
 )
-
 
 # ══════════════════════════════════════════════════════════════
 # Fixtures

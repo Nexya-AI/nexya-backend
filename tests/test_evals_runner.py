@@ -26,13 +26,11 @@ from tests.evals.judge import MockJudge
 from tests.evals.report import QuestionResult, RunResult, render_json, render_markdown
 from tests.evals.runner import (
     CORPUS_CATEGORIES,
-    Question,
     _aggregate,
     _parse_question,
     load_corpus,
     run_evals,
 )
-
 
 # ══════════════════════════════════════════════════════════════
 # load_corpus

@@ -4,16 +4,24 @@
 # hardcoded creds, path traversal, etc.) via les queries CWE de GitHub.
 # Résultats remontés dans l'onglet « Security » du repo.
 #
-# Trigger : hebdomadaire (lundi 6h UTC) + push sur main.
+# ⚠️ Trigger workflow_dispatch UNIQUEMENT (audit remediation 2026-05-01) :
+# CodeQL exige GitHub Advanced Security activée. Gratuit sur repo public,
+# payant ~$49/user/mois sur repo privé. Tant qu'Advanced Security n'est
+# pas activée sur Settings → Code security → Code scanning, ce workflow
+# fail systématiquement avec « Advanced Security must be enabled ».
+# Le workflow_dispatch permet de l'activer manuellement quand le settings
+# est ON, ou de garder le workflow versionné pour activation future.
 # Non-bloquant pour CI principal — visibilité seulement.
 
 name: CodeQL
 
 on:
-  schedule:
-    - cron: '0 6 * * 1'   # lundi 6h UTC
-  push:
-    branches: [main]
+  workflow_dispatch:
+  # schedule + push:main réactivables quand Advanced Security activée :
+  # schedule:
+  #   - cron: '0 6 * * 1'   # lundi 6h UTC
+  # push:
+  #   branches: [main]
 
 concurrency:
   group: codeql-${{ github.ref }}

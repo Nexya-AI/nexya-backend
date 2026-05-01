@@ -11,13 +11,11 @@ Couvre :
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import settings
 from app.core.auth.guards import require_admin
 from app.core.database.postgres import get_db
 from app.features.auth.models import User
