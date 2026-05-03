@@ -681,6 +681,14 @@ async def chat_stream(
     )
 
     response_headers["X-Conversation-Id"] = str(conversation.id)
+    # C2-fix (2026-05-02) — UUID backend du message assistant fraîchement
+    # persisté en DB par `start_stream_turn` ci-dessus. Permet au client
+    # Flutter de cibler ce message pour `POST /chat/messages/{id}/feedback`
+    # (C2) et `POST /chat/reports` (C1) sans devoir GET la liste des
+    # messages post-stream. Aligné pattern `X-Session-Id`/`X-Conversation-Id`.
+    # Émis UNIQUEMENT en mode persisté (mode legacy stateless n'INSERT pas
+    # de row, mode cache HIT court-circuite avant `start_stream_turn`).
+    response_headers["X-Assistant-Message-Id"] = str(placeholder.id)
 
     handler = get_stream_handler()
     return StreamingResponse(
