@@ -54,22 +54,22 @@ TITLE_PROMPT = (
     "RÈGLES STRICTES :\n"
     "- 3 à 5 mots MAXIMUM.\n"
     "- Format : groupe nominal court, PAS une phrase complète.\n"
-    "- Pas d'article au début (\"Configuration émulateur\", PAS "
-    "\"La configuration de l'émulateur\").\n"
+    '- Pas d\'article au début ("Configuration émulateur", PAS '
+    '"La configuration de l\'émulateur").\n'
     "- Pas de verbe conjugué.\n"
-    "- Pas de phrase narrative comme \"L'utilisateur veut...\" ou "
-    "\"Discussion sur...\".\n"
+    '- Pas de phrase narrative comme "L\'utilisateur veut..." ou '
+    '"Discussion sur...".\n'
     "- En français.\n"
     "\n"
     "EXEMPLES VALIDES :\n"
-    "- \"Configuration émulateur Flutter\"\n"
-    "- \"Recettes pâtes carbonara\"\n"
-    "- \"Algorithme tri rapide\"\n"
-    "- \"Génération image chat orange\"\n"
+    '- "Configuration émulateur Flutter"\n'
+    '- "Recettes pâtes carbonara"\n'
+    '- "Algorithme tri rapide"\n'
+    '- "Génération image chat orange"\n'
     "\n"
     "EXEMPLES INVALIDES :\n"
-    "- \"L'utilisateur demande comment configurer son émulateur\" (phrase)\n"
-    "- \"Voici un titre pour la discussion\" (méta-discours)\n"
+    '- "L\'utilisateur demande comment configurer son émulateur" (phrase)\n'
+    '- "Voici un titre pour la discussion" (méta-discours)\n'
     "- \"Discussion sur les chats orange\" (commence par 'Discussion')\n"
     "\n"
     "Réponds UNIQUEMENT par le titre, rien d'autre. "
@@ -301,7 +301,7 @@ def _sanitize_title(raw: str) -> str:
 
     if len(title) > TITLE_MAX_CHARS:
         # Coupe propre sur un espace pour ne pas tronquer un mot
-        cut = title[:TITLE_MAX_CHARS - 1]
+        cut = title[: TITLE_MAX_CHARS - 1]
         last_space = cut.rfind(" ")
         if last_space > TITLE_MAX_CHARS // 2:
             cut = cut[:last_space]
