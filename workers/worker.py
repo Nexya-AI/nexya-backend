@@ -11,8 +11,25 @@ HTTP de FastAPI.
 
 from __future__ import annotations
 
+import asyncio
+import sys
 import time
 from typing import Any
+
+# **D1.5-fix (2026-05-03)** — Windows event loop policy MANDATORY pour
+# le worker arq. Par défaut, asyncio sur Windows utilise `ProactorEventLoop`
+# (Py 3.8+) qui est incompatible avec psycopg async. Le worker arq doit
+# pouvoir ouvrir une session `AsyncSessionLocal` pour exécuter les jobs
+# (auto-titre, scheduler, embeddings, etc.) → si on ne pose pas la policy
+# `WindowsSelectorEventLoopPolicy` AVANT que asyncio démarre, tout job
+# qui touche la DB crash avec :
+#   `psycopg.InterfaceError: Psycopg cannot use the 'ProactorEventLoop'`
+#
+# Pattern aligné avec `app/main.py` et `migrations/env.py` qui le posent
+# déjà — ce worker en avait besoin aussi mais l'oubli est resté silencieux
+# tant qu'on n'avait pas testé un job DB-touchant en local Windows.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 import structlog
 from arq.connections import RedisSettings

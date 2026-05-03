@@ -42,11 +42,38 @@ if TYPE_CHECKING:
 log = structlog.get_logger()
 
 # ── Paramètres du titre auto ──────────────────────────────────────
-TITLE_MAX_CHARS = 60
+# **D1.5-fix (2026-05-03)** — cap réduit 60 → 40 chars et prompt durci
+# pour empêcher Gemini Flash de retourner une phrase complète narrative
+# (ex: "L'utilisateur veut savoir comment configurer son émulateur"
+# tronquée à 60 chars → titre illisible) au lieu d'un groupe nominal
+# court (ex: "Configuration émulateur Flutter").
+TITLE_MAX_CHARS = 40
 TITLE_PROMPT = (
-    "Donne un titre court (5 à 8 mots, maximum 60 caractères) en français, "
-    "qui résume cet échange de façon claire. Réponds uniquement par le titre, "
-    "sans guillemets ni ponctuation finale."
+    "Tu es un générateur de titres concis pour conversations.\n"
+    "\n"
+    "RÈGLES STRICTES :\n"
+    "- 3 à 5 mots MAXIMUM.\n"
+    "- Format : groupe nominal court, PAS une phrase complète.\n"
+    "- Pas d'article au début (\"Configuration émulateur\", PAS "
+    "\"La configuration de l'émulateur\").\n"
+    "- Pas de verbe conjugué.\n"
+    "- Pas de phrase narrative comme \"L'utilisateur veut...\" ou "
+    "\"Discussion sur...\".\n"
+    "- En français.\n"
+    "\n"
+    "EXEMPLES VALIDES :\n"
+    "- \"Configuration émulateur Flutter\"\n"
+    "- \"Recettes pâtes carbonara\"\n"
+    "- \"Algorithme tri rapide\"\n"
+    "- \"Génération image chat orange\"\n"
+    "\n"
+    "EXEMPLES INVALIDES :\n"
+    "- \"L'utilisateur demande comment configurer son émulateur\" (phrase)\n"
+    "- \"Voici un titre pour la discussion\" (méta-discours)\n"
+    "- \"Discussion sur les chats orange\" (commence par 'Discussion')\n"
+    "\n"
+    "Réponds UNIQUEMENT par le titre, rien d'autre. "
+    "Pas de guillemets, pas de ponctuation finale."
 )
 # Borne dure côté worker : quelques tokens suffisent pour un titre, plafond
 # défensif contre une dérive du modèle.
@@ -247,8 +274,23 @@ async def _call_llm_for_title(history: list[AiChatMessage]) -> str:
 
 
 def _sanitize_title(raw: str) -> str:
-    """Nettoie le titre : strip, dégarnit guillemets, tronque à 60 chars."""
+    """Nettoie le titre : strip, dégarnit guillemets, tronque proprement.
+
+    **D1.5-fix (2026-05-03)** — coupe sur un espace pour ne jamais
+    casser un mot au milieu (ex: "Configuration émul…" au lieu de
+    "Configuration émulateur Flutter" tronqué bêtement à 40 chars
+    qui aurait donné "Configuration émulateur Flutter sur" → cassé
+    en plein milieu sur du contenu plus long).
+    """
     title = raw.strip()
+    # Si le LLM a retourné plusieurs lignes (ex: explications + titre),
+    # on prend la 1ère ligne non-vide uniquement.
+    for line in title.splitlines():
+        candidate = line.strip()
+        if candidate:
+            title = candidate
+            break
+
     # Retire d'éventuels guillemets typographiques en bornes
     for ch in ('"', "'", "“", "”", "«", "»"):
         if title.startswith(ch):
@@ -256,6 +298,12 @@ def _sanitize_title(raw: str) -> str:
         if title.endswith(ch):
             title = title[:-1]
     title = title.strip().rstrip(".!?:;,")
+
     if len(title) > TITLE_MAX_CHARS:
-        title = title[: TITLE_MAX_CHARS - 1].rstrip() + "…"
+        # Coupe propre sur un espace pour ne pas tronquer un mot
+        cut = title[:TITLE_MAX_CHARS - 1]
+        last_space = cut.rfind(" ")
+        if last_space > TITLE_MAX_CHARS // 2:
+            cut = cut[:last_space]
+        title = cut.rstrip() + "…"
     return title

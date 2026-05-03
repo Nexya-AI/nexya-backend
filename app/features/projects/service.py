@@ -319,22 +319,28 @@ class ProjectService:
             instructions=body.instructions,
         )
         db.add(project)
+        # Capture les attributs ORM AVANT le commit pour qu'aucun accès post-rollback
+        # ne déclenche un lazy-load → MissingGreenlet (cf. backend §15 entrée 2026-04-21
+        # même pattern fixé sur ReportService.create_report).
+        user_id_str = str(user.id)
+        project_name = body.name
         try:
             await db.commit()
         except IntegrityError:
             await db.rollback()
             log.info(
                 "projects.create.name_conflict",
-                user_id=str(user.id),
-                name=body.name,
+                user_id=user_id_str,
+                name=project_name,
             )
             raise ProjectNameConflictException() from None
         await db.refresh(project)
+        project_id_str = str(project.id)
         log.info(
             "projects.created",
-            user_id=str(user.id),
-            project_id=str(project.id),
-            name=project.name,
+            user_id=user_id_str,
+            project_id=project_id_str,
+            name=project_name,
         )
         return ProjectView(project=project, file_count=0, conversation_count=0)
 
@@ -484,21 +490,26 @@ class ProjectService:
 
         if touched:
             project.updated_at = datetime.now(UTC)
+            # Capture des attributs ORM AVANT le commit. Si IntegrityError → rollback
+            # → ORM expiré → tout accès `user.id` ou `project.id` post-rollback déclenche
+            # un lazy-load → MissingGreenlet (cf. §15 backend entrée 2026-04-21).
+            user_id_str = str(user.id)
+            project_id_str = str(project.id)
             try:
                 await db.commit()
             except IntegrityError:
                 await db.rollback()
                 log.info(
                     "projects.update.name_conflict",
-                    user_id=str(user.id),
-                    project_id=str(project.id),
+                    user_id=user_id_str,
+                    project_id=project_id_str,
                 )
                 raise ProjectNameConflictException() from None
             await db.refresh(project)
             log.info(
                 "projects.updated",
-                user_id=str(user.id),
-                project_id=str(project.id),
+                user_id=user_id_str,
+                project_id=project_id_str,
                 fields=list(update_data.keys()),
                 clear_instructions=clear_instructions,
             )

@@ -489,6 +489,10 @@ def test_chat_stream_legacy_mode_skips_persistence(
     assert response.headers["content-type"].startswith("text/event-stream")
     assert "X-Session-Id" in response.headers
     assert "X-Conversation-Id" not in response.headers
+    # C2-fix : en mode legacy stateless, aucun message n'est persisté en DB,
+    # donc pas de header X-Assistant-Message-Id (cohérent — pas de row backend
+    # à cibler pour feedback/report).
+    assert "X-Assistant-Message-Id" not in response.headers
 
     ensure_mock.assert_not_awaited()
     finalize_mock.assert_not_awaited()
@@ -556,6 +560,11 @@ def test_chat_stream_persisted_finalizes_with_completed_status(
 
     assert response.status_code == 200
     assert response.headers["X-Conversation-Id"] == str(conv.id)
+    # C2-fix : header X-Assistant-Message-Id posé en mode persisté nouvelle
+    # conv. Vaut l'UUID du placeholder retourné par `start_stream_turn` —
+    # le client Flutter le capte en parallèle de X-Conversation-Id pour
+    # cibler le message via les endpoints feedback/report.
+    assert response.headers["X-Assistant-Message-Id"] == str(placeholder.id)
     # Consomme le body pour que le générateur aille jusqu'au `finally`
     body = response.text
     assert "Bonjour !" in body or "Bon" in body
@@ -565,6 +574,79 @@ def test_chat_stream_persisted_finalizes_with_completed_status(
     assert kwargs["content"] == "Bonjour !"
     assert kwargs["status"] == "completed"
     assert kwargs["error_code"] is None
+
+
+def test_chat_stream_persisted_emits_assistant_message_id_for_existing_conversation(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C2-fix : header X-Assistant-Message-Id posé aussi en mode « conv
+    existante » (`body.conversation_id` fourni).
+
+    Le 1er test (mode nouvelle conv) couvre le flux ensure_conversation
+    sans `conversation_id`. Ici on valide le flux où le client passe un
+    `conversation_id` existant — `ensure_conversation_for_stream` retourne
+    la conv existante mais `start_stream_turn` crée toujours un nouveau
+    placeholder assistant pour ce tour, dont l'UUID doit être exposé.
+
+    Garde-fou contrat : si quelqu'un déplaçait l'ajout du header en dehors
+    de la branche persistée commune, ce test casserait.
+    """
+    _install_ai_mocks(monkeypatch)
+    _install_fake_stream_handler(
+        monkeypatch,
+        [
+            'event: chunk\ndata: {"delta":"Suite"}\n\n',
+            'event: done\ndata: {"reason":"stop"}\n\n',
+        ],
+    )
+
+    existing_conv_id = uuid.uuid4()
+    conv = _make_fake_conversation(expert_id="general")
+    conv.id = existing_conv_id
+    placeholder = _make_fake_message("assistant", "", "streaming")
+    placeholder_id = placeholder.id  # capté avant que l'objet ne soit
+    # potentiellement muté par le pipeline downstream
+    user_msg = _make_fake_message("user", "Continue", "completed")
+
+    monkeypatch.setattr(
+        ConversationService,
+        "ensure_conversation_for_stream",
+        AsyncMock(return_value=conv),
+    )
+    monkeypatch.setattr(
+        ConversationService,
+        "load_context_messages",
+        AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        ConversationService,
+        "start_stream_turn",
+        AsyncMock(return_value=(user_msg, placeholder)),
+    )
+
+    finalize_mock = AsyncMock()
+    monkeypatch.setattr(ConversationService, "finalize_assistant_stream", finalize_mock)
+
+    monkeypatch.setattr(
+        chat_router_module,
+        "AsyncSessionLocal",
+        lambda: _FakeAsyncContextSession(),
+    )
+
+    response = client.post(
+        "/chat/stream",
+        json={
+            "message": "Continue",
+            "conversation_id": str(existing_conv_id),
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["X-Conversation-Id"] == str(existing_conv_id)
+    assert response.headers["X-Assistant-Message-Id"] == str(placeholder_id)
+    assert "X-Session-Id" in response.headers
+    # Consomme le body pour s'assurer que le générateur va jusqu'au `finally`
+    _ = response.text
 
 
 # ══════════════════════════════════════════════════════════════
