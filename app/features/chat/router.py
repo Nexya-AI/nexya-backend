@@ -533,6 +533,7 @@ async def chat_stream(
             current_user,
             db,
             expert_id_hint=body.expert_id,
+            project_id=body.project_id,
         )
         context_messages = await ConversationService.load_context_messages(conversation, db)
         ai_messages = list(context_messages)

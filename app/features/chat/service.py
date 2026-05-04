@@ -260,20 +260,60 @@ class ConversationService:
         remplira automatiquement après le premier échange complet.
         `expert_id` par défaut `'general'` (aligné sur le serveur_default
         de la colonne).
+
+        `body.project_id` (D3 — 2026-05-04) : si fourni, l'ownership du
+        projet est validé via `ProjectService._get_owned_project` qui
+        lève `ResourceNotFoundException("Projet")` 404 IDOR-safe en cas
+        de mismatch user (jamais 403 — anti-énumération UUID, pattern
+        aligné `_get_owned_conversation` + `_get_owned_message`).
+
+        Le `project_id` est ensuite persisté sur la nouvelle ligne — la
+        FK `conversations.project_id ON DELETE SET NULL` (migration 006)
+        détache automatiquement la conv si le projet est purgé physiquement
+        (RGPD Article 17). Le soft-delete projet C2 fait l'équivalent via
+        UPDATE explicite côté `ProjectService.soft_delete`.
+
+        **Anti-MissingGreenlet** (4ᵉ occurrence du pattern, voir §15
+        entrée 2026-04-21 ReportService + 2026-05-03 ProjectService.create
+        + ProjectService.update) : on capture `user_id_str = str(user.id)`
+        AVANT `db.commit()` pour que le log forensic n'accède plus aux
+        attributs ORM expirés en cas de rollback (un `IntegrityError`
+        sur la FK `project_id` invalide post-rollback expirerait
+        `user.id` et le lazy-load déclencherait `pool_pre_ping` →
+        setter sync sur connexion async → MissingGreenlet 500).
         """
+        # Local import pour casser le cycle d'import projects ↔ chat.
+        # Le module `app.features.projects.service` importe directement
+        # `Conversation` (cf. UPDATE conversations SET project_id=NULL
+        # dans soft_delete) — un import top-level ici déclencherait un
+        # ImportError circulaire au boot.
+        from app.features.projects.service import ProjectService
+
+        # Capture en str AVANT commit (anti-MissingGreenlet post-rollback).
+        user_id_str = str(user.id)
+
+        # Validation ownership projet AVANT INSERT — un projet inconnu
+        # ou pas owner → 404 IDOR-safe + zéro écriture DB.
+        if body.project_id is not None:
+            await ProjectService._get_owned_project(
+                body.project_id, user.id, db
+            )
+
         conversation = Conversation(
             user_id=user.id,
             title=body.title,
             expert_id=body.expert_id or "general",
+            project_id=body.project_id,
         )
         db.add(conversation)
         await db.commit()
         await db.refresh(conversation)
         log.info(
             "chat.conversation.created",
-            user_id=str(user.id),
+            user_id=user_id_str,
             conversation_id=str(conversation.id),
             expert_id=conversation.expert_id,
+            project_id=str(body.project_id) if body.project_id else None,
         )
         return conversation
 
@@ -723,6 +763,7 @@ class ConversationService:
         db: AsyncSession,
         *,
         expert_id_hint: str | None = None,
+        project_id: uuid.UUID | None = None,
     ) -> Conversation:
         """Retourne la conversation cible du stream — la crée si besoin.
 
@@ -734,27 +775,73 @@ class ConversationService:
           L'`expert_id_hint` est ignoré pour ce chemin : l'expert d'une
           conv est figé à la création (cf. note `ConversationUpdate`).
 
+        `project_id` (D3 — 2026-05-04) :
+
+        - `conversation_id=None` ET `project_id=<UUID>` → ownership check
+          du projet via `ProjectService._get_owned_project` (404 IDOR-safe)
+          puis création de la conv attachée (`project_id` peuplé sur la
+          ligne, FK `ON DELETE SET NULL` migration 006 + soft-delete projet
+          C2 fait UPDATE explicite côté `ProjectService.soft_delete`).
+        - `conversation_id=<UUID>` ET `project_id=<UUID>` → **ignoré
+          silencieusement** + log debug. Le rattachement d'une conv
+          existante à un projet ne passe PAS par `/chat/stream` (V1) —
+          un futur `PATCH /chat/conversations/{id}` exposera la mutation
+          `project_id` quand le besoin sera prouvé. Décision V1 : contrat
+          simple côté front (un seul appel par message, pas de mutation
+          cross-feature transparente qui surprendrait l'user).
+        - `project_id=None` → comportement legacy strictement préservé.
+
         Commit en fin de création pour que le router puisse ajouter ses
         messages dans une transaction distincte (facilite le debug et
         permet à un crash sur l'INSERT message de laisser la conv vide
         plutôt que de tout rollback).
+
+        **Anti-MissingGreenlet** : capture `user_id_str = str(user.id)`
+        AVANT `db.commit()` (pattern aligné `create` ci-dessus).
         """
+        # Mode existing : charge + retourne, ignore project_id avec log debug.
         if conversation_id is not None:
-            return await ConversationService._get_owned_conversation(conversation_id, user.id, db)
+            if project_id is not None:
+                log.debug(
+                    "chat.stream.project_id_ignored_on_existing_conv",
+                    conversation_id=str(conversation_id),
+                    project_id=str(project_id),
+                    reason=(
+                        "Le rattachement d'une conv existante à un projet "
+                        "ne passe pas par /chat/stream (V1)."
+                    ),
+                )
+            return await ConversationService._get_owned_conversation(
+                conversation_id, user.id, db
+            )
+
+        # Local import pour casser le cycle projects ↔ chat (cf. note
+        # exhaustive sur `create` ci-dessus).
+        from app.features.projects.service import ProjectService
+
+        # Capture en str AVANT commit (anti-MissingGreenlet post-rollback).
+        user_id_str = str(user.id)
+
+        # Mode new + project_id : ownership check AVANT INSERT — 404
+        # IDOR-safe + zéro écriture DB si projet inconnu / pas owner.
+        if project_id is not None:
+            await ProjectService._get_owned_project(project_id, user.id, db)
 
         conversation = Conversation(
             user_id=user.id,
             title=None,
             expert_id=expert_id_hint or "general",
+            project_id=project_id,
         )
         db.add(conversation)
         await db.commit()
         await db.refresh(conversation)
         log.info(
             "chat.conversation.created_for_stream",
-            user_id=str(user.id),
+            user_id=user_id_str,
             conversation_id=str(conversation.id),
             expert_id=conversation.expert_id,
+            project_id=str(project_id) if project_id else None,
         )
         return conversation
 

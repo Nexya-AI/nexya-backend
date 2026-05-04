@@ -7031,3 +7031,75 @@ C'est pour ça que `docker-compose.prod.yml` ne contient que `nexya-api` + `nexy
 **Le drift est aussi grave qu'un test cassé**. Un test cassé crie ; un drift documentaire est silencieux mais coûte autant. P1.cleanup nettoie 2 lignes de drift §7 — c'est petit, mais c'est l'équivalent technique d'« enlever le panneau qui ment ».
 
 **À retenir** : à chaque session, vérifier que le statut documenté correspond à la réalité du code. Sinon, la doc devient pire que pas de doc.
+
+
+---
+
+## Session D3 — Étendre un schéma Pydantic + service avec un champ optionnel rétrocompat (2026-05-04)
+
+### Le contexte concret
+
+Côté backend, le module `features/chat` doit maintenant accepter un `project_id` optionnel sur 2 schémas :
+- `ConversationCreate` (pour `POST /chat/conversations`)
+- `ChatStreamRequest` (pour `POST /chat/stream`)
+
+L'objectif : une nouvelle conversation peut être attachée à un projet existant **dès la création**.
+
+### Le piège qu'on aurait pu commettre
+
+Naïvement, on aurait pu :
+1. Ajouter `project_id: uuid.UUID` (champ obligatoire) → casse TOUS les call-sites Flutter qui ne l'envoient pas encore. Régression 422 silencieuse.
+2. Faire un nouveau schéma `ConversationCreateWithProject` séparé → duplication, deux endpoints, contrat plus complexe.
+
+### Le pattern rétrocompat
+
+```python
+class ConversationCreate(BaseModel):
+    title: str | None = Field(default=None, max_length=120)
+    expert_id: str | None = Field(default=None, min_length=1, max_length=32)
+    project_id: uuid.UUID | None = None   # ← AJOUT D3 — optionnel + default None
+```
+
+**3 garanties** :
+- **Pydantic v2 strict** : un client qui n'envoie pas `project_id` reçoit `None` côté serveur, pas une erreur 422.
+- **Validation typée** : si le client envoie `project_id: "not-a-uuid"`, Pydantic retourne 422 avec un message explicite (anti-injection).
+- **Pas d'impact sur les 1700+ tests existants** : tous les call-sites legacy continuent de fonctionner identiquement.
+
+### Le miroir côté service
+
+```python
+async def create(body, user, db):
+    # Local import pour casser le cycle projects ↔ chat
+    from app.features.projects.service import ProjectService
+
+    # Capture en str AVANT commit (anti-MissingGreenlet 4ᵉ occurrence)
+    user_id_str = str(user.id)
+
+    # Validation ownership AVANT INSERT — 0 écriture si projet inconnu
+    if body.project_id is not None:
+        await ProjectService._get_owned_project(body.project_id, user.id, db)
+
+    conversation = Conversation(
+        user_id=user.id,
+        title=body.title,
+        expert_id=body.expert_id or 'general',
+        project_id=body.project_id,  # ← peuplé sur la nouvelle ligne
+    )
+    db.add(conversation)
+    await db.commit()
+    await db.refresh(conversation)
+    log.info("chat.conversation.created", user_id=user_id_str, project_id=str(body.project_id) if body.project_id else None)
+    return conversation
+```
+
+**Pourquoi le local import ?** Le module `app.features.projects.service` importe directement `Conversation` (pour le UPDATE conversations SET project_id=NULL côté soft_delete C2). Un import top-level `chat → projects` créerait un cycle d'import → ImportError au boot. Le local import dans la méthode brise le cycle au prix d'un overhead négligeable (l'import est mis en cache après le 1er appel par Python).
+
+### À retenir
+
+**Règle générale** : pour étendre un endpoint backend en production sans casser les clients :
+1. Ajoute le nouveau champ avec `default=None` (ou une valeur sentinelle équivalente).
+2. Branche la logique conditionnelle au service via `if body.new_field is not None:`.
+3. Préserve le comportement legacy quand le champ est absent.
+4. Ajoute des tests qui couvrent les 3 cas : nouveau champ présent, absent, malformé.
+
+**Coût** : 0 migration DB, 0 nouvelle exception, 0 setting pricing à trancher Ivan. Pure plomberie.
