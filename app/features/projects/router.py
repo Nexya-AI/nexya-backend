@@ -35,18 +35,16 @@ import uuid
 
 import structlog
 from fastapi import APIRouter, Depends, Query, Response, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.auth.guards import get_current_user
 from app.core.database.postgres import get_db
 from app.features.auth.models import User
-from sqlalchemy import select
-
-from app.config import settings
 from app.features.chat.schemas import ConversationListItem, ConversationsPage
 from app.features.chat.service import ConversationService
 from app.features.files.models import UploadedFile
-from app.features.files.service import FileUploadService
 from app.features.projects.models import ProjectFile
 from app.features.projects.schemas import (
     ProjectCreate,
