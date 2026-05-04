@@ -54,12 +54,20 @@ class ConversationCreate(BaseModel):
     """Création explicite d'une conversation (sans envoyer de message).
 
     Usage principal : le Flutter crée la conv côté UI avant de streamer.
-    Les deux champs sont optionnels — un titre vide est remplacé par le job
-    d'auto-génération après le premier échange.
+    `title` et `expert_id` sont optionnels — un titre vide est remplacé par
+    le job d'auto-génération après le premier échange.
+
+    `project_id` (D3 — 2026-05-04) attache la conversation à un projet
+    existant dès la création. Le service vérifie l'ownership du projet
+    via `ProjectService._get_owned_project` et lève
+    `ResourceNotFoundException("Projet")` 404 IDOR-safe si le projet
+    n'existe pas, n'appartient pas à l'utilisateur courant, ou est
+    soft-deleted. Pas de 403 (anti-énumération UUID).
     """
 
     title: str | None = Field(default=None, max_length=120)
     expert_id: str | None = Field(default=None, min_length=1, max_length=32)
+    project_id: uuid.UUID | None = None
 
 
 class ConversationUpdate(BaseModel):
@@ -217,12 +225,30 @@ class ChatStreamRequest(BaseModel):
        `history` ignoré (le backend rebuild le contexte depuis la base).
     3. `conversation_id=None` et `history=[...]` → chemin legacy stateless :
        le message n'est PAS persisté. À retirer quand le Flutter migre.
+
+    `project_id` (D3 — 2026-05-04) attache la conversation au projet
+    spécifié uniquement dans le mode 1 (création implicite). Sémantique
+    selon la combinaison :
+
+    - `conversation_id=None` ET `project_id=<UUID>` → création d'une
+      nouvelle conv attachée au projet (ownership check via
+      `ProjectService._get_owned_project`, 404 IDOR-safe sinon).
+    - `conversation_id=<UUID>` ET `project_id=<UUID>` → **ignore
+      silencieusement** `project_id` + log debug. Le rattachement d'une
+      conv existante à un projet ne passe PAS par `/chat/stream` (V1) —
+      sera exposé via un futur `PATCH /chat/conversations/{id}` quand le
+      backend supportera la mutation `project_id`. Ce choix V1 garde le
+      contrat simple côté front (un seul appel par message, pas de
+      mutation cross-feature transparente).
+    - `conversation_id=None` ET `project_id=None` → comportement legacy
+      strictement préservé (rétrocompat A1+B1+B2+B3+B4).
     """
 
     message: str = Field(min_length=1, max_length=_MESSAGE_MAX_CHARS)
     conversation_id: uuid.UUID | None = None
     expert_id: str | None = Field(default=None, min_length=1, max_length=32)
     session_id: str | None = Field(default=None, max_length=128)
+    project_id: uuid.UUID | None = None
     history: list[ChatStreamInlineMessage] = Field(default_factory=list, max_length=50)
 
     @field_validator("message")
