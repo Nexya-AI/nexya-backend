@@ -158,9 +158,7 @@ def test_get_uploaded_file_exposes_chunks_indexed_at_when_set(
     indexed_at = datetime(2026, 5, 4, 10, 30, 45, tzinfo=UTC)
     row = _make_fake_upload(chunks_indexed_at=indexed_at)
     monkeypatch.setattr(FileUploadService, "get_for_user", AsyncMock(return_value=row))
-    monkeypatch.setattr(
-        FileUploadService, "presigned_url_for", AsyncMock(return_value=_FAKE_URL_1)
-    )
+    monkeypatch.setattr(FileUploadService, "presigned_url_for", AsyncMock(return_value=_FAKE_URL_1))
 
     response = client.get(f"/files/{row.id}")
 

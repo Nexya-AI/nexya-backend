@@ -295,9 +295,7 @@ class ConversationService:
         # Validation ownership projet AVANT INSERT — un projet inconnu
         # ou pas owner → 404 IDOR-safe + zéro écriture DB.
         if body.project_id is not None:
-            await ProjectService._get_owned_project(
-                body.project_id, user.id, db
-            )
+            await ProjectService._get_owned_project(body.project_id, user.id, db)
 
         conversation = Conversation(
             user_id=user.id,
@@ -811,9 +809,7 @@ class ConversationService:
                         "ne passe pas par /chat/stream (V1)."
                     ),
                 )
-            return await ConversationService._get_owned_conversation(
-                conversation_id, user.id, db
-            )
+            return await ConversationService._get_owned_conversation(conversation_id, user.id, db)
 
         # Local import pour casser le cycle projects ↔ chat (cf. note
         # exhaustive sur `create` ci-dessus).

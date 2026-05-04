@@ -100,9 +100,7 @@ def _make_db_returning_uploads(uploads: list[UploadedFile]) -> MagicMock:
     scalars.all = MagicMock(return_value=uploads)
     result.scalars = MagicMock(return_value=scalars)
     # scalar_one_or_none() pour le single helper (1er upload de la liste ou None).
-    result.scalar_one_or_none = MagicMock(
-        return_value=uploads[0] if uploads else None
-    )
+    result.scalar_one_or_none = MagicMock(return_value=uploads[0] if uploads else None)
     db.execute = AsyncMock(return_value=result)
     return db
 

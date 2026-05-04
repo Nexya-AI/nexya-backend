@@ -41,7 +41,6 @@ from app.features.chat.models import Conversation
 from app.features.chat.schemas import ChatStreamRequest, ConversationCreate
 from app.features.chat.service import ConversationService
 
-
 # ════════════════════════════════════════════════════════════════════
 # Helpers
 # ════════════════════════════════════════════════════════════════════
@@ -143,9 +142,7 @@ async def test_create_with_project_id_happy_path(monkeypatch) -> None:
     from app.features.projects import service as projects_service
 
     get_owned = AsyncMock(return_value=fake_project)
-    monkeypatch.setattr(
-        projects_service.ProjectService, "_get_owned_project", get_owned
-    )
+    monkeypatch.setattr(projects_service.ProjectService, "_get_owned_project", get_owned)
 
     db = _make_db(refresh_attrs={"id": uuid.uuid4()})
     body = ConversationCreate(title="École", project_id=pid)
@@ -185,9 +182,7 @@ async def test_create_with_project_id_idor_safe(monkeypatch) -> None:
     from app.features.projects import service as projects_service
 
     get_owned = AsyncMock(side_effect=ResourceNotFoundException("Projet"))
-    monkeypatch.setattr(
-        projects_service.ProjectService, "_get_owned_project", get_owned
-    )
+    monkeypatch.setattr(projects_service.ProjectService, "_get_owned_project", get_owned)
 
     db = _make_db()
     body = ConversationCreate(project_id=pid)
@@ -216,9 +211,7 @@ async def test_create_without_project_id_preserves_legacy(monkeypatch) -> None:
     from app.features.projects import service as projects_service
 
     get_owned = AsyncMock()
-    monkeypatch.setattr(
-        projects_service.ProjectService, "_get_owned_project", get_owned
-    )
+    monkeypatch.setattr(projects_service.ProjectService, "_get_owned_project", get_owned)
 
     db = _make_db(refresh_attrs={"id": uuid.uuid4()})
     body = ConversationCreate(title="Sans projet")
@@ -253,9 +246,7 @@ async def test_ensure_for_stream_new_conv_with_project_id(monkeypatch) -> None:
     fake_project = MagicMock()
     fake_project.id = pid
     get_owned = AsyncMock(return_value=fake_project)
-    monkeypatch.setattr(
-        projects_service.ProjectService, "_get_owned_project", get_owned
-    )
+    monkeypatch.setattr(projects_service.ProjectService, "_get_owned_project", get_owned)
 
     db = _make_db(refresh_attrs={"id": uuid.uuid4()})
 
