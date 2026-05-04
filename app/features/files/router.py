@@ -1,16 +1,27 @@
 """
-Router Files — `POST /files/upload` (Session E3).
+Router Files — `POST /files/upload` + `GET /files/{id}` (Sessions E3 + D2.5).
 
-Un endpoint, mais qui orchestre un pipeline complet (MIME → cap → magic →
-dédup → scan → upload → INSERT → extract). Toute la logique métier vit dans
-`FileUploadService` — le router se contente du rate limit, de
-l'enrichissement presigned URL, et de la traduction ORM → Pydantic.
+E3 (2026-04-24) a livré le pipeline d'upload complet (MIME → cap → magic →
+dédup → scan → upload → INSERT → extract). D2.5 (2026-05-04) ajoute le
+endpoint de lecture `GET /files/{id}` que le client Flutter consomme pour
+poller la sentinelle d'indexation RAG `chunks_indexed_at` (D4) après upload
+d'un PDF/DOCX/TXT/MD : le worker `index_document_chunks` arq écrit la
+sentinelle quand l'indexation pgvector est complète, le client repère le
+flip et bascule son badge UI « Indexation… » → « Prêt pour RAG ».
+
+Toute la logique métier vit dans `FileUploadService` — le router se contente
+du rate limit, de l'enrichissement presigned URL, et de la traduction
+ORM → Pydantic.
 
 Rate limiting : 20 uploads/heure/user via `check_user_rate_limit`. Protège
 contre un user qui saturerait notre storage + CPU (extraction) en boucle.
+Le `GET /files/{id}` n'est PAS rate-limité (lecture O(1) par PK indexée +
+le polling client est borné à ~10 hits/upload sur 5 min).
 """
 
 from __future__ import annotations
+
+import uuid
 
 import structlog
 from fastapi import APIRouter, Depends, File, Query, UploadFile, status
@@ -56,6 +67,7 @@ async def _upload_to_response(upload: UploadedFile) -> UploadedFileResponse:
         extraction_truncated=upload.extraction_truncated,
         extracted_at=upload.extracted_at,
         url=url,
+        chunks_indexed_at=upload.chunks_indexed_at,
         created_at=upload.created_at,
         updated_at=upload.updated_at,
         deleted_at=upload.deleted_at,
@@ -119,4 +131,37 @@ async def upload_file(
         extract_text_enabled=extract_text,
         scan_virus=scan_virus,
     )
+    return NexyaResponse(success=True, data=await _upload_to_response(row))
+
+
+@router.get(
+    "/{upload_id}",
+    response_model=NexyaResponse[UploadedFileResponse],
+)
+async def get_uploaded_file(
+    upload_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> NexyaResponse[UploadedFileResponse]:
+    """Lit la métadonnée d'un upload existant — incluant la sentinelle RAG
+    `chunks_indexed_at` que le client utilise pour poller l'état d'indexation.
+
+    Owner check 404 IDOR-safe (un user ne peut pas lire l'upload d'un autre,
+    même en cas de fuite d'UUID).
+
+    La presigned URL retournée est **régénérée à la volée** (TTL 30 min) à
+    chaque appel — le client peut donc re-fetcher cet endpoint pour
+    rafraîchir une URL expirée sans avoir à re-uploader.
+
+    Cas d'usage principal côté Flutter (D2) : polling exponentiel
+    5/10/20/30 s (cap 5 min) sur les MIMEs chunking-éligibles
+    (PDF/DOCX/TXT/MD) jusqu'à `chunks_indexed_at != null`. Le client doit
+    annuler le polling à `dispose()` du provider et arrêter le timer dès
+    le flip pour ne pas saturer le backend.
+
+    Codes d'erreur :
+    - **404** `RESOURCE_NOT_FOUND` si l'upload n'existe pas, est soft-deleted,
+      ou n'appartient pas à l'utilisateur courant.
+    """
+    row = await FileUploadService.get_for_user(upload_id, current_user, db)
     return NexyaResponse(success=True, data=await _upload_to_response(row))

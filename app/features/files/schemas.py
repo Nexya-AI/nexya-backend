@@ -17,6 +17,13 @@ Convention :
   transférer 500k chars à chaque réponse. Le texte complet est accessible
   via `GET /files/{id}/text` (non livré en E3, prévu futur).
 - `url` presigned (30 min) pour preview/download direct depuis MinIO.
+- `chunks_indexed_at` (D2.5, 2026-05-04) : sentinelle one-shot exposée pour
+  permettre au client Flutter de poller l'état d'indexation RAG après upload
+  d'un PDF/DOCX/TXT/MD. `None` = pas encore indexé (le worker arq D4 est
+  toujours en cours ou a échoué silencieusement) ; non-`None` = chunks
+  insérés dans `document_chunks`, fichier interrogeable via `/rag/query`.
+  Pour les MIMEs non-éligibles au chunking (image/audio/video), reste
+  toujours `None` — le client doit vérifier le `mime_type` avant de poller.
 """
 
 from __future__ import annotations
@@ -57,6 +64,9 @@ class UploadedFileResponse(BaseModel):
     extracted_at: datetime | None
 
     url: str  # presigned MinIO URL TTL 30 min
+
+    # D2.5 — sentinelle one-shot RAG. Voir docstring du module.
+    chunks_indexed_at: datetime | None = None
 
     created_at: datetime
     updated_at: datetime
