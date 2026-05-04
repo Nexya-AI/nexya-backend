@@ -40,8 +40,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth.guards import get_current_user
 from app.core.database.postgres import get_db
 from app.features.auth.models import User
+from sqlalchemy import select
+
+from app.config import settings
 from app.features.chat.schemas import ConversationListItem, ConversationsPage
 from app.features.chat.service import ConversationService
+from app.features.files.models import UploadedFile
+from app.features.files.service import FileUploadService
+from app.features.projects.models import ProjectFile
 from app.features.projects.schemas import (
     ProjectCreate,
     ProjectFileCreate,
@@ -256,7 +262,7 @@ async def create_project_file(
     pfile = await ProjectService.add_file(project_id, body, current_user, db)
     return NexyaResponse(
         success=True,
-        data=ProjectFileResponse.model_validate(pfile),
+        data=await _project_file_to_response(pfile, db),
     )
 
 
@@ -279,10 +285,11 @@ async def list_project_files(
         cursor=cursor,
         limit=limit,
     )
+    items = await _project_files_to_responses(page.items, db)
     return NexyaResponse(
         success=True,
         data=ProjectFilesPage(
-            items=[ProjectFileResponse.model_validate(f) for f in page.items],
+            items=items,
             next_cursor=page.next_cursor,
         ),
     )
@@ -307,6 +314,129 @@ async def delete_project_file(
 # ══════════════════════════════════════════════════════════════
 # HELPERS — traduction ORM/scalar → schémas Pydantic
 # ══════════════════════════════════════════════════════════════
+
+
+async def _project_file_to_response(
+    pfile: ProjectFile,
+    db: AsyncSession,
+) -> ProjectFileResponse:
+    """Enrichit un `ProjectFile` ORM avec presigned URL + sentinelle RAG +
+    upload_id résolus à la volée (D2.5).
+
+    - `presigned_url` : signé via `ObjectStore.generate_presigned_url` si
+      `storage_key` non-null. TTL contrôlé par `settings.files_presigned_ttl_seconds`.
+    - `upload_id` + `chunks_indexed_at` : recherchés via
+      `UploadedFile WHERE attached_to_kind='project_file' AND attached_to_id=pfile.id`.
+      Idempotent : si un upload a été ré-attaché à un autre target,
+      `mark_attached` a écrasé l'ancien lien (cf. `FileUploadService.mark_attached`).
+      `None` si mode legacy (pas d'upload_id passé en C2 pur).
+
+    Pour la liste paginée, préférer `_project_files_to_responses` qui
+    bulk-query les UploadedFile en 1 SQL au lieu de N+1.
+    """
+    presigned_url: str | None = None
+    if pfile.storage_key is not None:
+        from app.core.storage import get_object_store
+
+        store = get_object_store()
+        ttl = settings.files_presigned_ttl_seconds
+        presigned_url = await store.generate_presigned_url(
+            pfile.storage_key, ttl_seconds=ttl, method="GET"
+        )
+
+    upload_id: uuid.UUID | None = None
+    chunks_indexed_at = None
+    upload_row = (
+        await db.execute(
+            select(UploadedFile).where(
+                UploadedFile.attached_to_kind == "project_file",
+                UploadedFile.attached_to_id == pfile.id,
+                UploadedFile.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if upload_row is not None:
+        upload_id = upload_row.id
+        chunks_indexed_at = upload_row.chunks_indexed_at
+
+    return ProjectFileResponse(
+        id=pfile.id,
+        project_id=pfile.project_id,
+        name=pfile.name,
+        file_type=pfile.file_type,  # type: ignore[arg-type]
+        storage_key=pfile.storage_key,
+        size_bytes=pfile.size_bytes,
+        mime_type=pfile.mime_type,
+        uploaded_at=pfile.uploaded_at,
+        created_at=pfile.created_at,
+        updated_at=pfile.updated_at,
+        presigned_url=presigned_url,
+        upload_id=upload_id,
+        chunks_indexed_at=chunks_indexed_at,
+    )
+
+
+async def _project_files_to_responses(
+    pfiles: list[ProjectFile],
+    db: AsyncSession,
+) -> list[ProjectFileResponse]:
+    """Variante bulk anti-N+1 de `_project_file_to_response` pour le listing.
+
+    Pour N fichiers, fait :
+    - 1 seule SELECT bulk sur `uploaded_files` avec `attached_to_id IN (...)`.
+    - N appels `generate_presigned_url` (impossible à bulker côté MinIO,
+      mais c'est local au pod et chacun est ~1 ms).
+    """
+    if not pfiles:
+        return []
+
+    # Bulk fetch des uploads attachés à ces project_files.
+    pfile_ids = [pf.id for pf in pfiles]
+    uploads_by_target: dict[uuid.UUID, UploadedFile] = {}
+    if pfile_ids:
+        result = await db.execute(
+            select(UploadedFile).where(
+                UploadedFile.attached_to_kind == "project_file",
+                UploadedFile.attached_to_id.in_(pfile_ids),
+                UploadedFile.deleted_at.is_(None),
+            )
+        )
+        for u in result.scalars().all():
+            if u.attached_to_id is not None:
+                uploads_by_target[u.attached_to_id] = u
+
+    from app.core.storage import get_object_store
+
+    store = get_object_store()
+    ttl = settings.files_presigned_ttl_seconds
+
+    responses: list[ProjectFileResponse] = []
+    for pf in pfiles:
+        presigned_url: str | None = None
+        if pf.storage_key is not None:
+            presigned_url = await store.generate_presigned_url(
+                pf.storage_key, ttl_seconds=ttl, method="GET"
+            )
+
+        upload_row = uploads_by_target.get(pf.id)
+        responses.append(
+            ProjectFileResponse(
+                id=pf.id,
+                project_id=pf.project_id,
+                name=pf.name,
+                file_type=pf.file_type,  # type: ignore[arg-type]
+                storage_key=pf.storage_key,
+                size_bytes=pf.size_bytes,
+                mime_type=pf.mime_type,
+                uploaded_at=pf.uploaded_at,
+                created_at=pf.created_at,
+                updated_at=pf.updated_at,
+                presigned_url=presigned_url,
+                upload_id=upload_row.id if upload_row else None,
+                chunks_indexed_at=upload_row.chunks_indexed_at if upload_row else None,
+            )
+        )
+    return responses
 
 
 def _project_view_to_response(view) -> ProjectResponse:

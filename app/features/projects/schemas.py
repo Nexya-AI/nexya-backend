@@ -254,7 +254,25 @@ class ProjectFileCreate(BaseModel):
 
 
 class ProjectFileResponse(BaseModel):
-    """Fichier d'un projet retourné par les endpoints `/projects/{id}/files`."""
+    """Fichier d'un projet retourné par les endpoints `/projects/{id}/files`.
+
+    Champs enrichis D2.5 (2026-05-04) — peuplés par le helper
+    `_project_file_to_response` côté router (pas de `model_validate` direct
+    depuis l'ORM car ces champs viennent de jointures + signature à la volée) :
+
+    - `presigned_url` : URL MinIO signée TTL 30 min, **régénérée à chaque
+      lecture** (createList). Permet au client Flutter d'afficher la preview
+      d'une image / de télécharger un PDF directement, même après refresh
+      ou cold start. `None` si `storage_key` est null (mode legacy C2 pur
+      sans binaire attaché).
+    - `upload_id` : référence vers `uploaded_files.id` quand le fichier a
+      été créé via le mode upload_id (E3). `None` en mode legacy. Le client
+      l'utilise pour appeler `GET /files/{id}` lors du polling RAG.
+    - `chunks_indexed_at` : sentinelle one-shot du worker RAG D4, recopiée
+      depuis la row `uploaded_files` rattachée. `None` si pas encore indexé
+      OU si MIME non-éligible OU si mode legacy. Le client n'a besoin de
+      poller qu'une fois — au prochain refresh la valeur est persistante.
+    """
 
     id: uuid.UUID
     project_id: uuid.UUID
@@ -266,6 +284,11 @@ class ProjectFileResponse(BaseModel):
     uploaded_at: datetime
     created_at: datetime
     updated_at: datetime
+
+    # D2.5 — enrichissements pour Flutter (preview + polling RAG).
+    presigned_url: str | None = None
+    upload_id: uuid.UUID | None = None
+    chunks_indexed_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
