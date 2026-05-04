@@ -903,8 +903,11 @@ Avant de créer quoi que ce soit, vérifier :
 |---|---|
 | Module implémenté | `CLAUDE.md` section 7 (❌ → ✅), section 15 (journal) |
 | Nouvelle table DB | `migrations/` (revision + upgrade head) |
+| **Schéma Pydantic modifié OU router (endpoint ajouté/signature changée)** | **`make export-dd`** (régénère `docs/api/openapi.json` + `docs/api/schema.sql`) AVANT commit — **BLOQUANT** : sinon le workflow GHA `dd-exports-fresh.yml` fail au push de `main` et ouvre une issue auto |
 | Nouveau endpoint | `BACKEND_IA_NEXYA.md` section 5 si non documenté |
 | Nouveau package | `pyproject.toml`, `CLAUDE.md` section 2 (stack), section 15 |
+
+> **Anti-régression dd-exports-fresh** (incident 2026-05-04 commit `f9b5237`) : les sessions D2.5 (endpoint `GET /files/{upload_id}` ajouté) et D3 (champ `project_id` sur `ConversationCreate` + `ChatStreamRequest`) ont oublié de régénérer `openapi.json` → drift accumulé détecté au push backend `5c86014`, workflow CI fail + issue auto. Désormais, **`make export-dd` est obligatoire** dès qu'on touche à un fichier qui change le schéma OpenAPI : Pydantic schema, router endpoint, decorator `@router.{post,get,patch,delete}`, response_model, status_code, Depends, Query/Path/Body params. Pas de pré-commit hook automatique V1 (l'export prend ~5 s + nécessite Python venv + pose `database.engine_initialized` log) — règle humaine bloquante à appliquer en discipline.
 
 ---
 
