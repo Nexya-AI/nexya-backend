@@ -2265,6 +2265,55 @@
         }
       }
     },
+    "/files/{upload_id}": {
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Get Uploaded File",
+        "description": "Lit la métadonnée d'un upload existant — incluant la sentinelle RAG\n`chunks_indexed_at` que le client utilise pour poller l'état d'indexation.\n\nOwner check 404 IDOR-safe (un user ne peut pas lire l'upload d'un autre,\nmême en cas de fuite d'UUID).\n\nLa presigned URL retournée est **régénérée à la volée** (TTL 30 min) à\nchaque appel — le client peut donc re-fetcher cet endpoint pour\nrafraîchir une URL expirée sans avoir à re-uploader.\n\nCas d'usage principal côté Flutter (D2) : polling exponentiel\n5/10/20/30 s (cap 5 min) sur les MIMEs chunking-éligibles\n(PDF/DOCX/TXT/MD) jusqu'à `chunks_indexed_at != null`. Le client doit\nannuler le polling à `dispose()` du provider et arrêter le timer dès\nle flip pour ne pas saturer le backend.\n\nCodes d'erreur :\n- **404** `RESOURCE_NOT_FOUND` si l'upload n'existe pas, est soft-deleted,\n  ou n'appartient pas à l'utilisateur courant.",
+        "operationId": "get_uploaded_file_files__upload_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "upload_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Upload Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NexyaResponse_UploadedFileResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/memory/index": {
       "post": {
         "tags": [
@@ -4264,6 +4313,18 @@
             ],
             "title": "Session Id"
           },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
           "history": {
             "items": {
               "$ref": "#/components/schemas/ChatStreamInlineMessage"
@@ -4278,7 +4339,7 @@
           "message"
         ],
         "title": "ChatStreamRequest",
-        "description": "Corps de POST /chat/stream.\n\nComportement selon les champs présents :\n\n1. `conversation_id=None` et `history=[]` → création implicite d'une\n   nouvelle conversation, persistance user+assistant, titre généré\n   plus tard par un job arq.\n2. `conversation_id=<UUID>` → ajout à une conversation existante ;\n   `history` ignoré (le backend rebuild le contexte depuis la base).\n3. `conversation_id=None` et `history=[...]` → chemin legacy stateless :\n   le message n'est PAS persisté. À retirer quand le Flutter migre."
+        "description": "Corps de POST /chat/stream.\n\nComportement selon les champs présents :\n\n1. `conversation_id=None` et `history=[]` → création implicite d'une\n   nouvelle conversation, persistance user+assistant, titre généré\n   plus tard par un job arq.\n2. `conversation_id=<UUID>` → ajout à une conversation existante ;\n   `history` ignoré (le backend rebuild le contexte depuis la base).\n3. `conversation_id=None` et `history=[...]` → chemin legacy stateless :\n   le message n'est PAS persisté. À retirer quand le Flutter migre.\n\n`project_id` (D3 — 2026-05-04) attache la conversation au projet\nspécifié uniquement dans le mode 1 (création implicite). Sémantique\nselon la combinaison :\n\n- `conversation_id=None` ET `project_id=<UUID>` → création d'une\n  nouvelle conv attachée au projet (ownership check via\n  `ProjectService._get_owned_project`, 404 IDOR-safe sinon).\n- `conversation_id=<UUID>` ET `project_id=<UUID>` → **ignore\n  silencieusement** `project_id` + log debug. Le rattachement d'une\n  conv existante à un projet ne passe PAS par `/chat/stream` (V1) —\n  sera exposé via un futur `PATCH /chat/conversations/{id}` quand le\n  backend supportera la mutation `project_id`. Ce choix V1 garde le\n  contrat simple côté front (un seul appel par message, pas de\n  mutation cross-feature transparente).\n- `conversation_id=None` ET `project_id=None` → comportement legacy\n  strictement préservé (rétrocompat A1+B1+B2+B3+B4)."
       },
       "ConsentListResponse": {
         "properties": {
@@ -4456,11 +4517,23 @@
               }
             ],
             "title": "Expert Id"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
           }
         },
         "type": "object",
         "title": "ConversationCreate",
-        "description": "Création explicite d'une conversation (sans envoyer de message).\n\nUsage principal : le Flutter crée la conv côté UI avant de streamer.\nLes deux champs sont optionnels — un titre vide est remplacé par le job\nd'auto-génération après le premier échange."
+        "description": "Création explicite d'une conversation (sans envoyer de message).\n\nUsage principal : le Flutter crée la conv côté UI avant de streamer.\n`title` et `expert_id` sont optionnels — un titre vide est remplacé par\nle job d'auto-génération après le premier échange.\n\n`project_id` (D3 — 2026-05-04) attache la conversation à un projet\nexistant dès la création. Le service vérifie l'ownership du projet\nvia `ProjectService._get_owned_project` et lève\n`ResourceNotFoundException(\"Projet\")` 404 IDOR-safe si le projet\nn'existe pas, n'appartient pas à l'utilisateur courant, ou est\nsoft-deleted. Pas de 403 (anti-énumération UUID)."
       },
       "ConversationListItem": {
         "properties": {
@@ -8629,6 +8702,41 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "presigned_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Presigned Url"
+          },
+          "upload_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upload Id"
+          },
+          "chunks_indexed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunks Indexed At"
           }
         },
         "type": "object",
@@ -8645,7 +8753,7 @@
           "updated_at"
         ],
         "title": "ProjectFileResponse",
-        "description": "Fichier d'un projet retourné par les endpoints `/projects/{id}/files`."
+        "description": "Fichier d'un projet retourné par les endpoints `/projects/{id}/files`.\n\nChamps enrichis D2.5 (2026-05-04) — peuplés par le helper\n`_project_file_to_response` côté router (pas de `model_validate` direct\ndepuis l'ORM car ces champs viennent de jointures + signature à la volée) :\n\n- `presigned_url` : URL MinIO signée TTL 30 min, **régénérée à chaque\n  lecture** (createList). Permet au client Flutter d'afficher la preview\n  d'une image / de télécharger un PDF directement, même après refresh\n  ou cold start. `None` si `storage_key` est null (mode legacy C2 pur\n  sans binaire attaché).\n- `upload_id` : référence vers `uploaded_files.id` quand le fichier a\n  été créé via le mode upload_id (E3). `None` en mode legacy. Le client\n  l'utilise pour appeler `GET /files/{id}` lors du polling RAG.\n- `chunks_indexed_at` : sentinelle one-shot du worker RAG D4, recopiée\n  depuis la row `uploaded_files` rattachée. `None` si pas encore indexé\n  OU si MIME non-éligible OU si mode legacy. Le client n'a besoin de\n  poller qu'une fois — au prochain refresh la valeur est persistante."
       },
       "ProjectFilesPage": {
         "properties": {
@@ -10304,6 +10412,18 @@
           "url": {
             "type": "string",
             "title": "Url"
+          },
+          "chunks_indexed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chunks Indexed At"
           },
           "created_at": {
             "type": "string",
