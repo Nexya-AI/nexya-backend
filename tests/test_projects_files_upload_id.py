@@ -88,6 +88,18 @@ def client() -> TestClient:
     fake_user = _make_fake_user()
     fake_db = MagicMock()
 
+    # Le helper D2.5 `_project_file_to_response` fait `await db.execute(...)`
+    # pour SELECT le UploadedFile rattaché et peupler `upload_id` +
+    # `chunks_indexed_at` sur la réponse. Sans ce mock, MagicMock().execute()
+    # retourne un MagicMock sync qui n'est pas awaitable → TypeError.
+    # On retourne un Result dont `scalar_one_or_none()` vaut None par
+    # défaut (cas legacy : pas d'upload rattaché). Les tests qui veulent
+    # simuler un upload rattaché (mode D2.5) overrideront ce comportement.
+    fake_result = MagicMock()
+    fake_result.scalar_one_or_none = MagicMock(return_value=None)
+    fake_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+    fake_db.execute = AsyncMock(return_value=fake_result)
+
     async def _user_override() -> User:
         return fake_user
 
