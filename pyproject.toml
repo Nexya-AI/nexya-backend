@@ -45,7 +45,7 @@ dependencies = [
     # Qwen n'a pas de SDK Python officiel stable côté international :
     # on utilise le SDK openai en mode `base_url` override pour parler
     # au endpoint DashScope-intl qui expose un API compatible OpenAI.
-    "openai>=1.55,<2",
+    "openai>=1.55,<3",
     "anthropic>=0.42,<1",
 
     # ── Tokenisation (estimation pré-appel des tokens OpenAI/Qwen) ─
