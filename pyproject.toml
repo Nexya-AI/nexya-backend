@@ -61,7 +61,7 @@ dependencies = [
     # aioboto3 = client async officiel AWS/boto3 — compatible MinIO et R2
     # via le contrat `endpoint_url`. Utilisé par le wrapper ObjectStore
     # pour la Library (C3), Files (E3) et Watermark C2PA (E4 futur).
-    "aioboto3>=13,<15",
+    "aioboto3>=13,<16",
 
     # ── Files upload (multipart + extraction texte) — Session E3 ─
     # python-multipart : requis par FastAPI pour UploadFile/Form.
