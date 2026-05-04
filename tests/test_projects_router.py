@@ -99,6 +99,16 @@ def client() -> TestClient:
     fake_user = _make_fake_user()
     fake_db = MagicMock()
 
+    # Helper D2.5 `_project_file_to_response` fait `await db.execute(...)`
+    # pour SELECT l'UploadedFile rattaché. Sans AsyncMock, MagicMock().execute()
+    # n'est pas awaitable → TypeError. On retourne un Result legacy (pas
+    # d'upload rattaché) — `test_create_file_returns_201` ne teste pas le
+    # mode upload_id, juste le câblage `add_file → 201 + envelope`.
+    fake_result = MagicMock()
+    fake_result.scalar_one_or_none = MagicMock(return_value=None)
+    fake_result.scalars = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+    fake_db.execute = AsyncMock(return_value=fake_result)
+
     async def _fake_user_override() -> User:
         return fake_user
 

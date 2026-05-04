@@ -113,6 +113,10 @@ def authenticated_client(
     monkeypatch.setattr(auth_router_mod, "rate_limit_register", _noop)
     monkeypatch.setattr(auth_router_mod, "rate_limit_register_daily_ip", _noop)
     monkeypatch.setattr(auth_router_mod, "rate_limit_login", _noop)
+    # Audit remediation T1 (2026-05-01) : `rate_limit_refresh` ajouté sur
+    # `/auth/refresh` (20/min/IP). Sans neutralisation, les tests cherchent
+    # à `await redis.incr(...)` sur `127.0.0.1:65531` non démarré → cassent.
+    monkeypatch.setattr(auth_router_mod, "rate_limit_refresh", _noop)
 
     with TestClient(app) as client:
         yield client
