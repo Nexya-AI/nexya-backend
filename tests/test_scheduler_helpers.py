@@ -78,3 +78,138 @@ def test_weekly_same_day_past_returns_next_week() -> None:
 def test_invalid_schedule_type_returns_none() -> None:
     assert compute_next_run("cron", {"expr": "0 9 * * MON"}) is None
     assert compute_next_run("", {}) is None
+
+
+# ══════════════════════════════════════════════════════════════
+# Monthly (extension F0.5)
+# ══════════════════════════════════════════════════════════════
+
+
+def test_monthly_future_this_month_returns_this_month() -> None:
+    # Now = 2026-04-24 12:00. Cible = jour 28 du mois à 09:00 → 2026-04-28 09:00.
+    result = compute_next_run(
+        "monthly",
+        {"day": 28, "hour": 9, "minute": 0},
+        from_dt=_FIXED_NOW,
+    )
+    assert result == datetime(2026, 4, 28, 9, 0, 0, tzinfo=UTC)
+
+
+def test_monthly_past_this_month_returns_next_month() -> None:
+    # Now = 2026-04-24. Cible = jour 10 → mai (avril déjà passé).
+    result = compute_next_run(
+        "monthly",
+        {"day": 10, "hour": 9, "minute": 0},
+        from_dt=_FIXED_NOW,
+    )
+    assert result == datetime(2026, 5, 10, 9, 0, 0, tzinfo=UTC)
+
+
+def test_monthly_clamps_day_31_in_april() -> None:
+    # Now = 2026-04-24. Cible = jour 31. Avril a 30 jours → clamp à 30.
+    result = compute_next_run(
+        "monthly",
+        {"day": 31, "hour": 9, "minute": 0},
+        from_dt=_FIXED_NOW,
+    )
+    assert result == datetime(2026, 4, 30, 9, 0, 0, tzinfo=UTC)
+
+
+def test_monthly_clamps_day_31_in_february_non_leap() -> None:
+    # Now = 2027-01-15 (2027 NON bissextile). Cible jour 31 → fév clamp à 28.
+    base = datetime(2027, 1, 15, 12, 0, 0, tzinfo=UTC)
+    # Jour 15 déjà passé en janvier 12:00 ? Non, on est le 15 12:00, cible 31 → 31 jan.
+    # Forçons fév : on prend cible jour 31 le 1er fév.
+    base_feb = datetime(2027, 2, 5, 12, 0, 0, tzinfo=UTC)
+    result = compute_next_run(
+        "monthly",
+        {"day": 31, "hour": 9, "minute": 0},
+        from_dt=base_feb,
+    )
+    assert result == datetime(2027, 2, 28, 9, 0, 0, tzinfo=UTC)
+    _ = base  # référence à la base alternative
+
+
+def test_monthly_clamps_day_31_in_february_leap() -> None:
+    # 2028 = bissextile. Cible jour 31 en fév → 29.
+    base = datetime(2028, 2, 5, 12, 0, 0, tzinfo=UTC)
+    result = compute_next_run(
+        "monthly",
+        {"day": 31, "hour": 9, "minute": 0},
+        from_dt=base,
+    )
+    assert result == datetime(2028, 2, 29, 9, 0, 0, tzinfo=UTC)
+
+
+def test_monthly_invalid_day_returns_none() -> None:
+    assert compute_next_run("monthly", {"day": 0, "hour": 9, "minute": 0}) is None
+    assert compute_next_run("monthly", {"day": 32, "hour": 9, "minute": 0}) is None
+
+
+def test_monthly_december_rolls_to_january_next_year() -> None:
+    # Now = 31 déc 2026 23:00. Cible jour 1 → 1er jan 2027.
+    base = datetime(2026, 12, 31, 23, 0, 0, tzinfo=UTC)
+    result = compute_next_run(
+        "monthly",
+        {"day": 1, "hour": 9, "minute": 0},
+        from_dt=base,
+    )
+    assert result == datetime(2027, 1, 1, 9, 0, 0, tzinfo=UTC)
+
+
+# ══════════════════════════════════════════════════════════════
+# Yearly (extension F0.5)
+# ══════════════════════════════════════════════════════════════
+
+
+def test_yearly_future_this_year_returns_this_year() -> None:
+    # Now = 2026-04-24. Cible = 21 juin → 2026-06-21.
+    result = compute_next_run(
+        "yearly",
+        {"month": 6, "day": 21, "hour": 9, "minute": 0},
+        from_dt=_FIXED_NOW,
+    )
+    assert result == datetime(2026, 6, 21, 9, 0, 0, tzinfo=UTC)
+
+
+def test_yearly_past_this_year_returns_next_year() -> None:
+    # Now = 2026-04-24. Cible = 1er fév → 2027-02-01.
+    result = compute_next_run(
+        "yearly",
+        {"month": 2, "day": 1, "hour": 9, "minute": 0},
+        from_dt=_FIXED_NOW,
+    )
+    assert result == datetime(2027, 2, 1, 9, 0, 0, tzinfo=UTC)
+
+
+def test_yearly_29_february_clamps_to_28_non_leap() -> None:
+    # Now = 2027-01-15 (2027 NON bissextile). Cible 29 fév → 28 fév.
+    base = datetime(2027, 1, 15, 12, 0, 0, tzinfo=UTC)
+    result = compute_next_run(
+        "yearly",
+        {"month": 2, "day": 29, "hour": 9, "minute": 0},
+        from_dt=base,
+    )
+    assert result == datetime(2027, 2, 28, 9, 0, 0, tzinfo=UTC)
+
+
+def test_yearly_29_february_returns_29_on_leap_year() -> None:
+    # 2028 = bissextile. Cible 29 fév → 29 fév.
+    base = datetime(2028, 1, 15, 12, 0, 0, tzinfo=UTC)
+    result = compute_next_run(
+        "yearly",
+        {"month": 2, "day": 29, "hour": 9, "minute": 0},
+        from_dt=base,
+    )
+    assert result == datetime(2028, 2, 29, 9, 0, 0, tzinfo=UTC)
+
+
+def test_yearly_invalid_month_returns_none() -> None:
+    assert (
+        compute_next_run("yearly", {"month": 13, "day": 1, "hour": 9, "minute": 0})
+        is None
+    )
+    assert (
+        compute_next_run("yearly", {"month": 0, "day": 1, "hour": 9, "minute": 0})
+        is None
+    )

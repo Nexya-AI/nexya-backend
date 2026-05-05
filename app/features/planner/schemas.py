@@ -32,7 +32,9 @@ from pydantic import (
 # Literals partagés
 # ══════════════════════════════════════════════════════════════
 
-ScheduleType = Literal["once", "interval_minutes", "daily", "weekly"]
+ScheduleType = Literal[
+    "once", "interval_minutes", "daily", "weekly", "monthly", "yearly"
+]
 TaskStatus = Literal["idle", "pending", "running", "completed", "failed", "paused"]
 ResultStatus = Literal["success", "failed", "skipped"]
 
@@ -100,9 +102,55 @@ class WeeklyConfig(BaseModel):
     minute: int = Field(ge=0, le=59)
 
 
+class MonthlyConfig(BaseModel):
+    """Exécution mensuelle au jour `day` du mois à HH:MM UTC.
+
+    Clamp implicite (côté `compute_next_run`) si le mois courant ne
+    contient pas le jour demandé : `day=31` en février → 28 ou 29.
+    """
+
+    type: Literal["monthly"] = "monthly"
+    day: int = Field(ge=1, le=31)
+    hour: int = Field(ge=0, le=23)
+    minute: int = Field(ge=0, le=59)
+
+
+class YearlyConfig(BaseModel):
+    """Exécution annuelle au `month`/`day` à HH:MM UTC.
+
+    Clamp implicite côté `compute_next_run` pour le 29 février sur
+    année non bissextile → 28 février.
+    """
+
+    type: Literal["yearly"] = "yearly"
+    month: int = Field(ge=1, le=12)
+    day: int = Field(ge=1, le=31)
+    hour: int = Field(ge=0, le=23)
+    minute: int = Field(ge=0, le=59)
+
+    @model_validator(mode="after")
+    def _validate_month_day(self) -> YearlyConfig:
+        # Borne maximale par mois (sans tenir compte de l'année bissextile —
+        # 29 février est accepté ici, le clamp arrive au calcul next_run_at).
+        max_days_per_month = {
+            1: 31, 2: 29, 3: 31, 4: 30, 5: 31, 6: 30,
+            7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31,
+        }
+        if self.day > max_days_per_month[self.month]:
+            raise ValueError(
+                f"Le jour {self.day} n'existe pas dans le mois {self.month}."
+            )
+        return self
+
+
 # Union discriminée par `type`.
 ScheduleConfig = Annotated[
-    OnceConfig | IntervalMinutesConfig | DailyConfig | WeeklyConfig,
+    OnceConfig
+    | IntervalMinutesConfig
+    | DailyConfig
+    | WeeklyConfig
+    | MonthlyConfig
+    | YearlyConfig,
     Discriminator("type"),
 ]
 

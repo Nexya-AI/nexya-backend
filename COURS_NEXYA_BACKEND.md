@@ -7103,3 +7103,29 @@ async def create(body, user, db):
 4. Ajoute des tests qui couvrent les 3 cas : nouveau champ présent, absent, malformé.
 
 **Coût** : 0 migration DB, 0 nouvelle exception, 0 setting pricing à trancher Ivan. Pure plomberie.
+
+---
+
+## Leçon — Étendre un schedule type discriminé sans casser l'existant (F0.5 — 2026-05-04)
+
+**Contexte** : F1 avait livré 4 schedule types (`once`/`interval_minutes`/`daily`/`weekly`). La session frontend F1 voulait préserver `monthly` et `yearly` (présents dans les fake tasks UI) plutôt que les amputer. Question : comment étendre le contrat backend sans toucher au router, au service, aux migrations, aux exceptions ?
+
+**Réponse architecturale** : la clé est que les 3 couches étaient déjà découplées correctement :
+
+1. **Schemas** (Pydantic) — discriminator union sur `schedule.type` → ajouter 2 sous-types c'est ajouter 2 classes + étendre l'union, point.
+2. **Pure function** (`compute_next_run` dans `scheduler.py`) — fonction sans état avec switch sur `schedule_type` → ajouter 2 branches dans le switch.
+3. **Service + Router** — délèguent **tout** à `_schedule_to_dict(body.schedule)` + `compute_next_run(schedule_type, schedule_config)`. Ne connaissent rien des types concrets.
+
+Conséquence : **0 ligne touchée dans `service.py` et `router.py`**. La séparation des préoccupations a tenu.
+
+**Edge cases monthly/yearly** :
+- 31 février → 28 ou 29 selon année bissextile (utilise `calendar.monthrange(year, month)[1]` pour le dernier jour).
+- 30 février, 31 avril, 31 juin → rejet à la création (validator Pydantic) car structurellement impossibles ; mais 31 mai accepté car le clamp s'occupera des mois plus courts en aval.
+- 29 février accepté à la création, clampé à 28 sur année non bissextile lors du calcul next_run_at.
+- Décembre → Janvier de l'année suivante : passe naturellement par la condition `if base.month == 12 → (year+1, 1)`.
+
+**Tests** : 21 nouveaux (8 schemas + 13 scheduler) couvrant tous les edge cases ci-dessus. Total 86/86 verts en local, 0 régression.
+
+**Coût** : 0 migration DB (`schedule_config` est JSONB depuis F1 — il avale n'importe quel dict), 0 nouvelle dep, 0 nouvelle exception, 0 nouveau setting pricing à trancher Ivan.
+
+**La leçon** : si tu veux qu'une feature soit extensible, isole le code qui change (schemas + pure function) du code qui orchestre (service + router). Le router ne doit jamais faire de switch sur un type concret du domaine — il doit déléguer à un dispatcher. Ainsi étendre le domaine = ajouter un cas au dispatcher, sans toucher à la route HTTP.
