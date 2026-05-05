@@ -2,7 +2,7 @@
 Helper `compute_next_run` — calcule `next_run_at` selon le schedule.
 
 Fonction pure synchrone, UTC partout. Scope F1 : `once` /
-`interval_minutes` / `daily` / `weekly`.
+`interval_minutes` / `daily` / `weekly` / `monthly` / `yearly`.
 
 Expressions cron full (`0 9 * * MON`) = session future si besoin
 produit (nécessite dep `croniter`). Timezone user-spécifique =
@@ -11,6 +11,7 @@ session future (nécessite colonne `users.timezone` + `zoneinfo`).
 
 from __future__ import annotations
 
+import calendar
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
@@ -96,4 +97,55 @@ def compute_next_run(
             candidate = candidate + timedelta(days=7)
         return candidate
 
+    if schedule_type == "monthly":
+        day = int(schedule_config.get("day", 0))
+        hour = int(schedule_config.get("hour", 0))
+        minute = int(schedule_config.get("minute", 0))
+        if not (1 <= day <= 31 and 0 <= hour <= 23 and 0 <= minute <= 59):
+            return None
+        candidate = _make_monthly_candidate(base.year, base.month, day, hour, minute)
+        if candidate is not None and candidate > base:
+            return candidate
+        # Sinon avance d'un mois.
+        next_year, next_month = (
+            (base.year + 1, 1) if base.month == 12 else (base.year, base.month + 1)
+        )
+        return _make_monthly_candidate(next_year, next_month, day, hour, minute)
+
+    if schedule_type == "yearly":
+        month = int(schedule_config.get("month", 0))
+        day = int(schedule_config.get("day", 0))
+        hour = int(schedule_config.get("hour", 0))
+        minute = int(schedule_config.get("minute", 0))
+        if not (
+            1 <= month <= 12
+            and 1 <= day <= 31
+            and 0 <= hour <= 23
+            and 0 <= minute <= 59
+        ):
+            return None
+        candidate = _make_monthly_candidate(base.year, month, day, hour, minute)
+        if candidate is not None and candidate > base:
+            return candidate
+        return _make_monthly_candidate(base.year + 1, month, day, hour, minute)
+
     return None
+
+
+def _make_monthly_candidate(
+    year: int,
+    month: int,
+    day: int,
+    hour: int,
+    minute: int,
+) -> datetime | None:
+    """Construit un datetime UTC en clampant `day` au dernier jour du mois.
+
+    Exemples : `day=31` en avril (30 jours) → 30 avril.
+    `day=29` en février année non bissextile → 28 février.
+    """
+    last_day = calendar.monthrange(year, month)[1]
+    safe_day = min(day, last_day)
+    return datetime(
+        year, month, safe_day, hour, minute, 0, 0, tzinfo=UTC
+    )
