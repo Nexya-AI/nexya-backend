@@ -561,14 +561,30 @@ async def chat_stream(
             db=db,
         )
 
+    # ── 5.7. I1 (2026-05-05) — Bloc RAG documents user pré-calculé front
+    # Le frontend appelle `POST /rag/query` D5 AVANT `/chat/stream` quand
+    # `projectId != null` et qu'au moins 1 fichier RAG-eligible (PDF/DOCX/
+    # TXT/MD avec `chunks_indexed_at != None`) est rattaché. Le résultat
+    # est transmis dans le body `body.rag_context = {framed_context, instruction}`.
+    # `None` = pas d'injection RAG (mode legacy strictement préservé,
+    # rétrocompat A1+B1+B2+B3+B4+G1).
+    rag_context_tuple: tuple[str, str] | None = None
+    rag_block_for_check: str | None = None
+    if body.rag_context is not None:
+        rag_context_tuple = (body.rag_context.framed_context, body.rag_context.instruction)
+        rag_block_for_check = (
+            f"{body.rag_context.framed_context}\n\n{body.rag_context.instruction}"
+        )
+
     # Pour le token estimator + cache key, on compose localement le
     # system_prompt final dans le même ordre que `_stream_link` :
-    # memory → corpus → expert. La concat définitive est refaite dans
-    # `_stream_link` à partir des champs `ctx.memory_context` +
-    # `ctx.expert_corpus_context` — Single Source of Truth.
+    # memory → corpus → rag → expert. La concat définitive est refaite
+    # dans `_stream_link` à partir des champs `ctx.memory_context` +
+    # `ctx.expert_corpus_context` + `ctx.rag_context` — Single Source of Truth.
     _prompt_parts = [
         memory_context,
         expert_corpus_context,
+        rag_block_for_check,
         config.system_prompt or None,
     ]
     system_prompt_for_check = "\n\n".join(p for p in _prompt_parts if p)
@@ -641,6 +657,7 @@ async def chat_stream(
             session_id=session_id,
             memory_context=memory_context,
             expert_corpus_context=expert_corpus_context,
+            rag_context=rag_context_tuple,
             tools=tools_for_request,
         )
         handler = get_stream_handler()
@@ -678,6 +695,7 @@ async def chat_stream(
         metrics=metrics,
         memory_context=memory_context,
         expert_corpus_context=expert_corpus_context,
+        rag_context=rag_context_tuple,
         tools=tools_for_request,
     )
 
