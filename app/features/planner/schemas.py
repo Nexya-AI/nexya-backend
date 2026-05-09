@@ -32,9 +32,7 @@ from pydantic import (
 # Literals partagés
 # ══════════════════════════════════════════════════════════════
 
-ScheduleType = Literal[
-    "once", "interval_minutes", "daily", "weekly", "monthly", "yearly"
-]
+ScheduleType = Literal["once", "interval_minutes", "daily", "weekly", "monthly", "yearly"]
 TaskStatus = Literal["idle", "pending", "running", "completed", "failed", "paused"]
 ResultStatus = Literal["success", "failed", "skipped"]
 
@@ -133,24 +131,27 @@ class YearlyConfig(BaseModel):
         # Borne maximale par mois (sans tenir compte de l'année bissextile —
         # 29 février est accepté ici, le clamp arrive au calcul next_run_at).
         max_days_per_month = {
-            1: 31, 2: 29, 3: 31, 4: 30, 5: 31, 6: 30,
-            7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31,
+            1: 31,
+            2: 29,
+            3: 31,
+            4: 30,
+            5: 31,
+            6: 30,
+            7: 31,
+            8: 31,
+            9: 30,
+            10: 31,
+            11: 30,
+            12: 31,
         }
         if self.day > max_days_per_month[self.month]:
-            raise ValueError(
-                f"Le jour {self.day} n'existe pas dans le mois {self.month}."
-            )
+            raise ValueError(f"Le jour {self.day} n'existe pas dans le mois {self.month}.")
         return self
 
 
 # Union discriminée par `type`.
 ScheduleConfig = Annotated[
-    OnceConfig
-    | IntervalMinutesConfig
-    | DailyConfig
-    | WeeklyConfig
-    | MonthlyConfig
-    | YearlyConfig,
+    OnceConfig | IntervalMinutesConfig | DailyConfig | WeeklyConfig | MonthlyConfig | YearlyConfig,
     Discriminator("type"),
 ]
 

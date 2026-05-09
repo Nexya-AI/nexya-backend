@@ -572,9 +572,7 @@ async def chat_stream(
     rag_block_for_check: str | None = None
     if body.rag_context is not None:
         rag_context_tuple = (body.rag_context.framed_context, body.rag_context.instruction)
-        rag_block_for_check = (
-            f"{body.rag_context.framed_context}\n\n{body.rag_context.instruction}"
-        )
+        rag_block_for_check = f"{body.rag_context.framed_context}\n\n{body.rag_context.instruction}"
 
     # Pour le token estimator + cache key, on compose localement le
     # system_prompt final dans le même ordre que `_stream_link` :

@@ -129,7 +129,12 @@ jobs:
         # `--ignore-vuln CVE-2026-3219` : CVE concerne pip lui-même
         # (pas une dep NEXYA), pas de fix version disponible. À retirer
         # quand pip publie un fix.
-        run: pip-audit --desc --skip-editable --ignore-vuln CVE-2026-3219
+        # Upgrade pip ≥ 26.1 résout CVE-2026-6357 (self-update timing
+        # avant install wheels). Pip n'est pas une dep runtime NEXYA mais
+        # pip-audit l'inspecte comme tout package du venv système.
+        run: |
+          python -m pip install --upgrade "pip>=26.1"
+          pip-audit --desc --skip-editable --ignore-vuln CVE-2026-3219
 
   # ─────────────────────────────────────────────────────────────
   # TESTS — services postgres+redis+minio + alembic + pytest cov

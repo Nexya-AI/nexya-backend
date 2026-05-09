@@ -117,12 +117,7 @@ def compute_next_run(
         day = int(schedule_config.get("day", 0))
         hour = int(schedule_config.get("hour", 0))
         minute = int(schedule_config.get("minute", 0))
-        if not (
-            1 <= month <= 12
-            and 1 <= day <= 31
-            and 0 <= hour <= 23
-            and 0 <= minute <= 59
-        ):
+        if not (1 <= month <= 12 and 1 <= day <= 31 and 0 <= hour <= 23 and 0 <= minute <= 59):
             return None
         candidate = _make_monthly_candidate(base.year, month, day, hour, minute)
         if candidate is not None and candidate > base:
@@ -146,6 +141,4 @@ def _make_monthly_candidate(
     """
     last_day = calendar.monthrange(year, month)[1]
     safe_day = min(day, last_day)
-    return datetime(
-        year, month, safe_day, hour, minute, 0, 0, tzinfo=UTC
-    )
+    return datetime(year, month, safe_day, hour, minute, 0, 0, tzinfo=UTC)

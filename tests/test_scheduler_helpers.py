@@ -205,11 +205,5 @@ def test_yearly_29_february_returns_29_on_leap_year() -> None:
 
 
 def test_yearly_invalid_month_returns_none() -> None:
-    assert (
-        compute_next_run("yearly", {"month": 13, "day": 1, "hour": 9, "minute": 0})
-        is None
-    )
-    assert (
-        compute_next_run("yearly", {"month": 0, "day": 1, "hour": 9, "minute": 0})
-        is None
-    )
+    assert compute_next_run("yearly", {"month": 13, "day": 1, "hour": 9, "minute": 0}) is None
+    assert compute_next_run("yearly", {"month": 0, "day": 1, "hour": 9, "minute": 0}) is None
