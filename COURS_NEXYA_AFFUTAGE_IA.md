@@ -2235,7 +2235,7 @@ Ma première analyse (passage initial Période 2, datée 2026-05-15 matin) souff
 | `medicine` | Safety-critical | Prompt seul + disclaimer + tools_allowed=False | **Supérieur** légalement safe vs hallucinations géants | Déjà actif (B2 + F2.5) | ✅ partiel |
 | `productivity` | 1 + intégration tools | Prompt Africa-first + RAG méthodes + tool `create_task` (F2.5) + Planner AI | **Supérieur** actionnable vs conseillers passifs | ~30h (Planner inclus) | ❌ |
 | `engineering` ⭐ | 2 (13 branches) | RAG par branche + concours ENSP + prompt tropicalisation + tool calcul (V2) | **Supérieur** ingénierie tropicale + concours camerounais | ~12h | ❌ |
-| `studio` ⭐⭐⭐ MOAT | 3 (image generation custom) | **LoRA Flux/SDXL + RAG prompts + caption auto + workflow agent** | **MOAT MAJEUR** — signature visuelle reconnaissable, Africa-first unique | ~60h + $50-100 GPU | ❌ |
+| `studio` ⭐⭐⭐ MOAT | 3 (image generation custom) | **SD 3.5 Large + LoRA NEXYA Style + RAG prompts + agent reformulation + IP-Adapter + PSD decomposition + ControlNet + Inpainting + Brand Kit** (roadmap V1→V3.5 cf. §7.3.10) | **MOAT MAJEUR** — signature visuelle reconnaissable, Africa-first unique, **supérieur à Wisegen sur 7 axes** (cf. §7.3.10 analyse concurrentielle 2026-05-15) | V1 : ~60h + $50-100 GPU. Roadmap complète V3.5 : ~196h + $200-400 GPU. **Sprint dédié 1 mois 13h/jour validé Ivan 2026-05-15** | ❌ |
 | `language` ⭐⭐ MOAT | 3 (langues bantoues) | **Fine-tuning Gemma 9B multi-langues bantoues + tokenizer custom + capture des tons** | **MOAT MAJEUR** — monopolistique 7 langues vernaculaires | ~100h + $50-100 GPU | ❌ |
 
 **Lecture rapide** : sur 11 experts, **9 sont compétitifs avec les géants** (égal ou supérieur sur contextes spécifiques) et **2 sont des moats non-réplicables** (`studio` + `language`). Ces 2 moats sont **ce qui rend NEXYA défendable à 5 ans**.
@@ -2799,9 +2799,152 @@ Tu as **5000 flyers classifiés par catégorie**. C'est de l'or pur. Comparable 
 
 **Conclusion :** Studio est probablement ton **moat commercial #1**. Plus directement monétisable que les langues vernaculaires (un mariage paie facilement 5 000 FCFA pour un beau flyer ; un user duala ne paie pas spécifiquement pour parler duala — c'est un bonus produit).
 
-#### EFFORT
+#### EFFORT (V1 minimum viable)
 
-~60h dev + $50-100 GPU + validation copyright préalable. Session label : **G3** (anciennement « Expert Studio créatif » dans ROADMAP).
+~60h dev + $50-100 GPU + validation copyright préalable. Session label : **G3** (anciennement « Expert Studio créatif » dans ROADMAP). **V1 couvre les 4 couches du tableau ci-dessus.** Voir « Roadmap révisée 7 couches » ci-dessous pour le périmètre complet V3.5 estimé ~196h sur sprint dédié 1 mois 13h/jour.
+
+#### ⚠️ Mise à jour 2026-05-15 — Analyse concurrentielle Wisegen.app
+
+> Ivan a soumis l'application **https://wisegen.app** comme concurrent à étudier. Analyse senior intégrée ici car elle change matériellement la roadmap Studio. Le site bloque les bots (Cloudflare 403), reconstruction via sources tierces (PosterMyWall, Visme blog 2026, Logodiffusion).
+
+##### Profil Wisegen identifié
+
+Tagline officielle : **« Create professional flyers with AI in 10 seconds »**.
+
+| Force identifiée chez Wisegen | Détail technique probable | Impact concurrentiel |
+|---|---|---|
+| **Speed extrême — 10 sec génération** | Probablement FLUX.1-schnell distillé (4 steps) OU FLUX Pro API OU SDXL Turbo. Inférence GPU optimisée + caching agressif. | UX critique — l'attente tue la conversion |
+| **Cinematic prompt engineering automatique** | Un LLM agent (GPT-4o ou Claude) reformule le brief user en prompt optimisé pour le modèle image, avec termes techniques (lighting, composition, mood, palette). | L'user dit « flyer pour mon mariage » → l'IA produit un prompt riche de 200 mots derrière |
+| **⭐ Décomposition PSD (feature unique)** | Upload n'importe quelle image (flyer, poster, photo, design) → AI décompose en **layers individuels** → export `.psd` éditable dans Photoshop. Stack probable : SAM (Segment Anything Model) + Tesseract OCR + reconstruction PSD via `psd-tools`. | **Différentiateur majeur** — permet aux pros de partir d'un visuel généré ET de le finaliser dans Photoshop |
+| **Positionnement « no design skills »** | UX simplifiée, langage naturel, ciblage non-designers | Vise le mass market, pas les pros directs |
+
+##### Ce que NEXYA Studio DOIT capter de Wisegen (3 features à ajouter au plan original)
+
+**1. Décomposition PSD ⭐ — la feature que ma première passe avait omise**
+
+C'est le **vrai moat technique** de Wisegen. Sans ça, NEXYA Studio reste un « générateur fermé » pour amateurs. Avec ça, NEXYA devient un **pont entre l'IA et les workflows pro existants** (Photoshop, Illustrator, GIMP). Un designer pro peut générer une base IA, l'ouvrir dans Photoshop, polir, livrer au client.
+
+Implementation technique :
+
+| Composant | Outil | Effort |
+|---|---|---|
+| Segmentation des éléments visuels (zones texte, formes, photos) | **SAM (Segment Anything Model)** de Meta, open source Apache 2.0 | 10h |
+| Détection + extraction du texte | **Tesseract OCR** ou **EasyOCR** + reconnaissance de police via similarité font matching (fontspring/Google Fonts comparison) | 15h |
+| Détection des couleurs dominantes par zone | Clustering K-means sur chaque segment via scikit-learn | 5h |
+| Reconstruction fichier PSD | **psd-tools** Python (`write_psd`) — supporte layers, masks, opacity, blending modes natifs Photoshop | 15h |
+| Pipeline backend + endpoint `/studio/decompose` | FastAPI + queue async (arq) car ~30-60 sec par image | 8h |
+| **Total décomposition PSD** | | **~50h** |
+
+**2. Agent reformulation cinematic prompt (V1.bis, +6h)**
+
+Notre approche RAG sur prompts gagnants (Couche 2 originale) est conceptuellement équivalente. Mais Wisegen fait probablement aussi une étape de reformulation LLM avant injection au modèle image. À ajouter dans le pipeline NEXYA :
+
+```
+User : "flyer mariage Marie + Paul samedi"
+       │
+       ▼
+[Agent LLM Gemini Pro reformule en prompt enrichi]
+       │
+       ▼
+"elegant wedding flyer, romantic candlelight ambiance, gold and burgundy palette,
+sans-serif modern typography for names, script font for date, central photo
+placeholder for couple, floral ornaments at corners, A4 portrait format,
+magazine-quality, [NEXYA style] LoRA applied"
+       │
+       ▼
+[SD 3.5 Large + LoRA NEXYA génère 4 versions]
+```
+
+Coût : ~6h dev + 0.0001 $ par génération (Gemini Flash).
+
+**3. Speed agressif < 15 secondes (V2 optimisation)**
+
+Wisegen pousse à 10 sec. Pour rivaliser :
+
+| Option | Vitesse cible | Trade-off | Priorité |
+|---|---|---|---|
+| SD 3.5 Large + LoRA standard (notre V1) | 20-30 sec sur RTX 4090 | Qualité max, vitesse correcte | V1 |
+| + SD 3.5 Turbo distillation | 5-10 sec sur RTX 4090 | Qualité légèrement dégradée mais sweet spot industrie | V2 |
+| + Inference batching | 5-15 sec par image en batch 4 | Réutilise le même GPU pour 4 users simultanés | V2 |
+| + ComfyUI workflow optimisé | Gain 20-30 % | Effort optimisation | V2 |
+
+**Marketing honnête** : afficher « génération moyenne 15 sec » dès V1 (atteignable avec batching), passer à « 8 sec » V2 avec Turbo.
+
+##### Les 7 leviers de SUPÉRIORITÉ NEXYA Studio vs Wisegen
+
+Wisegen a des trous structurels que NEXYA peut exploiter. **Ce sont nos angles d'attaque pour devenir absolument imbattable** sur notre niche.
+
+| # | Levier | Pourquoi Wisegen ne l'a pas | Impact pour NEXYA |
+|---|---|---|---|
+| **1** | **IP-Adapter (intégrer photo user)** ⭐ killer feature | Non mentionné dans leur scope public | Couple voit son visage dans le flyer = **moment WhatsApp viral garanti**, panier moyen × 2 |
+| **2** | **Africa-first natif** (catégories Bamiléké, palettes Sawa/kente, FCFA, FR-EN-pidgin) | Universel anglo-saxon | Moat marketing non copiable sans tout refaire |
+| **3** | **Mobile Money intégré** (CinetPay/Orange/MTN/Wave) | Probablement Stripe/cartes only | × 8 le marché adressable Cameroun (5-10 % carte vs 40-60 % Mobile Money) |
+| **4** | **Mobile-first natif** (Flutter, camera in-app, push, offline queue) | Web-first probable | UX naturelle pour utilisateurs camerounais (mobile-only) |
+| **5** | **Workflow agent multi-tour** (3 questions guidées + 4 versions + variations) | One-shot probable (« décris → génère ») | Conversion non-designers nettement supérieure |
+| **6** | **Suite unifiée** (Flyer + Logo + Retouche + Brand Kit cohérent) | Flyer-only probable | Pitch « Wisegen + Looka + Adobe Express + Retouch Pro en 1 app » |
+| **7** | **Pricing FCFA accessible** (3 000 FCFA/mois Pro = $5 vs $9-19 Wisegen) | Pricing USD | × 3-5 le taux de conversion vs Wisegen en parité pouvoir d'achat |
+
+#### Roadmap révisée 7 couches V1 → V3.5
+
+Le plan original avait 4 couches (~60h). Après analyse Wisegen, la **roadmap révisée à 7 couches** pour atteindre « absolument imbattable » :
+
+| Phase | Feature(s) | Effort | Cumul | Impact concurrentiel |
+|---|---|---|---|---|
+| **V1 — Studio MVP** | Couches 1-4 originales : Caption auto + RAG prompts + LoRA NEXYA Style + Workflow agent UI Flutter mobile | ~60h | 60h | Égal Wisegen sur générateur basique, **supérieur** UX |
+| **V1.bis — Agent reformulation cinematic prompt** | Étape LLM Gemini Pro avant SD 3.5 (équivalent Wisegen prompt engineer) | +6h | 66h | Égal Wisegen sur qualité prompt |
+| **V1.5 — IP-Adapter killer feature** ⭐ | Intégration visages couple / logo société / produit dans flyers | +15h | 81h | **Supérieur Wisegen** (pas dans leur scope) |
+| **V2 — Décomposition PSD** | SAM + OCR + extraction couleurs + reconstruction `.psd` éditable Photoshop | +50h | 131h | **Égal Wisegen** sur leur moat technique |
+| **V2.5 — ControlNet layout** | Contrôle structurel précis (positions photo/texte/dates respectent EXACTEMENT le brief) | +20h | 151h | **Supérieur Wisegen** (pas dans leur scope) |
+| **V3 — Inpainting conversationnel** | Modification post-génération via chat (« change cette photo », « refais cette bande ») | +15h | 166h | **Supérieur Wisegen** |
+| **V3.5 — Logo Studio + Brand Kit** | Pipeline parallèle logo + cohérence cross-produits (logo + carte de visite + signature email + social media kit, le tout stylistiquement cohérent) | +30h | 196h | **Supérieur Wisegen** (eux flyer-only) |
+
+**Total roadmap absolument imbattable : ~196h** (+$200-400 GPU cumulé sur les 3-5 itérations training).
+
+#### Sprint dédié 1 mois — 13h/jour (validé Ivan 2026-05-15)
+
+**Décision Ivan** : un mois complet dédié 100 % NEXYA Studio, minimum 13h/jour de travail effectif. Cela donne :
+
+- 13h × 30 jours = **390h disponibles théoriques**
+- 196h roadmap V1 → V3.5 = **~50 % du budget temps**
+- Marge réelle 50 % pour : imprévus training (re-runs LoRA), apprentissage outillage (ai-toolkit, ComfyUI, psd-tools), validation locuteurs/testeurs, marketing prep, polish UI
+
+**Plan jour par jour proposé (4 semaines)** :
+
+| Semaine | Focus | Sortie attendue |
+|---|---|---|
+| **S1 — Dataset + Captioning** | Audit copyright mentor finalisé + nettoyage 5000 flyers + caption auto Gemini Vision + validation sample 200 + resize SD 3.5 ratios + classification raffinée par catégorie | Dataset 5000 captions structurés .txt + 5000 images 1024×1280 prêts à entraîner |
+| **S2 — Training LoRA + V1 base** | Setup RunPod A100 + 3-5 itérations LoRA NEXYA Style + agent reformulation prompt (V1.bis) + workflow ComfyUI + endpoint backend `/studio/generate` + UI Flutter workflow agent 3 questions | V1 + V1.bis livré, blind test 30 prompts, 4 versions par génération |
+| **S3 — V1.5 IP-Adapter + V2 PSD decomposition** | IP-Adapter intégration (couple/logo/produit) + tests + Décomposition PSD (SAM + OCR + psd-tools) + endpoint `/studio/decompose` + tests | Killer feature mariage opérationnelle + parité technique Wisegen sur PSD |
+| **S4 — V2.5 + V3 + V3.5 + Polish** | ControlNet layout + Inpainting conversationnel + Logo Studio + Brand Kit cohérent + marketing prep (vidéos demo TikTok/Instagram) + monitoring Prometheus/Sentry + load tests | Studio absolument imbattable, prêt go-live |
+
+#### Préparation préalable au sprint (à faire AVANT M-1)
+
+> Ces tâches **doivent être terminées** avant le jour 1 du sprint, sinon perte de jours utiles en début.
+
+| # | Tâche | Effort | Bloquant ? |
+|---|---|---|---|
+| **P1** | Audit copyright des 5000 flyers + contrat de cession signé avec mentor (cf. §7.3.10 SOURCES) | ~2h (rédaction) + délai signature mentor 1-2 semaines | **OUI absolu** — pas de fine-tune sans signature |
+| **P2** | Compte RunPod (ou Hetzner GPU dédié) provisionné avec carte de crédit fonctionnelle | ~1h | OUI |
+| **P3** | Tutoriels ai-toolkit + ComfyUI + SD 3.5 LoRA visionnés (YouTube, ~5h) | ~5h | NON mais évite des frictions S2 |
+| **P4** | Audit distribution par catégorie des 5000 flyers (cf. §7.3.10 réponse mentor Ivan 2026-05-15 : 200-300/thème → OK) | ✅ DÉJÀ FAIT | Non |
+| **P5** | Décision cohérence stylistique (toi + mentor — scénario A fusion ou B deux LoRA distincts cf. §7.3.10) | ~1h audit visuel | OUI (impacte le training S2) |
+| **P6** | Pricing FCFA finalisé (Free / Pro 3000 / Pro+ 12000 — cf. § business analysis) | À trancher avec Ivan | NON pour le dev, OUI pour le launch |
+| **P7** | Compte Mobile Money (CinetPay sandbox + NotchPay) testé end-to-end | ~3h | OUI pour launch commercial (Phase 11 backend) |
+
+#### Recommandation senior — quand démarrer ce sprint
+
+**Pré-requis bloquants minimum** : P1 + P2 + P5 signés/provisionnés. Sans ces 3, ne pas démarrer.
+
+**Ordre dans la Période 2** : actuellement le plan §7.5 met Studio en **Phase 2.C** (après 2.A quick wins RAG + 2.B tools senior, soit ~80h sur d'autres experts). Avec ton choix de **sprint dédié 1 mois full-time**, deux options :
+
+| Option | Description | Trade-off |
+|---|---|---|
+| **(A) Sprint Studio AVANT autres experts** | Studio devient Phase 2.A. Les 10 autres experts attendent 1 mois. | Monétisation ASAP du moat #1 commercial, mais blocage des autres experts |
+| **(B) Sprint Studio APRÈS quick wins** | Phase 2.A (50h, ~5 semaines mi-temps) → Sprint Studio 1 mois 13h/jour → Phases 2.B/2.D/2.E ensuite | Approche équilibrée, on a déjà 5 experts améliorés au moment du Studio launch |
+
+**Avis senior** : **option B** si tu peux te permettre 5 semaines de quick wins avant Studio. Option A si tu sens que le marché flyer mariage est sur le point d'exploser et qu'il faut couper court (peu probable, le marché est stable).
+
+**Final** : avec ce sprint dédié 1 mois 13h/jour, NEXYA Studio peut atteindre le niveau « absolument imbattable » dans son segment Africa-first dans **~30 jours effectifs**. C'est ambitieux mais réaliste avec ton engagement de discipline.
 
 ---
 
@@ -3069,6 +3212,7 @@ Synthèse des points légaux distribués dans les sections expert. **À relire a
 |---|---|---|
 | 2026-05-15 | Création | Création initiale du cours suite à la demande Ivan d'attaquer la Période 2 IA-QUALITY. Couvre les 3 leviers (prompt + RAG + fine-tuning), le post-mortem G1, le plan H1-H8. Parties 0 à VII (glossaire). |
 | 2026-05-15 | Partie VII ajoutée | Ajout d'une **Partie VII dédiée — Stratégie d'affûtage par expert (audit complet)** : audit senior expert-par-expert des 11 experts NEXYA (general, computer, science, finance, cooking, legal, medicine, productivity, engineering, studio, language). Diagnostic Zone + leviers + sources + risques légaux + comparaison aux géants + ordre d'exécution révisé en 5 phases. Identifie les **2 moats stratégiques NEXYA** (`studio` LoRA Flux + `language` Gemma multi-langues bantoues). Inclut 3 questions critiques à trancher avant exécution (copyright flyers, capture tons bantous, GPU provisioning) + tableau récapitulatif des avertissements légaux. Glossaire/Annexes/Journal renommés Partie VIII. |
+| 2026-05-15 | §7.3.10 enrichi — Analyse concurrentielle Wisegen + Roadmap V1→V3.5 + Sprint 1 mois | Enrichissement majeur de la section Studio suite à l'analyse de **https://wisegen.app** demandée par Ivan. (1) Profil Wisegen reconstruit via sources tierces (site bloque les bots Cloudflare 403) : tagline « 10 sec génération », cinematic prompt engineering, décomposition PSD via SAM+OCR+psd-tools. (2) **3 features à capter** identifiées : décomposition PSD (+50h), agent reformulation cinematic prompt (+6h), speed agressif < 15 sec (V2). (3) **7 leviers de SUPÉRIORITÉ NEXYA** vs Wisegen : IP-Adapter killer, Africa-first natif, Mobile Money, mobile-first natif, workflow agent multi-tour, suite unifiée (flyer+logo+retouche+brand kit), pricing FCFA. (4) **Roadmap révisée 7 couches V1 → V3.5** : ~196h total. (5) **Sprint dédié 1 mois 13h/jour** validé Ivan (390h théoriques, 50% marge), plan jour-par-jour 4 semaines (S1 dataset/captioning, S2 training LoRA+V1.bis, S3 IP-Adapter+PSD, S4 ControlNet+Inpainting+Brand Kit+polish). (6) Tableau récap §7.2 ligne studio mis à jour (effort 60h V1 → 196h V3.5 sprint complet). (7) Préparation préalable 7 tâches (P1-P7) à finaliser avant le sprint. |
 
 > Ajouter ici chaque mise à jour structurante au fil des sessions livrées en Période 2.
 
