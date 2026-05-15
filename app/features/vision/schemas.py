@@ -56,7 +56,7 @@ class VisionAnalyzeRequest(BaseModel):
     image_base64: str | None = Field(default=None, max_length=20_000_000)
     model_tier: VisionTier = "flash"
     max_output_tokens: int = Field(default=1024, ge=64, le=8192)
-    additional_images: list[uuid.UUID] | None = Field(default=None, max_length=3)
+    additional_images: list[uuid.UUID] | None = Field(default=None, max_length=4)
 
     @field_validator("prompt", mode="before")
     @classmethod

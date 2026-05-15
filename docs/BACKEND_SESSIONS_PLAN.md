@@ -260,7 +260,7 @@ Une fois ce plan terminé, le backend sera à **~95 %** (les 5 % restants = ajus
 
 ## **BLOC N — Tâches transversales backend**
 
-**Sessions : 4** | **Heures : 40** | **% du restant : 7.0 %**
+**Sessions : 5** | **Heures : 48** | **% du restant : 8.3 %**
 
 > Petites pièces dispersées qui ne rentrent dans aucune phase.
 
@@ -271,7 +271,9 @@ Une fois ce plan terminé, le backend sera à **~95 %** (les 5 % restants = ajus
 | N3 | Évals IA en CI (suite reproductible) | Harness Python pur dans `tests/evals/` : `judge.py` ABC + `MockJudge` SHA-256 déterministe + `GeminiJudge` 2.5 Pro structured output (parser tolérant 3 passes). 5 catégories × 130 prompts versionnés YAML : `routing` (15 — pure introspection EXPERT_REGISTRY), `safety` (28 — refus prescriptions/actes nominatifs + jailbreaks), `format` (30 — code blocks, LaTeX, listes numérotées), `accuracy` (44 — faits vérifiables par expert), `identity` (18 — marque NEXYA jamais cassée). `runner.py` orchestre + `candidate.py` (Gemini SDK direct, system_prompt expert, temperature=0) avec mock_candidate auto si judge=mock (pipeline test sans facture). `baseline.py` snapshot JSON committé `tests/evals/baselines/baseline.json` avec commit_sha + date + judge_name + pass_rate/score_avg par catégorie ; `diff_vs_baseline` détecte régression en pp. `report.py` markdown + JSON. `cli.py` argparse complet (--judge, --category, --limit, --update-baseline, --threshold-pp, --md-out, --json-out). Workflow `.github/workflows/evals.yml` 2 jobs : `evals-pr` (mock judge, threshold 10pp, comment PR auto, bloquant si régression) + `evals-nightly` (cron 3h00 UTC, real Gemini judge, threshold 5pp, ouvre issue auto si régression). Skip gracieux si `GEMINI_API_KEY` absente. 3 settings (`evals_judge_model=gemini-2.5-pro`, `evals_regression_threshold_pp=10.0`, `evals_corpus_min_size=100`). 49 tests pytest verts (judge×16 + baseline×14 + runner+report×19), 0 régression. Coût : $0 PR (mock) + ~$30/mois nightly (real judge). Recommandation Ivan : créer `secrets.GEMINI_API_KEY` dans GitHub Settings AVANT premier nightly. | ✅ | 2026-04-27 |
 | N4 | Tests de charge + Phase 18 backend mineur | **Volet A** : suite k6 reproductible dans `tests/load/` — 6 scénarios (`auth_burst` 50 RPS / `chat_stream_concurrent` 30 VUs SSE / `files_upload_concurrent` 20 VUs 1MB / `conversations_list_paginated` 100 RPS keyset / `metrics_endpoint` 200 RPS / `mixed_workload` 30 VUs ramping 60/30/10), lib partagée (`auth.js` token cache, `sse.js` parser NEXYA-aware, `metrics.js` Trends alignés K1), `thresholds.json` SLO codifiés (login p95 <500ms, chat total <30s, list <300ms, /metrics <100ms), `docker-compose.load.yml` stack éphémère (postgres pg16 + redis + minio + backend mock-first), `bootstrap.sh` + `teardown.sh` strict bash, `run.sh` orchestrateur (`--scenario`, `--no-teardown`, `--skip-bootstrap`), workflow `.github/workflows/load.yml` (workflow_dispatch + cron weekly Sunday 4h UTC, k6 via `grafana/setup-k6-action@v1`, fail job + open issue label `load-regression` si breach, upload artifacts 30j). **Volet B Phase 18** : `app/integrations/crisp_client.py` (ABC `CrispClient` + `RealCrispClient` httpx async POST `/v1/website/{id}/conversation` Basic Auth + `MockCrispClient` accumule calls + `force_fail` / factory mock-first auto si `CRISP_API_KEY` vide), migration 019 + ORM `HelpdeskEscalation` (5 categories CHECK, 4 severity, 4 status, 3 index partiels dont queue admin priorisée + crisp lookup), `CrispEscalationService.escalate` (INSERT row local → Crisp call fail-safe absolu → UPDATE `crisp_conversation_id` si succès, `should_escalate` Pro+high+kill-switch), `HelpdeskMetricsService.compute` (counts par status + median_resolved_age_hours via `percentile_cont` + oldest_open_age_hours + breakdown par catégorie), `GET /admin/helpdesk/metrics` admin J1 ACL, hook `_maybe_escalate_to_crisp` dans `core/errors/handlers.py` (fire-and-forget `asyncio.create_task` sur `PaymentFailedException`/`PaymentWebhookInvalidException`/`LlmUnavailableException` quand user Pro). 5 settings (3 Crisp + 2 load), 64 tests pytest verts (10 crisp_client + 18 helpdesk_service + 3 helpdesk_router + 33 load_thresholds). 0 régression. Coût V1 : Crisp = pricing externe (Ivan choisit), k6 GHA = ~10 min/run × manuel + weekly = marginal. **Recommandation Ivan** : créer `secrets.GEMINI_API_KEY` (déjà N3) + `secrets.CRISP_WEBSITE_ID/CRISP_API_KEY` (Phase 18) avant déploiement L2. | ✅ | 2026-04-27 |
 
-**Livrable bloc N :** suite tests complète, évals IA bloquantes en CI, tests de charge documentés, support utilisateur structuré.
+| N5 | NPS endpoint + table `nps_responses` + admin metrics | **Volet A — Migration & ORM** : migration Alembic 020 `nps_responses` (id UUID PK gen_random_uuid + user_id UUID FK CASCADE + score smallint CHECK 0-10 + comment text nullable max 2000 + app_version text 32 + source enum `in_app_survey/email/admin_import` + sent_at_app timestamptz + created_at timestamptz default now() + idx composite `(user_id, created_at DESC)` pour rate limit lookup + idx partiel `WHERE source='in_app_survey'` pour summary admin). ORM `app/features/feedback/nps_models.py::NpsResponse` aligné. **Volet B — Schémas Pydantic** : `NpsSubmitRequest` (score 0-10 strict + comment? str≤2000 sanitizer A3 NFC + null bytes + zero-width + app_version regex `^\d+\.\d+\.\d+(\+\d+)?$` + sent_at_app ≤ now+5min anti future), `NpsSubmitResponse` (id, score, created_at, next_eligible_at), `NpsSummary` (count_total, count_promoter ≥9, count_passive 7-8, count_detractor ≤6, nps_score float = %prom - %détr, avg_score, last_30d_score, last_90d_score), `NpsResponseListItem` admin-only (id, user_id_hash sha256[:12] anonymisé RGPD, score, comment, app_version, source, created_at). **Volet C — Service** : `NpsService.submit(user, body, db)` rate limit Redis sliding window 1/30j scoped par user.id + INSERT + return next_eligible_at = last_submit + 30j ; `NpsService.compute_summary(date_from, date_to, db)` SQL `count(*) FILTER (WHERE score >= 9) AS promoter` etc. + window 30/90j ; `NpsService.list_responses(cursor, limit ≤ 50, score?, source?, db)` cursor-based DESC. **Volet D — Endpoints** : `POST /feedback/nps` auth requise (capture business event Sentry `nps_submitted` avec score+source — ne JAMAIS logger comment en clair), `GET /admin/nps/summary` ACL `require_admin` J1 + filtre date_from/date_to, `GET /admin/nps/responses` ACL admin + cursor + filtres ; tous routes avec OpenAPI tags `feedback` / `admin`. **Volet E — Rate limit** : helper `rate_limit_nps_per_user(user_id, days=30)` aligné pattern `rate_limit_abuse_reports` C2 (sliding window Redis avec TTL > 30j, retry_after en secondes dans body 429). **Volet F — Tests** : ~25 tests verts (Pydantic score 0/10/-1/11/null/string + comment XSS NULL bytes scrub + app_version regex + sent_at_app future > now+5min reject ; service submit happy + rate limit 429 retry_after exact + capture Sentry mocked ; admin summary calculation 0 row vs 100 rows + cohort filtré + IDOR-safe non-admin 403 ; list_responses pagination + filtre score≥9 + 0 PII clear dans payload). **Volet G — Setting** : `nps_rate_limit_days=30` dans `app/config.py` (PAS pricing TODO — c'est UX, pas coût). **0 nouvelle dep**. **0 setting pricing TODO**. **Backend Sentry K1 hook** : `capture_message("nps_submitted", level=info, tags={score, source})` au succès (le score remonte dans le funnel observabilité K2 dashboard `nexya-self`). Recommandation Ivan : créer `nexya-self` panel Grafana « NPS rolling 30d » via PromQL fed par Prometheus counter `nexya_nps_submitted_total{score_bucket}`. | ❌ | — |
+
+**Livrable bloc N :** suite tests complète, évals IA bloquantes en CI, tests de charge documentés, support utilisateur structuré, **NPS in-app collecté côté backend** (consommé par Frontend N5).
 
 ---
 
@@ -287,6 +289,21 @@ Une fois ce plan terminé, le backend sera à **~95 %** (les 5 % restants = ajus
 **Livrable bloc O :** backend prêt pour due diligence investisseurs, documentation propre, sécurité hardening niveau prod sérieux.
 
 | P1.cleanup | Polish documentaire fin Période 1 | Drift §7 corrigé (2 lignes : Migrations Alembic 🔧→✅ + S3/MinIO ❌→✅), `nexya_backend/docker/docker-compose.prod.yml` minimal stub V1 (118 lignes : `nexya-api` GHCR + `nexya-worker` arq, sans pg/redis/minio/Caddy, header env vars complets), `nexya_backend/docs/pricing/PRICING_DECISIONS.md` gabarit décision Ivan (~430 lignes pour 16 settings TODO `provisoire` posés D4/E1/E2/E4/F1/J1/K2 — chaque setting documenté avec contexte coût 950k users + 3 options + ligne `TRANCHE IVAN`), 1 ligne lien dans `docs/architecture/overview.md`. 0 régression pytest. 0 nouveau test. 0 nouvelle dep. 0 migration. 0 setting tranché par l'IA (gabarit prêt pour Ivan). Coût $0. **Période 1 INFRA backend définitivement bouclée à 100 %.** | ✅ | 2026-04-29 |
+
+---
+
+## 🕒 Sessions différées V2 / Phase 17 — Hors scope V1 launch
+
+> Sessions identifiées dans la discussion stratégique 2026-05-10 mais délibérément hors scope V1.
+> **À ne PAS planifier avant que les conditions explicites soient remplies.**
+
+| Référence | Session | Condition d'activation | Estimation |
+|---|---|---|---|
+| **NX.1** | **GrowthBook feature flags + A/B testing backend** | ≥ 2 000 users payants actifs (volume statistique pour A/B significatif) | ~12 h |
+| **NX.2** | **Suggestions admin queue UI + workflow modération** | Volume `user_suggestions` ≥ 50 entries/semaine (sinon lecture email N1 suffit) | ~8 h |
+| **NX.3** | **NPS admin dashboard temps réel + drill-down cohortes** | Bloc N5 livré ET ≥ 1 000 NPS responses collectés | ~6 h |
+
+**Justification du report** : ces 3 sessions sont des optimisations de scale, pas des prérequis launch. Les activer trop tôt = code mort qui pèse sur la maintenance solo founder. Le déclencheur est un signal volumétrique objectif, pas une intuition produit.
 
 ---
 
@@ -307,9 +324,9 @@ Une fois ce plan terminé, le backend sera à **~95 %** (les 5 % restants = ajus
 | K | Phase 13 (Observabilité prod) | 2 | 20 | 3.5 % |
 | L | Phase 14 (CI/CD + Staging + Prod + WAF) | 4 | 40 | 7.0 % |
 | M | Phase 19 (Pentest + scaling + conformité) | 3 | 30 | 5.3 % |
-| N | Tâches transversales backend | 4 | 40 | 7.0 % |
+| N | Tâches transversales backend | 5 | 48 | 8.3 % |
 | O | Polish final & Documentation | 2 | 20 | 3.5 % |
-| **TOTAL** | — | **57** | **570** | **100 %** |
+| **TOTAL** | — | **58** | **578** | **100 %** |
 
 ---
 
@@ -319,20 +336,20 @@ Une fois ce plan terminé, le backend sera à **~95 %** (les 5 % restants = ajus
 > Pour lancer en prod sereinement sans Gemma local ni tous les experts.
 
 **Blocs à faire :** A, B, C, D, E, F, I, J, K, L, N, O + 2 experts G1+G2
-→ **42 sessions ≈ 7 semaines de pur dev intensif**
+→ **43 sessions ≈ 7 semaines de pur dev intensif**
 → Reporter **Phase 9 (5 experts restants)**, **Phase 10 (Gemma)**, **Phase 19 (pentest)** en V2
 
 ## Chemin 2 — Backend complet sans pentest
 > Tout, sauf l'audit externe (à faire avant 10k users payants).
 
 **Blocs à faire :** A à O sauf M
-→ **54 sessions ≈ 9 semaines**
+→ **55 sessions ≈ 9 semaines**
 
 ## Chemin 3 — Backend exhaustif total
 > La totale, prêt à scaler à 10k+ users sans recoder.
 
 **Blocs à faire :** tous (A à O)
-→ **57 sessions ≈ 9.5 semaines de pur dev intensif**
+→ **58 sessions ≈ 9.5 semaines de pur dev intensif**
 → Avec apprentissage transversal en parallèle (~233 h) : compter **3 mois** réalistes
 
 ---

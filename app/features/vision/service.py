@@ -83,7 +83,7 @@ log = structlog.get_logger()
 # ══════════════════════════════════════════════════════════════
 
 _DATA_URL_PREFIX: Final[str] = "data:"
-_MAX_IMAGES_TOTAL: Final[int] = 4  # 1 primary + 3 additional
+_MAX_IMAGES_TOTAL: Final[int] = 5  # 1 primary + 4 additional (demande Ivan 2026-05-13)
 
 
 # ══════════════════════════════════════════════════════════════

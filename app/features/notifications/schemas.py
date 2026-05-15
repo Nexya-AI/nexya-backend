@@ -197,6 +197,22 @@ class UpdatePreferencesRequest(BaseModel):
             seen.add(pref.category)
         return self
 
+    @model_validator(mode="after")
+    def _reject_security_none(self) -> UpdatePreferencesRequest:
+        # Bug-009 fix 2026-05-13 : la catégorie `security` ne peut PAS être
+        # désactivée (`channel=none`). Obligation légale RGPD Article 33
+        # (notification de violation) + AI Act Article 13 (transparence
+        # alertes sécurité). Cohérence avec l'endpoint public
+        # `/notifications/unsubscribe/{token}` qui refuse déjà ce cas via
+        # `UnsubscribeSecurityRefusedException`.
+        for pref in self.preferences:
+            if pref.category == "security" and pref.channel == "none":
+                raise ValueError(
+                    "La catégorie 'security' ne peut pas être désactivée "
+                    "(obligation légale de notifier les alertes sécurité)."
+                )
+        return self
+
 
 # ═══════════════════════════════════════════════════════════════════
 # Unsubscribe one-click
