@@ -75,9 +75,17 @@ TITLE_PROMPT = (
     "Réponds UNIQUEMENT par le titre, rien d'autre. "
     "Pas de guillemets, pas de ponctuation finale."
 )
-# Borne dure côté worker : quelques tokens suffisent pour un titre, plafond
-# défensif contre une dérive du modèle.
-TITLE_MAX_TOKENS = 40
+# Borne dure côté worker : marge pour le thinking interne de Gemini 2.5 Flash.
+# **2026-05-15 fix** — relevé de 40 à 200 après diagnostic terrain (les jobs
+# retournaient systématiquement `{'skipped': True, 'reason': 'empty'}` sur le
+# worker local) : Gemini 2.5 Flash consomme 50-150 tokens en raisonnement
+# interne avant la sortie visible. À 40 tokens max, le modèle se faisait
+# couper avant d'émettre le titre → `chunk.delta` toujours vide → `parts=[]`.
+# Le sanitize cape TOUJOURS le résultat final à 40 chars (cf. TITLE_MAX_CHARS),
+# donc cette borne ne change RIEN au format de sortie. Coût Gemini Flash sur
+# output : ~$0.30/1M tokens × 200 tokens × 950k users × 1 conv/jour = ~$57/mois
+# worst-case, soutenable.
+TITLE_MAX_TOKENS = 200
 
 # Modèle utilisé pour le titre — Gemini Flash : ~$0.00005 par titre, soit
 # ~$475/mois worst-case si tous les 950k users démarrent une conversation

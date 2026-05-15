@@ -819,13 +819,22 @@ def test_chat_stream_enqueues_title_when_threshold_reached(
     enqueue_mock.assert_awaited_once_with(conv.id)
 
 
-def test_chat_stream_skips_title_enqueue_below_threshold(
+def test_chat_stream_skips_title_enqueue_when_deterministic_title_set(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`message_count=2` (1ᵉʳ tour) → pas d'enqueue."""
+    """**Bug-040 stable fix (2026-05-15)** — Avec le titre déterministe posé
+    au INSERT par `ConversationService.ensure_conversation_for_stream`, le
+    check `title is None AND title_generated_at is None` est false → l'enqueue
+    worker arq est naturellement no-op (gratuit, pas de Redis call gaspillé).
+
+    Test du contrat post-fix : conv avec titre déterministe simulé (comme le
+    fait le service réel) → enqueue skip silencieux peu importe message_count.
+    """
     conv = _make_fake_conversation()
     conv_after = _make_fake_conversation()
-    conv_after.message_count = 2
+    conv_after.message_count = 2  # au seuil, mais titre déjà posé → skip
+    conv_after.title = "Salut"  # titre déterministe simulé (Bug-040 fix)
+    conv_after.title_generated_at = datetime(2026, 5, 15, tzinfo=UTC)
 
     _setup_persisted_stream(monkeypatch, conv=conv, conv_after_finalize=conv_after)
 
