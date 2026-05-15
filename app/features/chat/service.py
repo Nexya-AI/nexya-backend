@@ -64,6 +64,7 @@ from app.core.errors.exceptions import (
 )
 from app.features.auth.models import User
 from app.features.chat.models import AbuseReport, Conversation, Message
+from app.features.chat.title_generator import derive_deterministic_title
 from app.features.chat.schemas import (
     AbuseReportCreate,
     ConversationCreate,
@@ -762,6 +763,7 @@ class ConversationService:
         *,
         expert_id_hint: str | None = None,
         project_id: uuid.UUID | None = None,
+        first_message: str | None = None,
     ) -> Conversation:
         """Retourne la conversation cible du stream — la crée si besoin.
 
@@ -823,9 +825,28 @@ class ConversationService:
         if project_id is not None:
             await ProjectService._get_owned_project(project_id, user.id, db)
 
+        # **2026-05-15 — Titre déterministe au INSERT** (Bug-040 stable fix).
+        # Évite définitivement les 2 symptômes constatés en V1 :
+        #   - « Nouvelle discussion » placeholder qui reste 30-75s avant que
+        #     le worker arq LLM ne réussisse (ou jamais sur panne Redis).
+        #   - Titres dégénérés Gemini Flash (« ses objectifs principaux sont. »)
+        #     causés par le thinking mode + prompt strict mal interprété.
+        # Le helper `derive_deterministic_title` retourne TOUJOURS une string
+        # non-vide (fallback "Discussion" si message vide / juste prefix /
+        # ponctuation seule). Pose `title_generated_at = NOW()` pour empêcher
+        # le worker arq legacy (`workers/chat_tasks.py`) de re-overrider plus
+        # tard si un futur enqueue stale tournait — sentinelle one-shot stricte.
+        # **V2 raffinement LLM** : si signal user émerge (« titres trop simples,
+        # je veux que l'IA les améliore »), réactiver le worker conditionnellement
+        # (ex: `message_count >= 50 AND title_generated_at < NOW() - 1 day`),
+        # le code worker reste intact, juste son enqueue est retiré V1.
+        deterministic_title = derive_deterministic_title(first_message) if first_message else None
+        title_generated_at = datetime.now(UTC) if deterministic_title else None
+
         conversation = Conversation(
             user_id=user.id,
-            title=None,
+            title=deterministic_title,
+            title_generated_at=title_generated_at,
             expert_id=expert_id_hint or "general",
             project_id=project_id,
         )
@@ -838,6 +859,7 @@ class ConversationService:
             conversation_id=str(conversation.id),
             expert_id=conversation.expert_id,
             project_id=str(project_id) if project_id else None,
+            title_deterministic=deterministic_title,
         )
         return conversation
 

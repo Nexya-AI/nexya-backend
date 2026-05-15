@@ -421,12 +421,22 @@ async def list_conversation_messages(
 #      - finalize_assistant_stream dans le `finally`, session fraîche, shieldée
 # ══════════════════════════════════════════════════════════════
 
-# Seuil d'auto-titre : on enqueue dès que la conversation a au moins 4
-# messages `completed` (≈ 2 tours user/assistant). Le « >= » plutôt que
-# « == » est volontaire — si l'enqueue d'un tour précédent a échoué (Redis
-# flap, bug arq), un tour ultérieur déclenche une nouvelle tentative ; la
-# sentinelle `title_generated_at` en DB protège du doublon de titre.
-_TITLE_AUTOGENERATE_THRESHOLD = 4
+# Seuil d'auto-titre : on enqueue dès que la conversation a au moins
+# 2 messages `completed` (= 1 paire user/assistant terminée). Le « >= »
+# plutôt que « == » est volontaire — si l'enqueue d'un tour précédent
+# a échoué (Redis flap, bug arq), un tour ultérieur déclenche une nouvelle
+# tentative ; la sentinelle `title_generated_at` en DB protège du doublon.
+#
+# **2026-05-15 fix** — abaissé de 4 à 2 après retour terrain Ivan : les
+# users voyaient le placeholder « Nouvelle discussion » trop longtemps
+# (jusqu'à 2 tours complets avant que le titre auto soit déclenché).
+# Avec un seuil à 2 (1 paire user/assistant en `status=completed`), le
+# titre apparaît dès la première vraie réponse IA. `generate_conversation_title`
+# worker exige aussi `len(rows) >= 2` (cf. workers/chat_tasks.py:193),
+# cohérence end-to-end respectée. Coût supplémentaire estimé : ~3× l'actuel
+# (~$475/mois → ~$1500/mois worst-case 950k users × 1 conv/jour), acceptable
+# car on génère uniquement sur conv finalisées (pas cancelled/failed).
+_TITLE_AUTOGENERATE_THRESHOLD = 2
 
 
 @router.post("/stream")
@@ -534,6 +544,11 @@ async def chat_stream(
             db,
             expert_id_hint=body.expert_id,
             project_id=body.project_id,
+            # [Bug-040 stable fix 2026-05-15] Pose un titre déterministe au
+            # INSERT de la nouvelle conv (uniquement mode new, conversation_id
+            # None). Évite définitivement le placeholder « Nouvelle discussion »
+            # + les titres LLM dégénérés. Voir docstring helper.
+            first_message=body.message,
         )
         context_messages = await ConversationService.load_context_messages(conversation, db)
         ai_messages = list(context_messages)
@@ -891,6 +906,16 @@ async def _finalize_in_fresh_session(
             # Décide d'enqueuer le titre auto une fois la finalisation
             # commitée — on ne déclenche que sur une fin propre, et tant
             # que la sentinelle DB n'a pas été posée par un précédent run.
+            #
+            # **2026-05-15 — Bug-040 stable fix** : depuis l'introduction
+            # du titre déterministe au INSERT (cf.
+            # `ConversationService.ensure_conversation_for_stream`), les
+            # 2 conditions `title_generated_at IS NULL AND title IS NULL`
+            # sont **toujours false** sur les conv créées via /chat/stream
+            # → l'enqueue est naturellement no-op (gratuit, pas de Redis
+            # call gaspillé). Le code reste pour V2 raffinement LLM
+            # conditionnel (ex: conv >= 50 messages, l'IA peut générer
+            # un meilleur titre que le déterministe).
             if status_final == "completed":
                 conv = await db.get(Conversation, conversation_id)
                 should_enqueue_title = bool(
