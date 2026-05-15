@@ -171,6 +171,16 @@ class GeminiChatProvider(ChatProvider):
             gemini_tools = _to_gemini_tools(request.tools)
             if gemini_tools:
                 config_kwargs["tools"] = gemini_tools
+                # Bug-010 partial fix 2026-05-13 — Gemini 2.5 Flash a tendance
+                # à ignorer les tools même avec `mode=AUTO` explicite. On le
+                # garde pour la cohérence avec la doc Google + futurs SDK
+                # bumps + portabilité Gemini 2.5 Pro / GPT-4o / Claude qui
+                # eux respectent le contrat. Le vrai fix F3 (intent routing
+                # ou upgrade model selon contexte) est différé V1.1.
+                # Voir mémoire `project_nexya_future_features.md` § F3.fix.
+                config_kwargs["tool_config"] = {
+                    "function_calling_config": {"mode": "AUTO"}
+                }
 
         client = _get_client()
 

@@ -374,8 +374,8 @@ class Settings(BaseSettings):
     vision_images_free_per_day: int = Field(default=3, ge=0)  # TODO(Ivan): provisoire
     vision_images_pro_per_day: int = Field(default=50, ge=0)  # TODO(Ivan): provisoire
     vision_max_images_per_request: int = Field(
-        default=4, ge=1, le=20
-    )  # TODO(Ivan): provisoire (capacité Pro)
+        default=5, ge=1, le=20
+    )  # Demande Ivan 2026-05-13 : 5 images par message (4 → 5)
     vision_max_output_tokens_pro: int = Field(
         default=4096, ge=64, le=8192
     )  # TODO(Ivan): provisoire
