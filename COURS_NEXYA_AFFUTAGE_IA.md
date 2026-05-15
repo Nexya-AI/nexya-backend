@@ -17,7 +17,8 @@
 - **Partie IV — Le fine-tuning** : levier 3, quand changer le comportement du modèle lui-même
 - **Partie V — MLOps et qualité en production** : evals, drift, registry, A/B testing, coût
 - **Partie VI — La stratégie NEXYA** : les 3 leviers appliqués au produit, post-mortem G1, plan d'attaque Période 2
-- **Partie VII — Glossaire, annexes, journal**
+- **Partie VII — Stratégie d'affûtage par expert (audit complet)** : audit senior des 11 experts NEXYA, décision absolue par expert avec justification, sources, moats stratégiques, ordre d'exécution révisé
+- **Partie VIII — Glossaire, annexes, journal**
 
 ---
 
@@ -2202,9 +2203,778 @@ G6 Informatique (~10h) — même pattern, scraping docs officielles
 
 ---
 
-# PARTIE VII — GLOSSAIRE, ANNEXES, JOURNAL
+# PARTIE VII — STRATÉGIE D'AFFÛTAGE PAR EXPERT (AUDIT COMPLET)
 
-## 7.1. Glossaire
+> Section dédiée demandée par Ivan le 2026-05-15. Contient l'audit senior expert-par-expert des 11 experts NEXYA : diagnostic Zone, leviers retenus, sources, risques légaux, comparaison aux géants, ordre d'exécution révisé. À relire au moment opportun avant d'attaquer chaque expert en Période 2.
+>
+> Cette partie complète la Partie VI (stratégie macro) avec le **détail opérationnel par expert**. Lis VI avant VII si tu n'as pas la vue d'ensemble en tête.
+
+## 7.1. Autocritique senior — révision de la première passe
+
+Ma première analyse (passage initial Période 2, datée 2026-05-15 matin) souffrait de 4 limitations que j'ai corrigées sous le challenge d'Ivan le même jour. Les voici listées explicitement pour que tu saches **pourquoi** la stratégie finale a évolué :
+
+| Erreur première passe | Correction senior |
+|---|---|
+| **Oubli de Nexya Studio** (5000 flyers classifiés = trésor stratégique d'Ivan) | Partie 7.3.10 dédiée. Levier 3 fine-tuning image obligatoire (LoRA Flux/SDXL). C'est probablement le **moat #1 commercial** de NEXYA. |
+| **Expert Ingénierie traité superficiellement** | Partie 7.3.9 détaille les 13 sous-branches (génie civil, maritime, mécatronique, aéronautique, énergétique, chimique, électrique...) avec leur RAG ciblé + tropicalisation Africa-first. |
+| **Productivity sous-estimé en « Zone 1 prompt suffit »** | Partie 7.3.8 corrige : la vraie valeur c'est l'intégration **Planner AI** (le LLM crée vraiment des tâches via `create_task` tool F2.5) — différencie d'un GPT/Claude qui sont des conseillers passifs. |
+| **Sous-estimation des tools LLM** (calcul formel, exécution code, citation articles) | Plusieurs experts gagnent un tool dédié : `sympy_solve` pour science, code-exec sandbox pour computer (V2), citation forcée d'articles pour legal. Voir 7.3.X. |
+
+**Leçon méta** : la première itération d'une stratégie ML est presque toujours **trop conservatrice**. Un challenge senior révèle les opportunités sous-exploitées. C'est exactement le pattern qu'on attend d'un staff engineer expérimenté — pas de fausse modestie, on corrige et on assume.
+
+## 7.2. Matrice de décision — vue d'avion
+
+| Expert | Zone (cf §1.5) | Leviers | Comparaison aux géants | Effort | Statut NEXYA |
+|---|---|---|---|---|---|
+| `general` | 1 (LLM brut excellent) | Multi-LLM API + mémoire D1-D3 + Africa-first ton | **Égal** général / **supérieur** contexte africain | Déjà livré (B1) | ✅ |
+| `computer` | 2 (cutoff + fraîcheur) | Prompt + RAG-1 docs + RAG-2 codebases + cron mensuel + tool exec (V2) | **Supérieur** fraîcheur APIs récentes | ~12h | ❌ |
+| `science` | Hybride 1+2 | Prompt méthodo MPSI + RAG annales locales + tool `sympy_solve` | **Supérieur** exos camerounais + justesse calculs | ~16h | ❌ |
+| `finance` | 2 (Africa-first) | Prompt FCFA + RAG triple Africa (régulation + écosystème + analyses) | **Supérieur** finance africaine concrète | ~10h | ❌ |
+| `cooking` | 2 (plats spécifiques) | V1 RAG corpus + V2 persona « Mami Nyanga » | **Supérieur** plats camerounais authentiques | ~10h V1 + ~40h V2 | ❌ |
+| `legal` | 2 OHADA / 3 camerounais | Prompt safety + RAG OHADA + framing citation articles + disclaimer | **Largement supérieur** OHADA + droit camerounais | ~12h | ❌ |
+| `medicine` | Safety-critical | Prompt seul + disclaimer + tools_allowed=False | **Supérieur** légalement safe vs hallucinations géants | Déjà actif (B2 + F2.5) | ✅ partiel |
+| `productivity` | 1 + intégration tools | Prompt Africa-first + RAG méthodes + tool `create_task` (F2.5) + Planner AI | **Supérieur** actionnable vs conseillers passifs | ~30h (Planner inclus) | ❌ |
+| `engineering` ⭐ | 2 (13 branches) | RAG par branche + concours ENSP + prompt tropicalisation + tool calcul (V2) | **Supérieur** ingénierie tropicale + concours camerounais | ~12h | ❌ |
+| `studio` ⭐⭐⭐ MOAT | 3 (image generation custom) | **LoRA Flux/SDXL + RAG prompts + caption auto + workflow agent** | **MOAT MAJEUR** — signature visuelle reconnaissable, Africa-first unique | ~60h + $50-100 GPU | ❌ |
+| `language` ⭐⭐ MOAT | 3 (langues bantoues) | **Fine-tuning Gemma 9B multi-langues bantoues + tokenizer custom + capture des tons** | **MOAT MAJEUR** — monopolistique 7 langues vernaculaires | ~100h + $50-100 GPU | ❌ |
+
+**Lecture rapide** : sur 11 experts, **9 sont compétitifs avec les géants** (égal ou supérieur sur contextes spécifiques) et **2 sont des moats non-réplicables** (`studio` + `language`). Ces 2 moats sont **ce qui rend NEXYA défendable à 5 ans**.
+
+## 7.3. Détail par expert
+
+> Pour chaque expert : QUOI / POURQUOI ICI (justification senior) / COMMENT (architecture concrète) / SOURCES (avec statut légal) / RISQUES / IMBATTABLE ? / EFFORT.
+
+### 7.3.1. Chat général — `general`
+
+#### QUOI
+
+Multi-LLM API (Gemini, OpenAI, Anthropic, Qwen) + mémoire utilisateur D1-D3 + system prompt minimal Africa-first. **Déjà livré en B1** ([app/ai/router.py](nexya_backend/app/ai/router.py)).
+
+#### POURQUOI ICI
+
+**Zone 1 pure.** Le LLM brut couvre 95 % des besoins conversationnels. Toute énergie investie ici au-delà du multi-LLM = gaspillage. Un fine-tune ou un RAG sur « conversation générale » est l'anti-pattern classique du newbie ML.
+
+**Différenciation invisible mais réelle** : la mémoire D1-D3 (faits utilisateur extraits automatiquement post-conversation, ré-injectés au chat suivant) + le ton Africa-first. ChatGPT a sa « Memory » feature depuis 2024, Claude a ses « Projects », NEXYA a sa propre mémoire + le multilingue camerounais émergent (quand bloc H sera livré).
+
+#### COMMENT
+
+Rien à faire de plus. Continuer à :
+- Router intelligemment (Flash pour conversations simples, Pro pour complexes) — déjà fait par `LlmRouter`.
+- Monitorer le coût via `CostTracker` B3.
+- Affûter le system prompt minimal (« Tu es NYLI, assistant général NEXYA pour l'Afrique francophone et au-delà ») en Phase 2.A étape 1.
+
+#### IMBATTABLE ?
+
+**Égal** aux géants techniquement, **supérieur** dès qu'on touche au contexte camerounais (multilingue post bloc H) ou aux questions Africa-first.
+
+#### EFFORT
+
+~2h pour affûter le system prompt + tests evals harness N3. Inclus dans la Phase 2.A étape 1 (affûtage 11 experts).
+
+---
+
+### 7.3.2. Expert Informatique — `computer`
+
+#### QUOI
+
+Triple couche : RAG docs officielles à jour + RAG codebases open source de référence + (V2) tool LLM exécution code sandbox. **Cron mensuel non négociable.**
+
+#### POURQUOI ICI
+
+**Zone 2 partielle.** Le LLM brut connaît magnifiquement Python/JavaScript/Rust/Go/Flutter — jusqu'à son cutoff (mars 2024 pour GPT-4o, septembre 2024 pour Gemini 2.5 Pro). Au-delà, il hallucine sur les APIs récentes.
+
+**Pourquoi pas fine-tune** : ce serait lui réapprendre ce qu'il sait déjà = perte sèche. **Le seul vrai trou, c'est la fraîcheur.** RAG sur docs officielles + codebases canoniques = comble exactement ça.
+
+**Pourquoi double couche RAG (docs + codebases)** : les docs officielles donnent la signature des APIs ; les codebases donnent les **patterns idiomatiques** d'usage. Un Copilot-like complet doit avoir les deux. Sans les codebases, le LLM peut dire « `flutter_hooks` existe » mais ne pas savoir l'utiliser proprement.
+
+#### COMMENT
+
+| Couche | Contenu | Source précise | Fréquence refresh |
+|---|---|---|---|
+| **RAG-1 docs officielles** | API references, release notes, guides | `api.flutter.dev/release-notes/`, `docs.python.org/3/whatsnew/`, `doc.rust-lang.org/`, `react.dev/blog`, `golang.org/doc/`, MDN | Mensuel |
+| **RAG-2 codebases référence** | Exemples canoniques, patterns idiomatiques | Flutter samples officiel, `rust-lang/rustlings`, Real Python tutoriels, awesome-* repos top 100 | Trimestriel |
+| **Prompt few-shot** | 3 patterns idiomatiques par langage majeur | Curé à la main par Ivan | Statique |
+| **Tool LLM `execute_code`** (V2) | Sandbox Pyodide WASM ou Wasmer côté backend | Le LLM exécute son code avant de répondre | Runtime |
+
+**Pipeline d'ingestion** : réutilise l'infra G1 ([app/features/experts/](nexya_backend/app/features/experts/)). Scraper respectueux (`robots.txt`, rate-limit 1 req/sec, User-Agent identifiable `NEXYA-Corpus-Bot/1.0`), chunking 500 tokens (D4), indexation HNSW.
+
+**Cron mensuel** via `arq` : 1er du mois, 04:00 UTC, re-scrape les release notes du mois écoulé, INSERT ON CONFLICT DO NOTHING sur SHA-256. Sans ce cron, ton corpus devient lui-même obsolète au bout de 6 mois.
+
+#### SOURCES (statut légal)
+
+Toutes domaine public ou licence permissive — **zéro problème légal** :
+- Flutter / Dart docs : BSD-3-Clause
+- Python docs : Python Software Foundation License (BSD-style)
+- Rust docs : MIT/Apache-2.0
+- React docs : CC-BY-4.0
+- Go docs : BSD-3-Clause
+- MDN Web Docs : CC-BY-SA-2.5
+- Awesome-* repos : variable, vérifier au cas par cas
+
+#### RISQUES
+
+- **Cron qui casse silencieusement** : si le scraper plante après 3 mois sans alerte, ton corpus stagne. Mitigation : monitoring via Prometheus K2 sur le nombre de nouveaux chunks par mois (alerte si 0).
+- **Rate-limit blacklist** : si tu scrapes trop vite, GitHub ou les hébergeurs bloquent ton IP. Mitigation : 1 req/sec strict, cache local, User-Agent identifiable.
+
+#### IMBATTABLE ?
+
+Avec RAG-1 + RAG-2 + cron mensuel : **supérieur** à GPT-4o cutoff mars 2024 sur les APIs récentes (Flutter 3.27, Python 3.13, Rust 1.85, etc.). Avec tool `execute_code` V2 : **supérieur** sur la justesse syntaxique (le LLM teste avant de répondre). Niveau GitHub Copilot avec un **avantage de fraîcheur permanent**.
+
+#### EFFORT
+
+~12h V1 (RAG-1 + RAG-2 + cron) + 10h V2 (tool exec). Session label : **G6**.
+
+---
+
+### 7.3.3. Expert Sciences/Maths — `science`
+
+#### QUOI
+
+Triple levier : prompt méthodologique MPSI/CIAM + RAG annales locales publiques + tool LLM `sympy_solve` pour vérifier les calculs symboliques. **Pas de fine-tuning** — le LLM connaît déjà les maths.
+
+#### POURQUOI ICI
+
+Le cas le plus subtil de tous les experts. Tu as identifié **deux problèmes distincts** qui demandent **deux leviers différents** :
+
+**Problème A — la méthode pédagogique.** Le LLM brut résout correctement mais répond en mode « voici la réponse », pas en mode prépa française MPSI/PCSI (« Énoncé → Analyse → Méthode → Démonstration → Vérification → Synthèse »). **Résolvable par prompt** — system prompt qui force ce format + 2-3 few-shot examples d'exos résolus à la MPSI.
+
+**Problème B — les annales locales.** Le LLM ne connaît pas les sujets BAC C/D Cameroun, CIAM, ENSP Yaoundé, les corrections type Monge/Gourdon. **Résolvable par RAG** sur un corpus d'annales + corrections.
+
+**Problème C que j'avais omis dans la première passe** — la justesse numérique des calculs symboliques. Wolfram Alpha bat tous les LLM sur ce point parce qu'il a un **moteur de calcul formel** sous-jacent. Pour le concurrencer, **tool LLM `sympy_solve`** : le LLM appelle SymPy en Python pour vérifier ses calculs symboliques (intégrales, dérivées, résolution d'équations, manipulation matricielle). **Différenciation NEXYA forte.**
+
+#### COMMENT
+
+| Couche | Contenu |
+|---|---|
+| **Prompt méthodologique** | « Pour chaque exo : Énoncé clarifié → Analyse (que veut-on, quelles données) → Méthode (quelle technique, pourquoi) → Démonstration pas-à-pas → Vérification (unités, ordre de grandeur) → Synthèse finale. » |
+| **Few-shot examples** | 3-5 exos types résolus à la MPSI : 1 algèbre linéaire, 1 analyse, 1 physique, 1 statistiques. Inclus dans le system prompt. |
+| **RAG annales** | Table `expert_corpus_chunks` filtré `expert_slug='science'`. Sources : BAC publiques + tes corrections perso. |
+| **Tool LLM `sympy_solve`** | Nouveau handler dans `app/ai/tools/`. Signature : `sympy_solve(expression: str, action: Literal['integrate', 'diff', 'simplify', 'solve']) -> str`. Délègue à `sympy.parse_expr` + action. |
+
+**Implémentation du tool `sympy_solve`** (~6h backend, l'orchestrateur F2 est déjà en place) :
+
+```python
+# app/ai/tools/science_tools.py (à livrer en Phase 2.B)
+from sympy import parse_expr, integrate, diff, simplify, solve, Symbol
+
+def _execute_sympy(arguments: dict) -> ToolResult:
+    expr_str = arguments["expression"]
+    action = arguments["action"]
+    try:
+        expr = parse_expr(expr_str)
+        if action == "integrate":
+            result = integrate(expr, Symbol("x"))
+        elif action == "diff":
+            result = diff(expr, Symbol("x"))
+        elif action == "simplify":
+            result = simplify(expr)
+        elif action == "solve":
+            result = solve(expr, Symbol("x"))
+        return ToolResult(success=True, data={"result": str(result)})
+    except Exception as e:
+        return ToolResult(success=False, error=f"sympy_error: {type(e).__name__}: {e}")
+```
+
+#### SOURCES (statut légal — CRITIQUE)
+
+**ATTENTION** : Monge, Gourdon, CIAM, MathsFaciles sont sous **copyright**. Tu ne peux pas les ingérer brut dans NEXYA commercial 950k users. **Quatre options légales** :
+
+| Option | Statut | Recommandation |
+|---|---|---|
+| (a) Annales BAC officielles (ministère Éducation Cameroun, ministère Éducation nationale France, ENS Yaoundé concours archivés publics) | Domaine public ou usage éducatif autorisé | **OUI** prioritaire |
+| (b) Tes propres notes de cours et corrections personnelles | Tu en es l'auteur | **OUI** complément |
+| (c) Wikipedia FR (mathématiques) | CC-BY-SA avec attribution | **OUI** pour les concepts théoriques |
+| (d) Paraphrase via un LLM tiers + relecture humaine de Monge/Gourdon | **Texte dérivé, légalement gris** | **NON** sans avis juridique formel — risque procès copyright type Sarah Silverman vs OpenAI 2023 |
+| (e) Licence négociée avec l'éditeur | Cher | À reconsidérer si traction produit forte |
+
+**Pour ton cours personnel** : ingère ce que tu veux. Usage privé = exception droit d'auteur dans la plupart des juridictions. **Pour NEXYA commercial** : strictement (a) + (b) + (c), **jamais (d) sans avis juridique formel**.
+
+#### RISQUES
+
+- **Hallucinations sur les calculs sans le tool SymPy** : le LLM peut sortir une intégrale fausse avec assurance. Le tool est ce qui ferme cette faille.
+- **Confusion des notations FR/EN** : le LLM peut mélanger les notations françaises (`℘` pour le module, `J = ]a, b[` intervalle ouvert) avec les notations US. Mitigation : few-shot en notation française stricte dans le system prompt.
+
+#### IMBATTABLE ?
+
+- Avec tool SymPy + prompt méthodo + annales locales : **supérieur** à GPT-4o sur les exos d'examens camerounais.
+- **Égal** à Khan Academy sur le format pédagogique.
+- **Supérieur** à Wolfram Alpha sur la pédagogie (Wolfram donne la réponse brute, NEXYA donne la méthode).
+- **Pas comparable** à Mathway (outil de niche) qui n'a pas la conversation.
+
+#### EFFORT
+
+~10h V1 (prompt + RAG annales) + 6h V2 (tool SymPy) = **~16h**. Session label : **G_science**.
+
+---
+
+### 7.3.4. Expert Finance & Business — `finance`
+
+#### QUOI
+
+Prompt Africa-first FCFA + RAG triple couche (régulation OHADA/BEAC, écosystème Mobile Money, analyses sectorielles africaines).
+
+#### POURQUOI ICI
+
+**Zone 2 Africa-first.** Le LLM brut connaît la finance d'entreprise occidentale (US GAAP, IFRS génériques) mais ignore les spécificités africaines :
+- Acte uniforme OHADA sur le droit commercial, sociétés commerciales et GIE, sûretés, procédures collectives.
+- BEAC (Banque des États de l'Afrique Centrale) vs BCEAO (Banque Centrale des États de l'Afrique de l'Ouest) — deux zones monétaires FCFA distinctes.
+- FCFA peg euro (1 EUR = 655.957 FCFA, fixe depuis 1999).
+- Écosystème Mobile Money (Orange Money, MTN, Wave, Moov, Airtel) — sources de richesse spécifiques.
+- Fiscalité camerounaise (TVA 19.25 %, IS 33 %, charges sociales CNPS, IRPP 10-35 %).
+
+**Pourquoi pas fine-tune** : le LLM connaît la grammaire financière. Manque les spécificités locales, résolvable RAG.
+
+#### COMMENT
+
+| Couche | Contenu |
+|---|---|
+| **Prompt Africa-first** | « Tu es expert finance NEXYA, spécialisé Afrique francophone. Tous tes exemples chiffrés sont en FCFA. Tu connais OHADA. Tu rediriges vers un expert-comptable agréé pour les conseils personnalisés. » |
+| **RAG-1 Régulation** | Textes OHADA (ohada.org/textes/), publications BEAC et BCEAO publiques, codes fiscaux Cameroun + Côte d'Ivoire + Sénégal + RDC. |
+| **RAG-2 Écosystème** | Documentation Mobile Money (Orange, MTN, Wave APIs publiques), microfinance, COBAC supervision bancaire. |
+| **RAG-3 Analyses** | BAD (Banque Africaine de Développement) rapports sectoriels, BCG Africa, McKinsey Africa, Jeune Afrique Business, rapports CFA Society. |
+
+#### SOURCES (statut légal)
+
+Toutes domaine public ou usage citation autorisé :
+- ohada.org — textes officiels en accès libre.
+- BEAC / BCEAO — publications institutionnelles publiques.
+- BAD reports — accès public.
+- BCG / McKinsey reports publics — citation libre avec attribution.
+
+#### RISQUES
+
+- **Conseil personnalisé non autorisé** : NEXYA ne doit JAMAIS dire « investis dans X » comme conseil personnalisé. Disclaimer obligatoire « information générale, pas un conseil personnalisé » + redirection vers expert-comptable agréé (CNCC France, ONCC Cameroun).
+
+#### IMBATTABLE ?
+
+Sur la finance africaine concrète (« comment lancer une SARL au Cameroun ? », « régime fiscal LLB en Côte d'Ivoire ? », « différence entre Mobile Money et Mobile Banking ? ») : **supérieur** à GPT/Gemini qui parlent finance américaine déconnectée du contexte. Sur la finance théorique générale : égal aux géants.
+
+#### EFFORT
+
+~10h. Session label : **G_finance**.
+
+---
+
+### 7.3.5. Expert Cuisine — `cooking`
+
+#### QUOI
+
+V1 RAG sur corpus recettes camerounaises (G2). V2 optionnel : fine-tune persona « Mami Nyanga » pour un style oral camerounais authentique.
+
+#### POURQUOI ICI
+
+**Zone 2.** Le LLM brut connaît la **grammaire d'une recette** (intro + ingrédients + temps + étapes + astuces). Il ignore les **plats spécifiques** : ndolè, eru, koki, fufu, mbongo'o, kondre, sangah, achu, condiment poulet DG, doombolo, etc. RAG injecte exactement ces données manquantes.
+
+**Pourquoi pas fine-tune V1** : tu n'apprends pas une nouvelle langue ni un nouveau style — juste des connaissances factuelles spécifiques. Fine-tune = marteau-piqueur pour planter un clou en V1.
+
+**Pourquoi V2 fine-tune ambitieux** : pour différencier vraiment, le ton importe. Une recette ndolè exposée par une « Mami camerounaise » (transitions familières, mesures « une poignée », blagues, anecdotes culturelles, expressions locales type « na waka », « na cha ») est **incomparable** à une recette de Wikipedia. Fine-tune persona = signature produit.
+
+#### COMMENT
+
+**V1 (G2, ~10h)** :
+- Pipeline ingestion réutilise infra G1 ([scripts/import_expert_corpus_langues.py](nexya_backend/scripts/import_expert_corpus_langues.py) à adapter).
+- Sources : tes PDFs de cuisine collectés (si copyright OK) + Wikipédia FR cat. « Cuisine camerounaise » + blogs cuisinières camerounaises licence claire.
+- Chunking 500 tokens, indexation HNSW.
+- `corpus_enabled=True` sur expert cooking dans [app/ai/experts.py](nexya_backend/app/ai/experts.py).
+- Blind test 30 questions cuisine camerounaise → seuil 20/30 wins RAG.
+
+**V2 (~40h, signal production)** :
+- Dataset 5-10k paires (question utilisateur, réponse style « Mami Nyanga »).
+- Génération synthétique du dataset par Gemini Pro avec validation manuelle Ivan/locuteur camerounais.
+- Fine-tune Gemma 7B en QLoRA (rang 16, 3 epochs, ~$15 GPU).
+- Évaluation : 30 questions blind test, score 1-10 par évaluateur humain camerounais (cible ≥ 7.5).
+
+#### SOURCES (statut légal — CRITIQUE)
+
+**Mêmes règles que Sciences/Maths** :
+- (a) Tes PDFs de cuisine — **vérifier copyright avant prod commerciale**. Pour usage personnel OK. Pour NEXYA 950k users, si le livre est de Olivia Mukam (« La Cuisine Camerounaise », 2018) ou autre éditeur, **non autorisé sans licence**.
+- (b) Wikipédia FR (cat. cuisine camerounaise) — CC-BY-SA, OK avec attribution.
+- (c) Blogs cuisinières camerounaises avec licences CC explicites — OK.
+- (d) Transcriptions YouTube de chaînes camerounaises — **vérifier mentions copyright dans la description**. Souvent c'est `All Rights Reserved` par défaut, donc usage commercial interdit.
+- (e) Récits oraux de cuisinières à Yaoundé/Douala (Ivan recrute) — droits cédés à NEXYA par contrat oral ou écrit, **OK**.
+
+**Approche recommandée prod** : démarrer avec (b) + (c) + (e). Élargir si les autres options sont juridiquement clarifiées.
+
+#### RISQUES
+
+- **Hallucinations sur les ingrédients spécifiques** : sans RAG, le LLM peut inventer « ndolè = feuilles d'épinard », alors que les feuilles de ndolè sont *Vernonia amygdalina*. Embarrassant culturellement. RAG comble.
+- **V2 persona qui dérape** : si le dataset contient des blagues racistes/sexistes (souvent dans le folklore oral camerounais), le modèle les reproduira. Curation manuelle stricte du dataset V2 obligatoire.
+
+#### IMBATTABLE ?
+
+- V1 : **supérieur** à GPT/Gemini sur les plats camerounais authentiques (ingrédients exacts, proportions correctes, pas inventées).
+- V2 : différenciation produit **forte**. Expérience unique. NEXYA Cuisine devient une marque culturelle.
+
+#### EFFORT
+
+~10h V1 + ~40h V2 (V2 sur signal users). Session label : **G2**.
+
+---
+
+### 7.3.6. Expert Droit & Justice OHADA — `legal`
+
+#### QUOI
+
+Prompt safety-critical + RAG textes OHADA + framing avec citation forcée d'articles + disclaimer juridique permanent. `tools_allowed=False` (déjà actif F2.5).
+
+#### POURQUOI ICI
+
+**Zone 2 sur droit français** (LLM connaît bien le Code civil) / **Zone 3 sur OHADA + droit camerounais spécifique** (LLM ignore largement).
+
+**Précision senior critique** : pour un expert juridique, **citer la source est non négociable**. Le standard juridique impose « selon l'**Article 5 de l'AUDCG OHADA** » plutôt que « selon le droit OHADA ». Sans citation, la réponse n'est pas vérifiable et perd toute valeur professionnelle.
+
+**Comment forcer la citation** : enrichir le framing D5 avec balises explicites :
+
+```
+<<<DOCUMENT EXTRACT id="3" source="AUDCG OHADA" article="Art. 5" page="12">>>
+[texte article]
+<<<END EXTRACT 3>>>
+```
+
+Le LLM apprend par contexte à citer la source dans sa réponse. Pattern aligné avec le `RAG_SYSTEM_INSTRUCTION` de D5.
+
+#### COMMENT
+
+| Couche | Contenu |
+|---|---|
+| **Prompt safety + disclaimer** | « Tu es NYLI, expert droit OHADA et droit camerounais. Tu fournis de l'information juridique éducative générale. **Tu refuses TOUJOURS** de rédiger un acte nominatif (« rédige un bail entre Jean Mbarga et SARL Bantu Tech »). Tu rediriges vers un avocat ou notaire OHADA. Tu cites TOUJOURS l'article précis quand tu te bases sur un texte. » |
+| **RAG OHADA** | ohada.org/textes/ (Actes uniformes : AUDCG droit commercial général, AUSCGIE sociétés commerciales et GIE, AUS sûretés, AUPC procédures collectives, AUDA arbitrage, AUDT droit du travail). |
+| **RAG droit camerounais** | Journal officiel Cameroun, loi 016/2010 (Code travail), Code fiscal général, lois sectorielles. |
+| **RAG jurisprudence** | CCJA (Cour Commune de Justice et d'Arbitrage) — arrêts publics. |
+| **Framing citation** | Balises explicites comme ci-dessus. Le LLM cite naturellement. |
+| **Refus regex côté code** | `app/ai/moderation_rules.py` B2 bloque déjà 2 patterns de rédaction d'acte nominatif. Réutilise tel quel. |
+
+#### SOURCES (statut légal)
+
+Toutes domaine public ou usage citation autorisé :
+- ohada.org/textes/ — accès officiel libre.
+- Journaux officiels Cameroun / Côte d'Ivoire / Sénégal — accès libre.
+- CCJA jurisprudence — accès public.
+- Wikisource FR — codes publics commentés.
+
+**Zéro problème légal** sur les sources.
+
+#### RISQUES
+
+- **Conseil juridique faux** : si NEXYA produit un conseil juridique faux et qu'un user le suit (rédige un contrat sur cette base, attaque en justice sans fondement), procès garanti contre Nexyalabs. **Disclaimer fort obligatoire + redirection systématique vers avocat OHADA réel.**
+- **Confusion juridictions** : OHADA = 17 pays Afrique francophone. Le LLM peut mélanger les juridictions (« en France, ... » vs « en Côte d'Ivoire, ... »). Mitigation : prompt qui force la précision juridiction + RAG taggé par pays.
+
+#### IMBATTABLE ?
+
+Sur le droit OHADA + droit camerounais : **largement supérieur** à GPT/Gemini qui parlent Code civil français hors contexte. Sur le droit français : égal.
+
+#### EFFORT
+
+~12h. Session label : **G_legal**.
+
+---
+
+### 7.3.7. Expert Médecine — `medicine`
+
+#### QUOI
+
+**Prompt safety-critical SEUL. JAMAIS de RAG. JAMAIS de fine-tune.** `tools_allowed=False`.
+
+#### POURQUOI ICI
+
+C'est une **interdiction absolue** dictée par la responsabilité légale produit (AI Act UE 2026, loi Cameroun 010/2010, responsabilité civile générale).
+
+**Pourquoi pas RAG médical** : un fine-tune ou un RAG médical donne à NEXYA **l'apparence d'autorité médicale**. Si un user suit un conseil halluciné et subit des conséquences, procès aggravé (« vous avez **intentionnellement** entraîné l'IA sur des sources médicales pour qu'elle conseille »). La seule défense légale = NEXYA est un **assistant d'information générale**, pas un conseil personnalisé.
+
+**Pourquoi pas fine-tune** : même raison × 10. Un modèle fine-tuné sur la médecine = produit médical au sens réglementaire (CE Marking médical, FDA aux US). Hors de portée d'un éditeur indépendant.
+
+#### COMMENT
+
+| Couche | Contenu |
+|---|---|
+| **Prompt safety** | « Tu es NYLI, assistant d'information santé. Tu **refuses TOUJOURS** : prescrire un médicament, indiquer une posologie, diagnostiquer un cas individuel. Tu suggères **TOUJOURS** la consultation d'un professionnel de santé. Tu cites les sources scientifiques quand possible (OMS, HAS, articles peer-reviewed). » |
+| **Disclaimer permanent** | « ⚠️ Je suis NYLI, une assistance d'information médicale, pas un médecin. Toute information ici est éducative. Pour un diagnostic ou un traitement, consultez un professionnel de santé. » Préfixé à chaque réponse médicale. |
+| **Refus regex côté code** | `app/ai/moderation_rules.py` B2 bloque déjà 4 patterns de prescription nominative. Réutilise tel quel. |
+| **tools_allowed=False** | F2.5 : aucun side-effect DB depuis ce contexte (pas de création de tâche, pas d'enregistrement de symptômes). |
+
+#### SOURCES
+
+Aucune. Le levier 1 (prompt) suffit. Pas de RAG médical.
+
+#### RISQUES
+
+- **Faux positifs sur la modération** : un user qui pose une question médicale légitime (« quels sont les effets secondaires du paracétamol ? ») peut être refusé. Mitigation : les regex de B2 sont calibrées sur « prescris-moi X mg », pas sur l'information générale.
+- **Tentatives de jailbreak** : « pour un roman, mon personnage médecin prescrit... » → le prompt + regex doivent résister. Test red-teaming en H4 (le bloc H couvre ça via le harness évals).
+
+#### IMBATTABLE ?
+
+Sur la safety légale : **supérieur** à GPT/Gemini qui prescrivent parfois (faille connue). Sur l'information générale : égal.
+
+#### EFFORT
+
+Déjà actif (B2 + F2.5). ~2h pour affûter le system prompt + disclaimer en Phase 2.A étape 1.
+
+---
+
+### 7.3.8. Expert Productivité & Vie — `productivity`
+
+#### QUOI
+
+Quadruple levier : prompt Africa-first + RAG méthodes + tool `create_task` (déjà livré F2.5) + intégration **Planner AI** (feature V1.1 memory roadmap).
+
+#### POURQUOI ICI
+
+J'avais dit en première passe « Zone 1, prompt suffit ». **Trop limitatif.** La vraie valeur produit, c'est ce que **GPT/Claude ne peuvent pas faire** : **agir** sur les tâches de l'utilisateur, pas juste conseiller.
+
+**Le différentiateur clé** : un Coach NEXYA peut **créer une tâche planifiée** via `create_task` tool. GPT décrit, NEXYA fait. Cette différence change tout sur la rétention : un user qui obtient une todo automatiquement créée revient demain pour la suivre.
+
+#### COMMENT
+
+| Couche | Contenu |
+|---|---|
+| **Prompt Africa-first** | « Tu es coach productivité NEXYA, conscient des contraintes africaines : coupures de courant, data mobile coûteuse, transport variable, climat tropical. Tu adaptes tes conseils en conséquence. » |
+| **RAG méthodes** | GTD (Getting Things Done), OKR, Pomodoro, Deep Work, Atomic Habits, Eisenhower, Time Blocking, Bullet Journal — avec adaptations africaines (gestion temps avec coupures, batching tâches data-light, etc.) |
+| **Tool `create_task`** | Déjà livré F2.5. Le LLM crée une vraie tâche planifiée dans `scheduled_tasks` table F1 avec deep link Flutter. |
+| **Tool `list_tasks` / `update_task` / `pause_task`** | F2.5. Le LLM gère la todo list de l'utilisateur en conversation naturelle. |
+| **Planner AI** (V1.1 feature) | Décompose un objectif vague (« passer le concours ENSP Yaoundé en 6 mois ») en plan d'action concret (« semaine 1 : maths 4h/jour... »). Le plan est créé comme une **série de tâches planifiées** dans le Planner. Différenciation produit forte. |
+
+#### SOURCES (statut légal)
+
+- Méthodes domaine public : GTD (David Allen, livre sous copyright mais les principes sont décrits dans des milliers de blogs CC), OKR (Andy Grove, open source), Pomodoro (Francesco Cirillo, méthode publique).
+- Adaptations africaines : à rédiger par Ivan (auteur, donc OK pour NEXYA).
+
+Aucun problème légal majeur.
+
+#### RISQUES
+
+- **Tool execution rate-limit** : si un user demande « crée 50 tâches » d'un coup, le quota plan F1 (Free=3/Pro=50) intervient. Le LLM doit le gérer gracieusement (« je peux créer 3 tâches maintenant, passe à Pro pour plus »). Déjà géré par le code de quota F1.
+- **Hallucinations sur les dates** : le LLM peut créer une tâche « demain 18h » mais se tromper sur le timezone. Mitigation : le tool `create_task` accepte un timezone explicite (F1).
+
+#### IMBATTABLE ?
+
+Sur la productivité **actionnable** (qui crée vraiment des tâches dans une app, pas juste qui conseille) : **supérieur** à GPT/Claude qui sont des conseillers passifs.
+
+**Le pitch marketing** : « NEXYA n'est pas un coach. NEXYA EST ton planificateur. »
+
+#### EFFORT
+
+~8h RAG méthodes + ~22h Planner AI (V1.1) = **~30h**. Session label : **G_productivity** + **Planner AI**.
+
+---
+
+### 7.3.9. Expert Ingénierie — `engineering` ⭐
+
+#### QUOI
+
+13 sous-branches d'ingénieurs camerounais couvertes par RAG ciblé + concours ENSP + prompt tropicalisation. **Pas de fine-tune** — le LLM connaît déjà la base académique.
+
+#### POURQUOI ICI
+
+J'avais traité ça en première passe comme « normes ISO publiques ». **Trop générique.** Les 13 branches d'ingénierie camerounaises ont chacune leur propre univers normatif et leurs propres concours.
+
+**Les 13 branches type ENSP Yaoundé / Polytechnique** :
+
+1. Génie civil
+2. Génie maritime / portuaire
+3. Mécatronique
+4. Aéronautique
+5. Génie énergétique
+6. Génie chimique
+7. Génie électrique
+8. Génie informatique / logiciel (déjà couvert par expert `computer`)
+9. Génie industriel
+10. Génie biomédical
+11. Génie environnemental
+12. Génie minier
+13. Génie géologique
+
+**Différentiation NEXYA forte** : le **prompt de tropicalisation**. Le LLM brut connaît la résistance des matériaux générique mais ignore :
+- Climat tropical (corrosion accrue, séismes côtiers à Limbe, latérites au lieu d'argiles tempérées).
+- Coupures courant fréquentes (UPS, batterie, énergie solaire dominant, mini-grids).
+- Ports d'Afrique de l'Ouest (hydrologie golfe de Guinée, marées équatoriales).
+- Conditions sahéliennes (vent de sable, températures extrêmes saisons sèches).
+
+#### COMMENT
+
+| Couche | Contenu |
+|---|---|
+| **Prompt tropicalisation** | « Tu es expert ingénierie tropicale. Adapte TOUJOURS tes recommandations au climat équatorial, aux contraintes énergétiques africaines, aux normes régionales en vigueur. » |
+| **RAG par branche** | Pour chaque branche, sources spécifiques : normes NF / Eurocode / ISO / IEC / IEEE / ASTM / IUPAC / OACI / OMI publiques. |
+| **RAG concours camerounais** | Annales publiques ENSP Yaoundé, ENSAI Ngaoundéré, ENSPT, Polytechnique Yaoundé, BAC C/D, BAC F (techniques). |
+| **Tool `wolfram_engineering`** (V2) | Calculs dimensionnement (poutre, échangeur thermique, circuit électrique) via API Wolfram OU formules implémentées custom en Python. |
+
+#### SOURCES (statut légal)
+
+| Source | Statut |
+|---|---|
+| Normes ISO/IEC | **Payant pour les versions complètes**. Les abstracts et résumés publics sont OK. |
+| Normes NF / Eurocode | Payant complet, accès partiel via afnor.org. |
+| Wikipedia EN technique | CC-BY-SA, OK. |
+| Annales ENSP Yaoundé (publiques) | OK. |
+| Documents IEEE / ACM | Souvent paywall. Pre-prints arXiv = OK. |
+
+**Stratégie senior** : ingérer les abstracts + Wikipedia + annales + tes propres notes. Pour les normes complètes, citer la référence (« selon ISO 9001:2015, ... ») et rediriger vers l'achat officiel pour le détail. Légalement safe.
+
+#### RISQUES
+
+- **Conseil ingénierie faux** = risque humain réel (effondrement de pont, court-circuit). Disclaimer obligatoire « information générale, valider auprès d'un ingénieur diplômé ».
+- **Surinvestissement sur les 13 branches** : tu n'as pas besoin de couvrir toutes les 13 V1. Priorise selon ton public (génie civil + génie informatique + génie énergétique = 80 % des étudiants).
+
+#### IMBATTABLE ?
+
+Sur l'ingénierie tropicale + concours camerounais : **largement supérieur** à GPT/Gemini. Sur l'ingénierie académique théorique : égal.
+
+#### EFFORT
+
+~12h V1 (RAG 3-4 branches prioritaires + prompt tropicalisation) + ~6h V2 (tool calcul) = **~18h**. Session label : **G4**.
+
+---
+
+### 7.3.10. Nexya Studio — `studio` ⭐⭐⭐ MOAT #1
+
+#### QUOI
+
+Pipeline complet de génération de flyers haute qualité « NEXYA Style » :
+1. **Caption auto** des 5000 flyers existants (vision-language model).
+2. **RAG prompts gagnants** : pour chaque catégorie, stocke un prompt textuel canonique qui produit un beau flyer.
+3. **LoRA Flux/SDXL « NEXYA Style »** : fine-tune un adapter LoRA sur tes 5000 flyers pour donner une signature visuelle reconnaissable.
+4. **Workflow agent multi-tour** : l'user décrit, NEXYA pose 3 questions clés, propose 4 versions, l'user choisit, variations possibles.
+
+**C'est probablement ton moat commercial #1.**
+
+#### POURQUOI ICI
+
+Tu as **5000 flyers classifiés par catégorie**. C'est de l'or pur. Comparable :
+- Midjourney est passé d'un générateur générique à une référence stylistique parce que ses créateurs ont entraîné un style propriétaire reconnaissable.
+- DALL-E 3 a fait pareil avec un style « OpenAI ».
+- Canva n'a pas de signature visuelle propre — c'est un éditeur, pas un générateur.
+
+**Si tu rates ce levier, NEXYA Studio reste un wrapper d'Imagen/DALL-E.** Si tu l'exécutes bien, NEXYA Studio devient une marque visuelle camerounaise reconnaissable à l'œil nu, monétisable directement (un flyer mariage à Yaoundé se paie 3 000-10 000 FCFA selon qualité).
+
+#### COMMENT — pipeline en 4 couches
+
+| Couche | Technique | Effort | Impact |
+|---|---|---|---|
+| **1. Caption auto + classification raffinée** | Vision-language model (BLIP-2 / LLaVA / Gemini Vision) extrait pour chaque flyer : catégorie + couleurs dominantes (palette HEX) + typo style + layout pattern + texte présent (OCR Tesseract en parallèle) | ~15h | Indispensable pour les 3 suivantes |
+| **2. RAG prompts gagnants** | Table dédiée `studio_flyer_prompts` : pour chaque flyer, un **prompt textuel canonique** structuré (`[NEXYA style] flyer for [catégorie], [palette HEX], [layout], [typo], [event details]`). À la query user, RAG sur les 3-5 flyers de la catégorie la plus proche → adapte au brief utilisateur | ~10h | Différenciation : NEXYA propose un prompt **validé** par le passé, pas inventé |
+| **3. LoRA Flux/SDXL "NEXYA Style"** | Fine-tune un LoRA Flux 1.0-dev sur tes 5000 flyers. Le modèle apprend la **signature visuelle NEXYA** (palette, typo, layouts). À la génération, on applique le LoRA → tout flyer produit a la signature | ~25h + $50-100 GPU | **MOAT MAJEUR.** Reconnaissable. Inimitable sans accès à ton dataset. |
+| **4. Workflow agent multi-tour** | L'user décrit en chat (« flyer mariage Marie + Paul samedi prochain ») → NEXYA pose 3 questions clés (date/lieu/style préféré dans 3 options) → génère 4 versions → user choisit → variations | ~20h front + back | UX supérieure à Canva qui est statique |
+
+#### STACK TECHNIQUE recommandée
+
+| Composant | Choix | Justification |
+|---|---|---|
+| **Modèle base image** | **Flux 1.0-dev** | Open source, licence non-commerciale gratuite jusqu'à $1M revenue (largement au-dessus de NEXYA V1), qualité supérieure à SDXL fin 2024+. Alternative : SDXL Lightning si Flux trop lourd. |
+| **Méthode fine-tune image** | **LoRA via ai-toolkit (Ostris)** | Standard 2024+ pour LoRA Flux. Alternative historique : Kohya_ss (SDXL). |
+| **Dataset format** | 5000 images JPG/PNG (1024×1024 ou 1024×1280 selon ratio) + 5000 fichiers `.txt` (caption structurée par image) | Standard ai-toolkit |
+| **Caption generator** | **BLIP-2** ou **Gemini 2.0 Flash Vision** pour première passe automatique, **validation manuelle** sur sample 200 flyers pour calibrer | Gemini Vision moins cher et plus juste sur le contexte africain |
+| **GPU pour training** | A100 40GB ou H100 sur **RunPod / Colab Pro+** | ~$50-100 pour 5000 images × 3 epochs sur A100 |
+| **Serving** | **ComfyUI** ou **diffusers + FastAPI** côté backend NEXYA | ComfyUI = standard de fait pour workflows image complexes V2026 |
+| **Coût inférence** | Flux Dev sur RTX 4090 dédié Hetzner ~150 €/mois fixe → ~5 sec par flyer 1024×1024 → ~$0.001 par flyer marginal | Soutenable jusqu'à 100k flyers/mois |
+
+#### SOURCES (statut légal — BLOQUANT)
+
+**Les 5000 flyers — c'est toi qui les as créés ou bien tu les as scrapés ?**
+
+| Scénario | Statut légal | Décision |
+|---|---|---|
+| (a) Tu les as **créés toi-même** (designer NEXYA, ou tu es l'auteur historique) | 100 % légal de fine-tuner | **GO** |
+| (b) Tu les as **commandés à des designers freelance** | Vérifier les contrats. Souvent transfert de droits = OK. Sinon avenant à signer. | **GO avec audit** |
+| (c) Tu les as **scrapés sur Internet** (Pinterest, Behance, Dribbble, Google Images) | **INTERDIT** pour produit commercial. Stability AI attaquée 2023-2026 pour ça. Midjourney attaquée 2024. | **BLOQUANT** |
+
+**Si scénario (c)** : trois solutions légales possibles :
+1. **Regénérer le dataset** avec des designers à toi (~5-10k €).
+2. **Utiliser un dataset libre de droit** (Unsplash, Pexels collections « flyer » + corpus AI-généré supervisé Midjourney avec ta licence personnelle).
+3. **Acquérir une licence** sur un dataset existant (Adobe Stock licences pro).
+
+**Ce point doit être tranché AVANT toute exécution de la session Studio.** Pas de fine-tune sur dataset au statut légal incertain.
+
+#### RISQUES
+
+- **Copyright dataset** (cf. ci-dessus) — critique.
+- **Drift de style** : si tes flyers de 2020-2022 ont un style daté, le LoRA apprendra ce style daté. Mitigation : sélectionner le sous-ensemble 1500-2000 flyers les plus récents et hauts-de-gamme.
+- **Biais culturel** : si tes flyers couvrent surtout les mariages, le LoRA sera bon pour les mariages et moyen pour les autres événements. Mitigation : équilibrer le dataset par catégorie (500 flyers par catégorie : mariage, événement professionnel, baptême, anniversaire, restaurant, sortie, soirée, religion, etc.).
+
+#### IMBATTABLE ?
+
+- **Supérieur** à Canva (qui est statique, pas d'IA générative profonde).
+- **Supérieur** à ChatGPT image (qui est générique sans signature).
+- **Comparable** à Midjourney V6 mais **avec ta marque visuelle reconnaissable**.
+- **Le seul de sa catégorie Africa-first** — personne n'a fine-tuné Flux sur des flyers africains à grande échelle.
+
+**Conclusion :** Studio est probablement ton **moat commercial #1**. Plus directement monétisable que les langues vernaculaires (un mariage paie facilement 5 000 FCFA pour un beau flyer ; un user duala ne paie pas spécifiquement pour parler duala — c'est un bonus produit).
+
+#### EFFORT
+
+~60h dev + $50-100 GPU + validation copyright préalable. Session label : **G3** (anciennement « Expert Studio créatif » dans ROADMAP).
+
+---
+
+### 7.3.11. Langues vernaculaires camerounaises — `language` (sous-mode bantou) ⭐⭐ MOAT #2
+
+#### QUOI
+
+Fine-tuning Gemma 2 9B multi-langues bantoues simultanées (bassa, duala, ewondo, medumba, eton, fulfulde, + lingala pour extension Africa-first élargie) avec tokenizer custom étendu **encodant les tons**.
+
+#### POURQUOI ICI
+
+**Zone 3 stricte.** Le LLM brut ne parle pas du tout ces langues. RAG ne peut PAS aider (confirmé par G1 échec sur langues majeures + analyse approfondie 7.4 ci-dessous). **Fine-tuning est la seule voie.**
+
+C'est ton **moat #2 non-réplicable** : OpenAI, Google, Anthropic ne fine-tuneront JAMAIS sur ces langues (marché trop petit, pas de ROI). NEXYA peut, parce que c'est sa raison d'être Africa-first.
+
+#### COMMENT — choix architectural senior
+
+**Option A — un modèle par langue** :
+- `nexya-gemma-duala-v1`, `nexya-gemma-bassa-v1`, etc. 7 modèles distincts.
+- Effort : ~60-80h × 7 = 420-560h. Coût GPU : $70-140 × 7 itérations.
+- **Risque** : maintenance × 7 ingérable solo sur 3 ans. Tu abandonneras 5/7 modèles. Registry à 7 entrées. Déploiement 7 GGUF. Latence switch entre modèles.
+
+**Option B — un seul modèle multi-langues (RECOMMANDATION SENIOR)** :
+- `nexya-gemma-bantu-v1` fine-tuné simultanément sur les 7 langues. Le modèle apprend à router en interne selon la langue détectée dans le prompt.
+- Effort : ~80-120h cumulés (1 dataset équilibré 10k/langue × 7 = 70k paires, 1 run plus long). Coût GPU : $50-100.
+- **Bénéfices** : maintenance simple (1 modèle, 1 GGUF, 1 registry entry). **Transfert d'apprentissage cross-lingue** — les langues bantoues partagent une grammaire commune (classes nominales, tons, préfixes verbaux). Un papier classique en multilingual NLP : 7 langues apprises ensemble = qualité supérieure à 7 langues apprises isolément, surtout pour les low-resource.
+- **Trade-off accepté** : qualité par langue 5-10 % inférieure à un modèle dédié. Acceptable en V1.
+
+#### Architecture concrète
+
+| Composant | Choix |
+|---|---|
+| **Modèle base** | **Gemma 2 9B** (license Apache 2.0 commercial-friendly, tokenizer SentencePiece extensible, multilinguistique de base). Alternative écartée : Mistral 7B (tokenization moins favorable au multilingue), Llama 3 8B (license Meta restrictive > 700M users). |
+| **Méthode fine-tune** | **QLoRA** (rank 16, lora_alpha 32, 4-bit quantization base). Tient sur Colab Pro+ A100 40GB. ~$10-20 par run. |
+| **Tokenizer custom** | Étendre SentencePiece avec ~5000-10000 nouveaux tokens dédiés aux langues bantoues (préfixes verbaux courants, racines verbales, classes nominales). Sans ça, « ndolè » fait 3 tokens, « Mungengue » fait 4 tokens — facture × 3-4 à l'inférence. |
+| **Dataset cible** | 10-15k paires par langue × 7 langues = 70-105k paires totales, format ChatML JSONL. Validation par locuteurs natifs **obligatoire** (sinon tu fine-tunes sur du bruit). |
+
+#### CAPTURE DES TONS — point que j'avais omis en première passe
+
+Les langues bantoues sont **tonales** (comme le mandarin). Le ton change le sens :
+
+- En duala : `mòlò` (paix) ≠ `mōlō` (cœur) — même graphie sans diacritique, mais ton différent.
+- En bamiléké : trois tons fonctionnels (haut, médian, bas) qui modifient le sens grammatical.
+
+**Si ton dataset texte n'encode pas les tons** (via diacritiques `à á â ǎ ā`), le modèle ne saura pas les générer. Résultat : il produira du texte « plat » qui n'a pas de sens grammatical correct.
+
+**Mitigation V1** : valider en H1 avec un locuteur natif comment ton dataset capture les tons. Si pas encodés, options :
+- (a) Ajouter les tons via post-traitement (locuteurs natifs annotent) — coûteux mais qualité au top.
+- (b) Accepter une qualité dégradée V1 sans tons → corriger V2.
+- (c) Concentrer V1 sur les langues moins tonales (ewondo a moins de contraste tonal que medumba ou bamiléké).
+
+**Recommandation senior** : option (a) pour duala (langue principale, locuteurs natifs accessibles à Yaoundé) + option (c) pour les autres langues V1.
+
+#### SOURCES de datasets
+
+**Ton atout unique** : tu collectes des datasets terrain. C'est le moat. Continue.
+
+| Source | Volume estimé | Statut légal |
+|---|---|---|
+| **Tes collectes terrain** (interviews, transcriptions oraux validés) | Cible 5-10k paires par langue | **OR PUR** — tu en es l'auteur ou tu as cédé les droits. |
+| Wikipédia DUA (duala) | ~2k articles → ~2k paires bilingues | CC-BY-SA, OK. |
+| Bible duala / proto-Bantu textes religieux (« Loba na binu » duala, etc.) | 5k paires structurées | Domaine public dans la plupart des juridictions (textes religieux > 70 ans). |
+| BBC News Pidgin, RFI Mandenkan | Corpus journalistiques petits mais authentiques | Vérifier licence par site. |
+| Augmentation synthétique par Gemini Pro avec validation native | **Max 10 %** du dataset | Risque : apprendre les hallucinations de Gemini si pas validé. **À utiliser avec parcimonie.** |
+
+#### RISQUES
+
+- **Datasets de mauvaise qualité** : si tu fine-tunes sur du bruit (mauvaise transcription, fautes, ton manquants), le modèle apprend le bruit. Validation locuteur natif **obligatoire** sur sample 200 paires avant chaque run d'entraînement.
+- **Locuteur natif disponibilité** : il te faut un budget validation (~5-10 €/h × 100h = 500-1000 € par langue). C'est un poste **non skippable** du bloc H. Provisionner.
+- **GPU coût récurrent** : 1 run = $10-20. Tu en feras 10-20 itérations avant un modèle satisfaisant. Budget total $100-400 pour atteindre la production.
+
+#### IMBATTABLE ?
+
+Sur les 7 langues camerounaises : **monopolistique**. Aucun géant n'investira jamais ce marché. **Ton moat #2 défendable à 5 ans minimum.**
+
+#### EFFORT
+
+~80-120h cumulés (8 sessions H1-H8) + $100-400 GPU + budget validation locuteurs natifs $500-2000. Session label : **BLOC H complet**.
+
+---
+
+## 7.4. Les 2 moats stratégiques de NEXYA — récapitulatif
+
+Sur les 11 experts :
+- **9 sont compétitifs avec les géants** (égal ou supérieur sur contextes spécifiques).
+- **2 sont des moats non-réplicables** :
+  - **`studio`** (signature visuelle propre, dataset 5000 flyers propriétaires).
+  - **`language`** (langues vernaculaires que personne ne couvrira jamais).
+
+Ces 2 moats sont **ce qui rend NEXYA défendable à 5 ans**. Sans eux, NEXYA = wrapper LLM joliment habillé qu'un concurrent peut cloner. Avec eux, NEXYA = produit avec **assets propriétaires** (5000 flyers curés + datasets vernaculaires validés par locuteurs natifs).
+
+**Logique de priorisation moats** :
+- Studio est **monétisable directement** (paiement par flyer généré, marché des événements).
+- Language est **monétisable indirectement** (rétention user via différenciation produit unique).
+
+**Recommandation senior** : exécuter **Studio avant Language** parce que le ROI cash est plus rapide. Language demande l'investissement le plus lourd (datasets en cours de collecte par toi) et son ROI est différé.
+
+## 7.5. Ordre d'exécution révisé — 5 phases
+
+```
+PHASE 2.A — Quick wins RAG (~50h, autonome) — donne valeur immédiate
+1.  Affûtage 11 prompts (10h) — incluant le system prompt méthodologique Sciences/Maths
+2.  G6 Computer — RAG docs + codebases + cron mensuel (12h)
+3.  G2 Cuisine — RAG corpus camerounais (10h)
+4.  G4 Engineering — RAG branches + tropicalisation (12h)
+5.  G_science — RAG annales + prompt méthodo (10h)
+
+PHASE 2.B — RAG senior + tool LLM (~30h)
+6.  G_finance — RAG triple Africa (10h)
+7.  G_legal — RAG OHADA + framing citation (12h)
+8.  Tool `sympy_solve` integration pour science (6h)
+
+PHASE 2.C — MOAT 1 : Nexya Studio LoRA (~60h — DÉPEND clarification copyright dataset)
+9.  Audit copyright des 5000 flyers (1h — BLOQUANT)
+10. Dataset prep : caption auto + classification + validation (15h)
+11. LoRA Flux training (10h + $50-100 GPU)
+12. ComfyUI workflow + intégration backend (15h)
+13. RAG prompts + workflow agent UI (20h)
+
+PHASE 2.D — MOAT 2 : Langues vernaculaires (~100h — DÉPEND datasets locuteurs natifs)
+14. H1 Choix Gemma + tokenizer custom + dataset multi-langues bantoues prep (20h)
+15. H2 Premier fine-tune QLoRA multi-langues (10h + $20 GPU)
+16. H3-H4 Évaluation perplexité + LLM-judge + locuteur natif + red-teaming (15h)
+17. H5-H6 Quantization Q4_K_M + déploiement Ollama VPS GPU + LocalProvider NEXYA (15h)
+18. H7-H8 Drift detection + mode offline mobile V2 (15h)
+
+PHASE 2.E — Productivity + Planner AI (~30h)
+19. RAG méthodes productivité Africa-first (8h)
+20. Intégration Planner AI complète (Planner V1.1) (22h)
+
+TOTAL : ~270h sur 4-6 mois si exécution full-time
+```
+
+**Pourquoi cet ordre est optimal :**
+- **Phase 2.A en premier** : valeur produit immédiate pour les users en 3-4 semaines. Affûtage = baseline propre avant de mesurer le gain RAG.
+- **Phase 2.B en deuxième** : sophistique l'offre actuelle. Tool SymPy est le différenciateur science.
+- **Phase 2.C Studio AVANT Phase 2.D langues** : **monétisable plus vite** (un flyer mariage = ROI immédiat), tandis que les datasets langues mûrissent en parallèle (collectes terrain en continu).
+- **Phase 2.D langues** quand tu as 50k+ paires validées par locuteur natif (pas avant — sinon tu fine-tunes sur du bruit).
+- **Phase 2.E Productivity** = signal de production (les users veulent un coach actionnable, on livre Planner AI complet).
+
+## 7.6. 3 questions critiques à trancher AVANT exécution
+
+| # | Question | Pourquoi critique | Impact si pas tranché |
+|---|---|---|---|
+| **1** | **Les 5000 flyers Studio — origine ?** | Si scrapés Internet → BLOQUANT légal. Si créés/commandés par toi → GO. | Studio reste un wrapper Imagen sans moat, ou pire : procès copyright si fine-tune sur scraping. |
+| **2** | **Dataset langues — capture des tons ?** | Si pas encodés via diacritiques → qualité V1 dégradée à anticiper, plan de correction V2 à définir. | Le modèle parle « plat » et n'a pas de sens grammatical correct. |
+| **3** | **GPU pour Phase 2.C et 2.D** | Colab Pro+ ($50/mois) OU Hetzner GPU dédié (~150 €/mois) à provisionner. | Sans GPU, Studio et Language sont bloqués. |
+
+## 7.7. Avertissements légaux récapitulatifs
+
+Synthèse des points légaux distribués dans les sections expert. **À relire avant chaque session de Phase 2.B, 2.C, 2.D.**
+
+| Domaine | Avertissement | Action |
+|---|---|---|
+| **Sciences/Maths** | Monge, Gourdon, CIAM, MathsFaciles sous copyright | Annales BAC officielles + tes corrections perso uniquement en prod |
+| **Cuisine** | Livres et PDFs sous copyright | Wikipédia + blogs CC + tes notes perso en prod |
+| **Studio** | Scraping de flyers Internet **interdit** | Vérifier origine des 5000 flyers AVANT toute exécution |
+| **Langues** | Datasets de tes collectes terrain | Contrats clairs avec interviewés (cession de droits) |
+| **Médecine** | Conseil médical = responsabilité pénale | Disclaimer + refus regex permanent. JAMAIS de fine-tune ou RAG médical. |
+| **Droit** | Conseil juridique nominatif = procès | Disclaimer + redirection avocat OHADA. Refus rédaction d'acte. |
+| **Augmentation synthétique** | Apprendre les hallucinations d'un autre LLM si pas validé | Max 10 % du dataset, validation manuelle obligatoire |
+
+**Règle d'or non négociable** :
+
+> Pour ton **cours personnel** (`COURS_NEXYA_AFFUTAGE_IA.md` sur `docs/internal`) : ingère et expérimente librement. Usage privé = exception droit d'auteur.
+>
+> Pour **NEXYA commercial** (950k users projetés) : sources légalement claires UNIQUEMENT. En cas de doute, **stop et consulte un juriste OHADA**. Un seul procès copyright peut couler la société.
+
+---
+
+# PARTIE VIII — GLOSSAIRE, ANNEXES, JOURNAL
+
+## 8.1. Glossaire
 
 **ABC (Abstract Base Class)** : classe Python abstraite qui définit un contrat. Voir aussi : `EmbeddingsProvider`, `ChatProvider`, `VoiceProvider`, `VisionProvider`, `FCMProvider`, `ManifestProvider`.
 
@@ -2282,7 +3052,7 @@ G6 Informatique (~10h) — même pattern, scraping docs officielles
 
 **Zero-shot** : prompt sans exemples concrets, uniquement instructions.
 
-## 7.2. Liens externes (à enrichir)
+## 8.2. Liens externes (à enrichir)
 
 - fast.ai partie 1 (cours ML fondamental, 8 leçons gratuit) : https://course.fast.ai
 - HuggingFace NLP course : https://huggingface.co/learn/nlp-course
@@ -2293,11 +3063,12 @@ G6 Informatique (~10h) — même pattern, scraping docs officielles
 - trl (training library HF) : https://huggingface.co/docs/trl
 - peft (parameter-efficient fine-tuning) : https://huggingface.co/docs/peft
 
-## 7.3. Journal des mises à jour
+## 8.3. Journal des mises à jour
 
 | Date | Section | Changement |
 |---|---|---|
-| 2026-05-15 | Création | Création initiale du cours suite à la demande Ivan d'attaquer la Période 2 IA-QUALITY. Couvre les 3 leviers, le post-mortem G1, le plan H1-H8. |
+| 2026-05-15 | Création | Création initiale du cours suite à la demande Ivan d'attaquer la Période 2 IA-QUALITY. Couvre les 3 leviers (prompt + RAG + fine-tuning), le post-mortem G1, le plan H1-H8. Parties 0 à VII (glossaire). |
+| 2026-05-15 | Partie VII ajoutée | Ajout d'une **Partie VII dédiée — Stratégie d'affûtage par expert (audit complet)** : audit senior expert-par-expert des 11 experts NEXYA (general, computer, science, finance, cooking, legal, medicine, productivity, engineering, studio, language). Diagnostic Zone + leviers + sources + risques légaux + comparaison aux géants + ordre d'exécution révisé en 5 phases. Identifie les **2 moats stratégiques NEXYA** (`studio` LoRA Flux + `language` Gemma multi-langues bantoues). Inclut 3 questions critiques à trancher avant exécution (copyright flyers, capture tons bantous, GPU provisioning) + tableau récapitulatif des avertissements légaux. Glossaire/Annexes/Journal renommés Partie VIII. |
 
 > Ajouter ici chaque mise à jour structurante au fil des sessions livrées en Période 2.
 
