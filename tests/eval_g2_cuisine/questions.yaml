@@ -1,0 +1,274 @@
+# Blind test G2 — Expert Cuisine NEXYA (corpus recettes camerounaises propriétaires)
+# 30 questions : 15 spé camerounaises + 5 vie quotidienne + 5 internationales + 5 hors-domaine
+# Utilisé par `run_eval.py` pour comparer (RAG + Gemini Pro) vs (Gemini Pro brut).
+# Pass criterion : ≥ 18/30 victoires A (60 %).
+#
+# La cible 60 % est volontairement plus tolérante que G1 (80 %) car :
+# - Gemini 2.5 Pro brut est déjà excellent sur cuisine internationale
+# - Le différentiel attendu est sur les recettes camerounaises authentiques
+#   (Ndolé, Eru, Pepper Soup, etc.) où le corpus apporte traçabilité ingrédients
+#   + régions précises + alternatives accessibles localement.
+# - Les 5 questions hors-domaine testent le guardrail (Pass = redirection vers
+#   mode Général ; FAIL = tentative de réponse hors-scope).
+
+questions:
+  # ─── Spécialités camerounaises authentiques (15) ────────────────
+  - id: cm_01_ndole
+    domain: recipe_cm
+    region: Littoral
+    question_fr: "Donne-moi la recette du Ndolé camerounais avec les ingrédients précis et les étapes."
+    expected_criteria:
+      - "Liste d'ingrédients incluant feuilles de ndolé / vernonia, viande/poisson, arachides ou pâte d'arachide"
+      - "Étapes numérotées avec temps de cuisson"
+      - "Mention origine camerounaise / région Littoral"
+      - "Au moins une alternative accessible si ingrédient rare"
+
+  - id: cm_02_pepper_soup
+    domain: recipe_cm
+    region: Cameroun
+    question_fr: "Comment préparer un Pepper Soup camerounais traditionnel ? Donne ingrédients et préparation."
+    expected_criteria:
+      - "Ingrédients : poisson, épices (njansan, mbongo, pèbè ou équivalents)"
+      - "Étapes incluant cuisson à feu doux 20-25 min"
+      - "Servir chaud accompagné de riz ou plantain"
+
+  - id: cm_03_eru
+    domain: recipe_cm
+    region: Sud-Ouest
+    question_fr: "Donne-moi la recette du Eru (Anglophone Cameroun)."
+    expected_criteria:
+      - "Feuilles d'eru + waterleaf"
+      - "Huile de palme / red palm oil"
+      - "Crayfish (poisson ou crevettes séchées)"
+      - "Origine anglophone Cameroun (Sud-Ouest)"
+
+  - id: cm_04_foufou_riz
+    domain: recipe_cm
+    region: Cameroun
+    question_fr: "Comment fait-on le Foufou de riz au Cameroun ?"
+    expected_criteria:
+      - "Riz comme ingrédient principal"
+      - "Méthode trempage / cuisson / pétrissage"
+      - "Mention plat d'accompagnement traditionnel"
+
+  - id: cm_05_kondre
+    domain: recipe_cm
+    region: Ouest
+    question_fr: "Recette du Kondre (Bamileke / Ouest Cameroun)."
+    expected_criteria:
+      - "Plantain mûr ou banane plantain comme base"
+      - "Viande (poulet ou chèvre) traditionnellement"
+      - "Origine Bamileke / Ouest Cameroun mentionnée"
+
+  - id: cm_06_njama_njama
+    domain: recipe_cm
+    region: Nord-Ouest
+    question_fr: "Qu'est-ce que le Njama Njama et comment le préparer ?"
+    expected_criteria:
+      - "Légumes verts (huckleberry / morelle noire)"
+      - "Origine anglophone (Nord-Ouest Cameroun)"
+      - "Préparation simple : sauter avec huile + épices"
+
+  - id: cm_07_kwem
+    domain: recipe_cm
+    region: Bassa
+    question_fr: "Recette du Kwem (Bassa Cameroun) avec ingrédients et étapes."
+    expected_criteria:
+      - "Feuilles de manioc"
+      - "Pâte d'arachide ou huile de palme"
+      - "Origine Bassa mentionnée"
+
+  - id: cm_08_okok
+    domain: recipe_cm
+    region: Cameroun
+    question_fr: "Comment cuisiner l'Okok / Mfumbwa traditionnel ?"
+    expected_criteria:
+      - "Feuilles d'okok / koko / mfumbwa (Gnetum africanum)"
+      - "Pâte d'arachide souvent ajoutée"
+      - "Cuisson longue à feu doux"
+
+  - id: cm_09_bongo_chobi
+    domain: recipe_cm
+    region: Bassa
+    question_fr: "Recette du Mbongo Tchobi Bassa du Cameroun."
+    expected_criteria:
+      - "Sauce noire à base d'épices mbongo"
+      - "Poisson ou viande comme protéine"
+      - "Origine Bassa mentionnée"
+
+  - id: cm_10_kwacoco
+    domain: recipe_cm
+    region: Sud-Ouest
+    question_fr: "Comment préparer le Kwacoco bible (Sud-Ouest Cameroun) ?"
+    expected_criteria:
+      - "Macabo râpé"
+      - "Feuilles de bananier pour cuisson vapeur"
+      - "Origine anglophone Sud-Ouest"
+
+  - id: cm_11_safou
+    domain: ingredient_cm
+    region: Cameroun
+    question_fr: "Qu'est-ce que le safou (prune africaine) et comment le consommer au Cameroun ?"
+    expected_criteria:
+      - "Fruit de l'arbre Dacryodes edulis"
+      - "Consommation : grillé / bouilli, accompagne souvent le maïs"
+      - "Mentionner saison récolte ou contexte camerounais"
+
+  - id: cm_12_bobolo
+    domain: recipe_cm
+    region: Cameroun
+    question_fr: "Comment se prépare le Bobolo / Chikwangue ? Donne la méthode traditionnelle."
+    expected_criteria:
+      - "Manioc fermenté"
+      - "Cuisson dans feuilles de bananier"
+      - "Plat d'accompagnement camerounais / congolais"
+
+  - id: cm_13_poulet_dg
+    domain: recipe_cm
+    region: Cameroun
+    question_fr: "Recette du Poulet DG (Directeur Général) camerounais."
+    expected_criteria:
+      - "Poulet + plantain mûr"
+      - "Légumes (poivrons, oignons, carottes)"
+      - "Plat festif camerounais"
+
+  - id: cm_14_achu
+    domain: recipe_cm
+    region: Nord-Ouest
+    question_fr: "Comment préparer l'Achu (Nord-Ouest Cameroun) avec sa sauce jaune ?"
+    expected_criteria:
+      - "Cocoyam pilé / pommes de terre des îles"
+      - "Sauce jaune à base d'huile de palme + kanwa (potasse) + épices"
+      - "Origine Bamenda / Nord-Ouest"
+
+  - id: cm_15_jus_bissap
+    domain: recipe_cm
+    region: Cameroun
+    question_fr: "Recette du jus de Bissap (Folere / Karkadé) au Cameroun."
+    expected_criteria:
+      - "Fleurs d'hibiscus séchées"
+      - "Infusion + sucre + parfois menthe ou gingembre"
+      - "Boisson traditionnelle Afrique de l'Ouest et Centrale"
+
+  # ─── Vie quotidienne (5) ────────────────────────────────────────
+  - id: daily_16_substitution
+    domain: substitution
+    question_fr: "Je n'ai pas de pâte d'arachide pour mon Ndolé, par quoi je peux la remplacer ?"
+    expected_criteria:
+      - "Alternative : beurre de cacahuète nature"
+      - "Ou pâte de noix de cajou"
+      - "Conseil sur ratio / ajustement liquide"
+
+  - id: daily_17_organisation
+    domain: home
+    question_fr: "Comment organiser mes courses hebdomadaires pour cuisiner camerounais sans gaspiller ?"
+    expected_criteria:
+      - "Liste structurée par catégorie"
+      - "Conseils anti-gaspillage (planification menus, conservation)"
+      - "Mention ingrédients de base camerounais (huile palme, riz, plantain)"
+
+  - id: daily_18_conservation
+    domain: home
+    question_fr: "Comment conserver le poisson frais quand je n'ai pas de réfrigérateur fiable ?"
+    expected_criteria:
+      - "Méthodes traditionnelles : fumage, salage, séchage"
+      - "Adapté contexte africain"
+      - "Sécurité alimentaire (durée maximale)"
+
+  - id: daily_19_tech_cuisine
+    domain: technique
+    question_fr: "Comment réussir une bonne sauce arachide camerounaise sans grumeaux ?"
+    expected_criteria:
+      - "Délayer la pâte d'arachide progressivement avec liquide chaud"
+      - "Cuisson à feu doux en remuant"
+      - "Mention équilibre épices"
+
+  - id: daily_20_planification
+    domain: home
+    question_fr: "Quel menu équilibré camerounais pour 4 personnes sur 7 jours avec budget modéré ?"
+    expected_criteria:
+      - "Plats variés (Ndolé, Foufou, Riz sauce, Poulet DG…)"
+      - "Équilibre protéines / féculents / légumes"
+      - "Estimation budget réaliste FCFA si possible"
+
+  # ─── Cuisine internationale (5, contrôle non-régression) ─────────
+  - id: intl_21_carbonara
+    domain: recipe_intl
+    question_fr: "Donne-moi la vraie recette des spaghetti carbonara italienne."
+    expected_criteria:
+      - "Guanciale (PAS de bacon) ou pancetta en alternative"
+      - "Pecorino Romano + œufs + poivre noir"
+      - "PAS de crème fraîche"
+
+  - id: intl_22_sushi
+    domain: recipe_intl
+    question_fr: "Comment faire des sushi maki maison ?"
+    expected_criteria:
+      - "Riz à sushi vinaigré"
+      - "Nori, garniture (poisson cru sashimi grade, légumes)"
+      - "Technique du roulage avec makisu"
+
+  - id: intl_23_paella
+    domain: recipe_intl
+    question_fr: "Recette d'une paella valencienne authentique."
+    expected_criteria:
+      - "Riz bomba ou rond"
+      - "Safran"
+      - "Lapin / poulet (PAS de fruits de mer en paella valenciana stricte)"
+
+  - id: intl_24_couscous
+    domain: recipe_intl
+    question_fr: "Comment réussir un couscous marocain aux 7 légumes ?"
+    expected_criteria:
+      - "Semoule de couscous bien roulée"
+      - "Au moins 7 légumes différents"
+      - "Bouillon épicé (ras el hanout, safran, gingembre)"
+
+  - id: intl_25_pho
+    domain: recipe_intl
+    question_fr: "Recette du pho bo vietnamien."
+    expected_criteria:
+      - "Bouillon de bœuf longue cuisson (épices : étoile badiane, cannelle, clou de girofle)"
+      - "Nouilles de riz"
+      - "Garnitures fraîches : coriandre, basilic thaï, citron vert"
+
+  # ─── Hors-domaine — test du guardrail (5) ─────────────────────────
+  - id: oos_26_python
+    domain: out_of_scope
+    question_fr: "Écris-moi un script Python pour parser un fichier CSV et calculer la moyenne d'une colonne."
+    expected_criteria:
+      - "Reconnaissance que la question relève du mode Informatique"
+      - "Redirection vers le mode Général ou Informatique"
+      - "PAS de tentative de réponse longue avec code"
+
+  - id: oos_27_finance
+    domain: out_of_scope
+    question_fr: "Comment calculer le ROI d'un investissement immobilier en FCFA ?"
+    expected_criteria:
+      - "Reconnaissance que la question relève du mode Finance"
+      - "Redirection vers le mode Général ou Finance"
+      - "PAS de calcul détaillé hors-scope"
+
+  - id: oos_28_medical
+    domain: out_of_scope
+    question_fr: "J'ai mal à la tête depuis 3 jours et de la fièvre, qu'est-ce que j'ai ?"
+    expected_criteria:
+      - "Reconnaissance que la question relève du domaine médical"
+      - "Redirection vers mode Médecine ou Général + consultation médecin"
+      - "Aucun diagnostic donné directement"
+
+  - id: oos_29_droit
+    domain: out_of_scope
+    question_fr: "Quelle est la procédure pour créer une SARL au Cameroun (statuts OHADA) ?"
+    expected_criteria:
+      - "Reconnaissance que la question relève du droit OHADA"
+      - "Redirection vers mode Légal ou Général"
+      - "PAS de réponse juridique détaillée hors-scope"
+
+  - id: oos_30_traduction
+    domain: out_of_scope
+    question_fr: "Traduis-moi cette phrase en anglais : « Le marché de Mokolo ouvre à 6 heures. »"
+    expected_criteria:
+      - "Reconnaissance que la question relève du mode Langues"
+      - "Redirection vers mode Général ou Langues"
+      - "Optionnel : traduction simple acceptée si très courte"

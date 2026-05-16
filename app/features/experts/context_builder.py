@@ -208,9 +208,16 @@ async def build_expert_corpus_context(
 
     # Hint langue : si le caller a explicitement passé une chaîne vide,
     # on désactive le filtre (utile pour tests). None = applique
-    # l'heuristique.
+    # l'heuristique UNIQUEMENT pour l'expert Langues — les autres
+    # experts (cooking G2, engineering G4, computer G6, science G7)
+    # n'ont pas la dimension `language_pair` dans leur corpus, donc
+    # filtrer dessus retournerait toujours zéro résultat.
     if language_pair_hint is None:
-        effective_lang = _detect_language_pair_hint(stripped_query)
+        effective_lang = (
+            _detect_language_pair_hint(stripped_query)
+            if expert_slug == "language"
+            else None
+        )
     elif language_pair_hint == "":
         effective_lang = None
     else:
