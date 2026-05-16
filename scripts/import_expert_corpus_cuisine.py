@@ -62,7 +62,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import delete
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
@@ -226,7 +226,11 @@ class RecipeCanonical(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     region: str | None = Field(default=None, max_length=50)
     category: str = Field(default="plat_principal")
-    ingredients: list[str] = Field(..., min_length=2)
+    # Min 2 ingrédients exigé pour les vraies recettes, mais relaxé à 0
+    # pour `category="astuce"` (conseils, descriptions d'épices, tutoriels
+    # qui sont ingérés dans le corpus sans liste d'ingrédients formelle).
+    # Cf. `_validate_ingredients_minimum` ci-dessous + Ivan G2 2026-05-16.
+    ingredients: list[str] = Field(default_factory=list)
     steps: list[str] = Field(..., min_length=1)
     source: SourceMetadata
 
@@ -246,10 +250,10 @@ class RecipeCanonical(BaseModel):
     @field_validator("ingredients", mode="after")
     @classmethod
     def _validate_ingredients(cls, v: list[str]) -> list[str]:
+        """Strip + cap par item. Le check de quantité minimale est délégué
+        au `model_validator` après que `category` soit connu — une astuce
+        peut légitimement avoir 0 ingrédient (cf. Foufou Gari, Odjom)."""
         cleaned = [i.strip() for i in v if i and i.strip()]
-        if len(cleaned) < 2:
-            raise ValueError("au moins 2 ingrédients non vides requis")
-        # Cap par item pour éviter une ligne tronquée monstrueuse
         for i, item in enumerate(cleaned):
             if len(item) > 500:
                 cleaned[i] = item[:497] + "..."
@@ -272,6 +276,20 @@ class RecipeCanonical(BaseModel):
         if v not in _VALID_CATEGORIES:
             return "plat_principal"
         return v
+
+    @model_validator(mode="after")
+    def _require_ingredients_unless_astuce(self) -> RecipeCanonical:
+        """Au moins 2 ingrédients exigés SAUF si `category="astuce"`.
+
+        Les astuces (conseils, descriptions d'ingrédient, tutoriels rapides)
+        peuvent légitimement n'avoir aucun ingrédient structuré — elles
+        valent quand même la peine d'être ingérées dans le corpus RAG.
+        """
+        if self.category != "astuce" and len(self.ingredients) < 2:
+            raise ValueError(
+                "au moins 2 ingrédients non vides requis (sauf catégorie 'astuce')"
+            )
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,24 +332,49 @@ _FOOTER_RE = re.compile(
     flags=re.MULTILINE | re.IGNORECASE,
 )
 
+# Métadonnée éditeur récurrente (vol 3) — pollue les descriptions sans
+# valeur culinaire. Strip avant tout downstream.
+_EDITION_LINE_RE = re.compile(
+    r"^\s*Une recette des [ÉE]ditions\s*\d{4}\s*$",
+    flags=re.MULTILINE | re.IGNORECASE,
+)
+
 
 def _strip_footers(text: str) -> str:
-    """Retire les footers PDF (« Recettes camerounaises\\nPage N »)."""
+    """Retire les footers PDF (« Recettes camerounaises\\nPage N ») et
+    les mentions d'éditeur (« Une recette des Editions 2015 »)."""
     if not text:
         return ""
     cleaned = _FOOTER_RE.sub("", text)
+    cleaned = _EDITION_LINE_RE.sub("", cleaned)
     # Collapse triple newlines en double
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned
 
 
 def _normalize_bullets(text: str) -> str:
-    """Normalise les bullets unicode en `-` standard + collapse espaces."""
+    """Normalise les bullets unicode en `-` standard + collapse espaces.
+
+    Pipeline en 3 passes :
+    1. Map des bullets unicode classiques + PUA Word (`\\uf0b7`, utilisé
+       par Word/Times New Roman dans le vol 3) -> `-`.
+    2. **Bullet orphelin** : si une ligne contient juste `-` et la
+       suivante a un contenu, on joint les deux (`-\\n500g de riz` ->
+       `- 500g de riz`). pymupdf vol 3 sépare bullets et contenus.
+    3. Collapse espaces horizontaux multiples.
+    """
     if not text:
         return ""
     # Bullets unicode courants → `-`
-    text = re.sub(r"[•‣◦⁃⁌⁍]", "-", text)
-    # Espaces multiples horizontaux
+    text = re.sub(r"[•‣◦⁃⁌⁍\uf0a7\uf0b7]", "-", text)
+    # 2. Bullet orphelin sur sa propre ligne -> joindre avec la suivante
+    text = re.sub(
+        r"^[ \t]*-[ \t]*\n[ \t]*(\S)",
+        r"- \1",
+        text,
+        flags=re.MULTILINE,
+    )
+    # 3. Espaces multiples horizontaux
     text = re.sub(r"[ \t]{2,}", " ", text)
     return text
 
@@ -884,6 +927,75 @@ def _extract_steps(block: str) -> list[str]:
 # ══════════════════════════════════════════════════════════════
 
 
+# ══════════════════════════════════════════════════════════════
+# Détection astuce + retitling de titres tronqués
+# ══════════════════════════════════════════════════════════════
+
+
+# Mots clés titre qui signalent un conseil / tutoriel plutôt qu'une recette.
+_ADVICE_TITLE_RE = re.compile(
+    r"^\s*(comment|astuce[s]?|conseil[s]?|truc[s]?|secret[s]?)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _is_advice_title(title: str) -> bool:
+    """True si le titre commence par « Comment », « Astuce », etc."""
+    if not title:
+        return False
+    return bool(_ADVICE_TITLE_RE.search(title))
+
+
+# Déterminants en fin de titre qui révèlent une troncature pymupdf
+# (le titre PDF d'origine est multi-ligne, l'extracteur n'a saisi qu'une
+# partie). Ex : « Comment Reconnaitre Une » manque « BONNE VIANDE ».
+_TRUNCATED_TITLE_TAIL_RE = re.compile(
+    r"\b(une?|la|le|des?|les?|aux?|du|de|d'|l'|à)\s*$",
+    flags=re.IGNORECASE,
+)
+
+
+def _maybe_retitle_truncated(title: str, body: str) -> str:
+    """Tente de compléter un titre tronqué par pymupdf en joignant la
+    première ligne MAJUSCULES du body.
+
+    Déclenché par 2 signaux :
+    1. **Déterminant orphelin en fin** (« Une », « Le », « Des », « À »…) :
+       cas « Comment Reconnaitre Une » + body[0]=« BONNE VIANDE »
+       → « Comment Reconnaitre Une Bonne Viande »
+    2. **Titre commençant par « Comment »** : cas tronqués sans déterminant
+       en queue mais où le body commence par un complément en MAJUSCULES :
+       « Comment Faire Un Bon Piment » + body[0]=« DE TABLE »
+       → « Comment Faire Un Bon Piment De Table »
+
+    Renvoie le titre inchangé si aucun candidat ne match.
+    """
+    if not title:
+        return title
+    has_truncated_tail = bool(_TRUNCATED_TITLE_TAIL_RE.search(title))
+    starts_with_comment = bool(re.match(r"^\s*comment\b", title, flags=re.IGNORECASE))
+    if not has_truncated_tail and not starts_with_comment:
+        return title
+    for raw in body.splitlines()[:5]:
+        line = raw.strip()
+        if not line:
+            continue
+        # Ligne en MAJUSCULES raisonnable (3-60 chars)
+        if line.isupper() and 3 <= len(line) <= 60:
+            # Évite de coller un en-tête type INGREDIENTS / PREPARATION
+            if line.upper() in {"INGREDIENTS", "INGRÉDIENTS", "PREPARATION", "PRÉPARATION", "METHODE", "MÉTHODE", "ETAPES", "ÉTAPES"}:
+                return title
+            return f"{title} {line.title()}".strip()
+        # Ne sonde QUE la première ligne non-vide
+        break
+    return title
+
+
+# ══════════════════════════════════════════════════════════════
+# Slugification
+# ══════════════════════════════════════════════════════════════
+
+
 def _slugify(name: str) -> str:
     """Convertit un nom de recette en slug ASCII kebab-case (id_slug)."""
     if not name:
@@ -961,6 +1073,12 @@ def parse_master_file(path: Path, source_book: str) -> ParseResult:
                 )
                 continue
 
+        # Étape 3.bis — Retitling de titre tronqué (« Comment Reconnaitre
+        # Une » → « Comment Reconnaitre Une Bonne Viande »). Joint la
+        # première ligne MAJUSCULES du body si le titre actuel finit par
+        # un déterminant orphelin.
+        effective_title = _maybe_retitle_truncated(effective_title, body)
+
         # Garde-fou : titre vraiment trop court / vide
         if not effective_title or len(effective_title.strip()) < 3:
             result.rejected.append(
@@ -979,42 +1097,94 @@ def parse_master_file(path: Path, source_book: str) -> ParseResult:
         ingredients = _extract_ingredients(ingredients_block)
         steps = _extract_steps(steps_block)
 
-        if len(ingredients) < 2:
-            result.rejected.append(
-                RejectionReport(
-                    source_book=source_book,
-                    section_index=idx,
-                    raw_title=effective_title,
-                    reason="no_ingredients",
-                    detail=f"Seulement {len(ingredients)} ingrédient(s) extrait(s)",
-                    raw_excerpt=excerpt,
+        # Étape 5.bis — Détection astuce (relaxe les exigences structurelles).
+        # Une astuce peut n'avoir aucun ingrédient formel (conseil, description
+        # d'ingrédient, tutoriel rapide). On la détecte via 3 signaux :
+        # 1. Le titre commence par « Comment », « Astuce », « Conseil »…
+        # 2. La catégorie détectée par `_detect_category` est `astuce`.
+        # 3. Le body ne contient AUCUNE structure formelle INGREDIENTS +
+        #    PREPARATION/bullets (heuristique `_body_has_recipe_structure`).
+        #    Ce signal récupère les descriptions d'ingrédient pures (Odjom,
+        #    Pebe) qui sont du texte libre sans listing structuré.
+        category = _detect_category(effective_title, body)
+        is_advice = (
+            _is_advice_title(effective_title)
+            or category == "astuce"
+            or not _body_has_recipe_structure(body)
+        )
+
+        if not is_advice:
+            # Mode recette stricte : exigences classiques
+            if len(ingredients) < 2:
+                result.rejected.append(
+                    RejectionReport(
+                        source_book=source_book,
+                        section_index=idx,
+                        raw_title=effective_title,
+                        reason="no_ingredients",
+                        detail=f"Seulement {len(ingredients)} ingrédient(s) extrait(s)",
+                        raw_excerpt=excerpt,
+                    )
                 )
-            )
-            continue
-        if len(steps) < 1:
-            result.rejected.append(
-                RejectionReport(
-                    source_book=source_book,
-                    section_index=idx,
-                    raw_title=effective_title,
-                    reason="no_steps",
-                    detail="Aucune étape de préparation extraite",
-                    raw_excerpt=excerpt,
+                continue
+            if len(steps) < 1:
+                result.rejected.append(
+                    RejectionReport(
+                        source_book=source_book,
+                        section_index=idx,
+                        raw_title=effective_title,
+                        reason="no_steps",
+                        detail="Aucune étape de préparation extraite",
+                        raw_excerpt=excerpt,
+                    )
                 )
-            )
-            continue
+                continue
+        else:
+            # Mode astuce : exigences relaxées. Si la coupe `_split_sections`
+            # n'a rien donné (pas de section INGREDIENTS formelle), on
+            # extrait les steps depuis le body entier — un conseil de
+            # type « Comment Reconnaître Une Bonne Viande » a son contenu
+            # entièrement dans le body sans en-tête PREPARATION.
+            if len(steps) < 1:
+                steps = _extract_steps(body)
+            if len(steps) < 1 and len(ingredients) < 1:
+                # Dernier recours : compact le body brut en 1 step utile.
+                body_compact = re.sub(r"\s+", " ", body).strip()
+                if len(body_compact) >= 20:
+                    # Cap à 1800 chars (sous le cap field steps=2000) pour
+                    # garder la marge de troncature Pydantic.
+                    steps = [body_compact[:1800]]
+            # Garde-fou final : si toujours rien, rejet.
+            if len(steps) < 1 and len(ingredients) < 1:
+                result.rejected.append(
+                    RejectionReport(
+                        source_book=source_book,
+                        section_index=idx,
+                        raw_title=effective_title,
+                        reason="empty_advice",
+                        detail="Astuce sans contenu après tous fallbacks",
+                        raw_excerpt=excerpt,
+                    )
+                )
+                continue
+            # Force la catégorie + accepte 0 ingrédient
+            category = "astuce"
 
         # Étape 6 — Validation Pydantic
         try:
             full_text_for_region = f"{description}\n{body[:1000]}"
+            # En mode astuce sans steps, on déplace les ingrédients
+            # extraits vers `description` pour ne pas perdre l'info,
+            # et on génère un step synthétique « Voir description ».
+            final_steps = steps if steps else ["Voir description."]
             recipe = RecipeCanonical(
                 id_slug=_slugify(effective_title),
                 name=_titleize(effective_title),
                 description=description if description else None,
                 region=_detect_region(full_text_for_region),
-                category=_detect_category(effective_title, body),
+                category=category,
                 ingredients=ingredients,
-                steps=steps,
+                steps=final_steps,
                 source=SourceMetadata(
                     owner=SOURCE_OWNER,
                     book=source_book,
@@ -1098,7 +1268,14 @@ def _titleize(name: str) -> str:
 def _build_rag_content(recipe: RecipeCanonical) -> str:
     """Construit le bloc texte qui sera embedded en pgvector.
 
-    Format strict, lisible LLM :
+    Format strict, lisible LLM. Le bandeau de tête est `[Recette]` pour
+    une vraie recette et `[Astuce]` pour une `category="astuce"` (le LLM
+    saura traiter le chunk différemment).
+
+    La section `[Ingrédients]` est omise si la recette n'a aucun
+    ingrédient — cas typique des astuces / descriptions / tutoriels.
+
+    Format type recette :
 
         [Recette] {name}
         [Région] {region or "Cameroun"}
@@ -1117,21 +1294,29 @@ def _build_rag_content(recipe: RecipeCanonical) -> str:
     """
     region = recipe.region or "Cameroun"
     category = recipe.category.replace("_", " ").title()
-    description = recipe.description or "Recette traditionnelle camerounaise."
+    is_advice = recipe.category == "astuce"
+    fallback_desc = (
+        "Astuce de cuisine camerounaise."
+        if is_advice
+        else "Recette traditionnelle camerounaise."
+    )
+    description = recipe.description or fallback_desc
+    header_label = "Astuce" if is_advice else "Recette"
 
     parts: list[str] = [
-        f"[Recette] {recipe.name}",
+        f"[{header_label}] {recipe.name}",
         f"[Région] {region}",
         f"[Catégorie] {category}",
         "",
         "[Description]",
         description,
         "",
-        "[Ingrédients]",
     ]
-    parts.extend(f"- {ing}" for ing in recipe.ingredients)
-    parts.append("")
-    parts.append("[Préparation]")
+    if recipe.ingredients:
+        parts.append("[Ingrédients]")
+        parts.extend(f"- {ing}" for ing in recipe.ingredients)
+        parts.append("")
+    parts.append("[Préparation]" if not is_advice else "[Étapes]")
     for i, step in enumerate(recipe.steps, start=1):
         parts.append(f"{i}. {step}")
     return "\n".join(parts)

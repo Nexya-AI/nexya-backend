@@ -41,9 +41,11 @@ from scripts.import_expert_corpus_cuisine import (
     _extract_ingredients_inline,
     _extract_real_title_from_body,
     _extract_steps,
+    _is_advice_title,
     _is_decorative_title,
     _is_orphan_heading,
     _is_summary_block,
+    _maybe_retitle_truncated,
     _normalize_bullets,
     _parse_args,
     _slugify,
@@ -97,6 +99,46 @@ def test_normalize_bullets_collapses_horizontal_spaces() -> None:
     out = _normalize_bullets(raw)
     assert "  " not in out
     assert "mot1 mot2 mot3" in out
+
+
+def test_normalize_bullets_pua_word_codepoints() -> None:
+    """Les bullets PUA Word/Wingdings (\\uf0b7, \\uf0a7) doivent être
+    convertis en `-` au même titre que les bullets unicode standards.
+    Cas vol 3 du dataset Ivan : pymupdf conserve le glyphe Wingdings tel quel."""
+    raw = " item PUA b7\n item PUA a7"
+    out = _normalize_bullets(raw)
+    assert "" not in out
+    assert "" not in out
+    assert "- item PUA b7" in out
+    assert "- item PUA a7" in out
+
+
+def test_normalize_bullets_joins_orphan_bullet_with_next_line() -> None:
+    """Un bullet seul sur sa ligne, suivi du contenu à la ligne suivante,
+    doit être joint (cas vol 3 où pymupdf sépare bullet et contenu)."""
+    raw = "-\n500g de riz\n-\neau"
+    out = _normalize_bullets(raw)
+    assert "- 500g de riz" in out
+    assert "- eau" in out
+
+
+def test_strip_footers_removes_editions_line() -> None:
+    """La mention éditeur « Une recette des Editions2015 » doit être
+    supprimée (vol 3 du dataset Ivan)."""
+    raw = "Cuisine du Cameroun\nUne recette des Editions2015\nINGREDIENTS"
+    cleaned = _strip_footers(raw)
+    assert "Editions2015" not in cleaned
+    assert "Editions 2015" not in cleaned
+    assert "Cuisine du Cameroun" in cleaned
+    assert "INGREDIENTS" in cleaned
+
+
+def test_strip_footers_handles_editions_with_space_and_accent() -> None:
+    """Tolérance : espaces et accents (« Une recette des Éditions 2015 »)."""
+    raw = "Une recette des Éditions 2015\nIngrédients"
+    cleaned = _strip_footers(raw)
+    assert "Éditions" not in cleaned
+    assert "Ingrédients" in cleaned
 
 
 # ══════════════════════════════════════════════════════════════
@@ -555,6 +597,33 @@ def test_recipe_canonical_invalid_category_falls_back() -> None:
     assert recipe.category == "plat_principal"
 
 
+def test_recipe_canonical_advice_accepts_empty_ingredients() -> None:
+    """category='astuce' relaxe la contrainte min 2 ingrédients."""
+    recipe = RecipeCanonical(
+        id_slug="comment-reconnaitre-bonne-viande",
+        name="Comment Reconnaître Une Bonne Viande",
+        category="astuce",
+        ingredients=[],  # OK car astuce
+        steps=["Observer la couleur, la texture, l'odeur."],
+        source=_valid_source(),
+    )
+    assert recipe.ingredients == []
+    assert recipe.category == "astuce"
+
+
+def test_recipe_canonical_non_advice_still_requires_2_ingredients() -> None:
+    """category != 'astuce' garde la contrainte stricte min 2 ingrédients."""
+    with pytest.raises(Exception):  # ValidationError
+        RecipeCanonical(
+            id_slug="test-plat",
+            name="Test Plat",
+            category="plat_principal",
+            ingredients=["solo"],  # < 2 → rejet
+            steps=["s"],
+            source=_valid_source(),
+        )
+
+
 def test_recipe_canonical_truncates_long_ingredient() -> None:
     """Item ingrédient > 500 chars → tronqué avec `...`."""
     long_ing = "x" * 700
@@ -571,6 +640,66 @@ def test_recipe_canonical_truncates_long_ingredient() -> None:
 
 # ══════════════════════════════════════════════════════════════
 # _build_rag_content + SHA-256 déterministe
+# ══════════════════════════════════════════════════════════════
+
+
+# ══════════════════════════════════════════════════════════════
+# _is_advice_title + _maybe_retitle_truncated (G2 v3 2026-05-16)
+# ══════════════════════════════════════════════════════════════
+
+
+def test_is_advice_title_matches_comment_and_astuce() -> None:
+    """Titres commençant par « Comment », « Astuce », « Conseil » → True."""
+    assert _is_advice_title("Comment Reconnaître Une Bonne Viande") is True
+    assert _is_advice_title("Comment Faire Une Sauce Vinaigrette") is True
+    assert _is_advice_title("Astuce de Cuisine") is True
+    assert _is_advice_title("Astuces Pratiques") is True
+    assert _is_advice_title("Conseils Pour Conserver") is True
+
+
+def test_is_advice_title_rejects_real_recipe_names() -> None:
+    """Noms de recettes traditionnelles → pas une astuce."""
+    assert _is_advice_title("Ndolé Aux Crevettes") is False
+    assert _is_advice_title("Pepper Soup") is False
+    assert _is_advice_title("Poulet DG") is False
+
+
+def test_is_advice_title_handles_empty() -> None:
+    assert _is_advice_title("") is False
+    assert _is_advice_title("   ") is False
+
+
+def test_maybe_retitle_truncated_completes_with_uppercase_first_line() -> None:
+    """Titre finissant par « Une » + body[0]=« BONNE VIANDE » → joint."""
+    title = "Comment Reconnaitre Une"
+    body = "BONNE VIANDE\n\n- La couleur de la viande\n- L'odeur"
+    out = _maybe_retitle_truncated(title, body)
+    assert "Bonne Viande" in out
+    assert out.startswith("Comment Reconnaitre Une")
+
+
+def test_maybe_retitle_truncated_handles_un_determinant() -> None:
+    """Titre finissant par « Un » + body[0]=« POISSON FRAIS » → joint."""
+    title = "Comment Reconnaitre Un"
+    body = "POISSON FRAIS\n\n- Yeux clairs\n- Branchies rouges"
+    out = _maybe_retitle_truncated(title, body)
+    assert "Poisson Frais" in out
+
+
+def test_maybe_retitle_truncated_unchanged_for_complete_title() -> None:
+    """Titre complet (pas de déterminant orphelin) → inchangé."""
+    title = "Ndolé Aux Crevettes"
+    body = "Une recette traditionnelle\n\nINGREDIENTS..."
+    assert _maybe_retitle_truncated(title, body) == title
+
+
+def test_maybe_retitle_truncated_handles_empty() -> None:
+    assert _maybe_retitle_truncated("", "BONNE VIANDE") == ""
+    assert _maybe_retitle_truncated("Comment Une", "") == "Comment Une"
+
+
+# ══════════════════════════════════════════════════════════════
+# _build_rag_content
 # ══════════════════════════════════════════════════════════════
 
 
@@ -606,6 +735,41 @@ def test_build_rag_content_handles_no_region() -> None:
     )
     content = _build_rag_content(recipe)
     assert "[Région] Cameroun" in content
+
+
+def test_build_rag_content_astuce_uses_advice_header() -> None:
+    """category='astuce' utilise `[Astuce]` au lieu de `[Recette]` + omet
+    la section ingrédients si vide."""
+    recipe = RecipeCanonical(
+        id_slug="comment-conserver-poisson",
+        name="Comment Conserver Le Poisson",
+        category="astuce",
+        ingredients=[],
+        steps=["Fumer 2h", "Saler généreusement"],
+        source=_valid_source(),
+    )
+    content = _build_rag_content(recipe)
+    assert "[Astuce] Comment Conserver Le Poisson" in content
+    assert "[Recette]" not in content
+    assert "[Ingrédients]" not in content  # omis car vide
+    assert "[Étapes]" in content
+    assert "1. Fumer 2h" in content
+
+
+def test_build_rag_content_astuce_with_ingredients_keeps_section() -> None:
+    """Une astuce qui a quand même des ingrédients garde la section."""
+    recipe = RecipeCanonical(
+        id_slug="comment-faire-vinaigrette",
+        name="Comment Faire Une Vinaigrette",
+        category="astuce",
+        ingredients=["1 c. à café moutarde", "3 c. à soupe vinaigre"],
+        steps=["Mélanger"],
+        source=_valid_source(),
+    )
+    content = _build_rag_content(recipe)
+    assert "[Astuce] Comment Faire Une Vinaigrette" in content
+    assert "[Ingrédients]" in content
+    assert "- 1 c. à café moutarde" in content
 
 
 def test_rag_content_sha256_is_deterministic() -> None:
