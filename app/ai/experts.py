@@ -100,6 +100,72 @@ Style :
 - Pour les sujets techniques, utilise des blocs de code Markdown.
 """
 
+
+# ═══════════════════════════════════════════════════════════════════
+# GARDE-FOU DOMAINE — applique à chaque expert spécialisé
+# ═══════════════════════════════════════════════════════════════════
+#
+# Objectif (G2 2026-05-16) : empêcher qu'un expert spécialisé réponde
+# à une question hors-domaine (ex: l'expert Cuisine ne doit pas tenter
+# de répondre à une question de finance ou de code).
+#
+# Mécanisme prompt-level (pas de classifier ML — pourquoi :
+#   1. Coût zéro additionnel par requête (pas d'appel LLM extra).
+#   2. Latence zéro (pas de roundtrip avant le main call).
+#   3. Le LLM gère lui-même le routing avec une instruction claire.
+#   4. Évite le risque d'un faux-positif classifier qui bloquerait
+#      un cas légitime ambigu (ex: « combien coûte un kg de riz ? » →
+#      légitime en mode Cuisine ET Finance).
+#
+# Tolérance volontaire :
+#   - Questions méta (« qui es-tu », « que sais-tu faire ») toujours OK.
+#   - Questions transverses ambiguës : le modèle décide en premier lieu
+#     d'aider, et redirige UNIQUEMENT si la question est manifestement
+#     hors-scope (ex: « écris-moi un script Python » en mode Cuisine).
+# ═══════════════════════════════════════════════════════════════════
+
+_DOMAIN_GUARDRAIL_TEMPLATE = """
+Garde-fou de domaine — {domain_label} :
+- Tu es spécialisé en : **{domain_description}**.
+- Si l'utilisateur pose une question manifestement hors de ce champ
+  (ex: code informatique en mode Cuisine, recette de cuisine en mode
+  Finance, traduction en mode Sciences), réponds brièvement et redirige :
+  « Cette question relève plutôt du mode {suggested_mode}. Bascule sur
+  ce mode pour une réponse spécialisée. »
+- Tu peux toujours répondre aux questions méta (« qui es-tu ? »,
+  « que sais-tu faire ? », « quels sont tes domaines ? »).
+- Pour une question ambiguë ou transverse, aide d'abord puis suggère
+  le mode plus adapté en fin de réponse si pertinent.
+- Ne fabule jamais une réponse hors-domaine : la précision prime sur
+  l'exhaustivité — mieux vaut rediriger que mal répondre.
+"""
+
+
+def _with_guardrail(
+    prompt: str,
+    *,
+    domain_label: str,
+    domain_description: str,
+    suggested_mode: str = "Général",
+) -> str:
+    """Concatène un prompt expert avec le garde-fou de domaine.
+
+    Args:
+        prompt: prompt expert complet (identité + rôle).
+        domain_label: titre court du domaine (« Cuisine », « Finance »…).
+        domain_description: 1 phrase qui résume le scope précis.
+        suggested_mode: mode vers lequel rediriger les hors-domaine.
+            Défaut « Général » (catch-all). Pour `medicine`/`legal` on
+            redirige aussi vers Général (jamais vers un autre safety-
+            critical sans intention claire).
+    """
+    guardrail = _DOMAIN_GUARDRAIL_TEMPLATE.format(
+        domain_label=domain_label,
+        domain_description=domain_description,
+        suggested_mode=suggested_mode,
+    )
+    return prompt + guardrail
+
 _GENERAL_PROMPT = (
     _NEXYA_IDENTITY
     + """
@@ -128,7 +194,7 @@ simple — l'utilisateur peut toujours supprimer/modifier après.
 """
 )
 
-_COMPUTER_PROMPT = (
+_COMPUTER_PROMPT = _with_guardrail(
     _NEXYA_IDENTITY
     + """
 Rôle — Expert Informatique :
@@ -139,10 +205,15 @@ Rôle — Expert Informatique :
 - Si la question est ambiguë, demande une précision avant de coder.
 - Si tu proposes une solution sous-optimale, dis-le explicitement et cite
   l'alternative « meilleure pratique ».
-"""
+""",
+    domain_label="Informatique",
+    domain_description=(
+        "code, debug, architecture logicielle, outils dev (Git, Docker, CI), "
+        "concepts informatiques"
+    ),
 )
 
-_SCIENCE_PROMPT = (
+_SCIENCE_PROMPT = _with_guardrail(
     _NEXYA_IDENTITY
     + """
 Rôle — Expert Sciences & Mathématiques :
@@ -153,10 +224,14 @@ Rôle — Expert Sciences & Mathématiques :
 - Utilise la notation LaTeX entre `$...$` (inline) ou `$$...$$` (bloc) pour
   les équations. Ne remplace jamais une équation par une phrase floue.
 - Si un résultat dépend d'une hypothèse, explicite-la avant de calculer.
-"""
+""",
+    domain_label="Sciences & Mathématiques",
+    domain_description=(
+        "maths, physique, chimie, biologie, statistiques, sciences appliquées"
+    ),
 )
 
-_FINANCE_PROMPT = (
+_FINANCE_PROMPT = _with_guardrail(
     _NEXYA_IDENTITY
     + """
 Rôle — Expert Finance & Business :
@@ -169,10 +244,15 @@ Rôle — Expert Finance & Business :
   unités (FCFA, EUR, USD).
 - Tu N'ES PAS conseiller financier certifié : rappelle-le discrètement quand
   la question relève d'un conseil d'investissement engageant.
-"""
+""",
+    domain_label="Finance & Business",
+    domain_description=(
+        "gestion financière personnelle, comptabilité, investissements, "
+        "création/stratégie d'entreprise, marketing, contexte OHADA"
+    ),
 )
 
-_LANGUAGE_PROMPT = (
+_LANGUAGE_PROMPT = _with_guardrail(
     _NEXYA_IDENTITY
     + """
 Rôle — Expert Langues :
@@ -184,10 +264,15 @@ Rôle — Expert Langues :
   culturel si pertinent (formalité, nuance, idiome).
 - Pour les corrections, marque les erreurs avec `~~rature~~` puis la correction
   en **gras** et explique brièvement la règle.
-"""
+""",
+    domain_label="Langues",
+    domain_description=(
+        "apprentissage, traduction, correction, pratique de langues "
+        "(internationales et africaines)"
+    ),
 )
 
-_COOKING_PROMPT = (
+_COOKING_PROMPT = _with_guardrail(
     _NEXYA_IDENTITY
     + """
 Rôle — Expert Cuisine & Vie Quotidienne :
@@ -199,7 +284,16 @@ Rôle — Expert Cuisine & Vie Quotidienne :
   étapes numérotées. Mentionne le temps de préparation et de cuisson.
 - Adapte aux moyens locaux : si un ingrédient est rare au Cameroun, propose
   une alternative accessible.
-"""
+- Quand le système te fournit des extraits de recettes camerounaises
+  authentiques (corpus RAG framé `<<<DOCUMENT EXTRACT>>>`), appuie ta
+  réponse sur ces extraits en priorité — ce sont des recettes vérifiées
+  par l'auteur (Loth Ivan / Nexyalabs) plutôt que des inférences génériques.
+""",
+    domain_label="Cuisine & Vie Quotidienne",
+    domain_description=(
+        "recettes, techniques culinaires, substitutions d'ingrédients, "
+        "organisation du foyer, astuces du quotidien"
+    ),
 )
 
 _STUDIO_PROMPT = (
@@ -212,7 +306,7 @@ Rôle — NEXYA Studio (génération d'images) :
 """
 )
 
-_ENGINEERING_PROMPT = (
+_ENGINEERING_PROMPT = _with_guardrail(
     _NEXYA_IDENTITY
     + """
 Rôle — Expert Ingénierie :
@@ -223,10 +317,15 @@ Rôle — Expert Ingénierie :
 - Pour les choix techniques : explique les trade-offs (coût, poids,
   résistance, durée de vie…).
 - Pour les normes : cite la référence (ISO, EN, NF, BS) si elle existe.
-"""
+""",
+    domain_label="Ingénierie",
+    domain_description=(
+        "génie civil, mécanique, électrique, industriel, chimique, énergies, "
+        "télécoms, matériaux, normes ISO/EN/NF"
+    ),
 )
 
-_PRODUCTIVITY_PROMPT = (
+_PRODUCTIVITY_PROMPT = _with_guardrail(
     _NEXYA_IDENTITY
     + """
 Rôle — Expert Productivité & Vie :
@@ -236,10 +335,15 @@ Rôle — Expert Productivité & Vie :
   OKRs, atomic habits.
 - Reste concret. Pour toute suggestion, propose une première action
   réalisable dans la journée.
-"""
+""",
+    domain_label="Productivité & Vie",
+    domain_description=(
+        "organisation du temps, prise de décision, routines, gestion de "
+        "projets personnels, habitudes (GTD, Eisenhower, OKRs)"
+    ),
 )
 
-_MEDICINE_PROMPT = (
+_MEDICINE_PROMPT = _with_guardrail(
     _NEXYA_IDENTITY
     + """
 Rôle — Expert Médecine (information uniquement) :
@@ -252,10 +356,15 @@ Rôle — Expert Médecine (information uniquement) :
 - Si l'utilisateur décrit des symptômes d'urgence (douleur thoracique,
   AVC, hémorragie, détresse respiratoire, idées suicidaires), redirige
   immédiatement vers les urgences avant toute autre réponse.
-"""
+""",
+    domain_label="Médecine (information)",
+    domain_description=(
+        "information médicale générale (maladies, médicaments, symptômes), "
+        "JAMAIS diagnostic ni prescription"
+    ),
 )
 
-_LEGAL_PROMPT = (
+_LEGAL_PROMPT = _with_guardrail(
     _NEXYA_IDENTITY
     + """
 Rôle — Expert Légal (information uniquement) :
@@ -267,7 +376,12 @@ Rôle — Expert Légal (information uniquement) :
   uniforme OHADA, loi nationale). Donne la référence exacte.
 - Rappelle toujours : « Pour un cas concret, consulte un avocat ou un
   notaire. »
-"""
+""",
+    domain_label="Légal (information)",
+    domain_description=(
+        "information juridique générale (droit camerounais, OHADA, références "
+        "légales), JAMAIS acte engageant ni conseil personnalisé"
+    ),
 )
 
 
@@ -387,15 +501,24 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         display_name="Expert Cuisine & Vie Quotidienne",
         is_coming_soon=False,
         primary_provider="gemini",
-        primary_model="gemini-2.5-flash",
-        fallback_chain=(_GEMINI_PRO,),
+        # G2 — bascule Pro pour ancrer les recettes camerounaises propriétaires
+        # injectées via RAG (corpus `expert_corpus_chunks` slug `cooking`).
+        # Pro raisonne mieux sur la traçabilité ingrédients/étapes et respecte
+        # les extraits framés D5 ; Flash hallucinait davantage les régions.
+        primary_model="gemini-2.5-pro",
+        fallback_chain=(_GEMINI_FLASH,),
         system_prompt=_COOKING_PROMPT,
-        temperature=0.7,  # créativité culinaire bienvenue
-        # 2048 couvre une recette complète (ingrédients + étapes
-        # numérotées + temps + alternatives) sans déborder.
-        max_tokens=2048,
-        tier="flash",
-        tags=("cooking", "daily"),
+        # 0.5 < 0.7 : corpus présent → on veut que le modèle exploite les
+        # extraits plutôt que d'inventer une variante créative.
+        temperature=0.5,
+        # 4096 (vs 2048 flash) : marges pour une recette complète
+        # ingrédients + étapes + alternative locale + contexte régional.
+        max_tokens=4096,
+        tier="pro",
+        tags=("cooking", "daily", "rag"),
+        # G2 ON — corpus de ~100 recettes camerounaises propriétaires
+        # (livres Loth Ivan / Nexyalabs, owner traçé pour AI Act Article 13).
+        corpus_enabled=True,
     ),
     # ─── Bientôt disponible ────────────────────────────────────────
     "studio": ExpertConfig(

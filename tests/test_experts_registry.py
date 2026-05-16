@@ -188,14 +188,19 @@ def test_full_chain_for_studio_is_just_primary() -> None:
 # ══════════════════════════════════════════════════════════════
 
 
-def test_no_expert_has_corpus_enabled_post_g1_cleanup() -> None:
-    """Après le cleanup G1 du 2026-04-24, aucun expert n'a `corpus_enabled=True`.
-    L'infra est conservée pour G2/G4/G6 mais désactivée tant que les corpus
-    cuisine/ingénierie/info n'ont pas été ingérés."""
-    for expert_id, cfg in EXPERT_REGISTRY.items():
-        assert cfg.corpus_enabled is False, (
-            f"{expert_id} a corpus_enabled=True alors que G1 a été abandonné"
-        )
+def test_only_cooking_has_corpus_enabled_post_g2() -> None:
+    """Après G2 (2026-05-16), seul l'expert `cooking` a `corpus_enabled=True`
+    (recettes camerounaises propriétaires Loth Ivan / Nexyalabs).
+    G1 `language` reste désactivé après échec blind test du 2026-04-24.
+    G4 ingénierie / G6 informatique / G7 sciences resteront désactivés
+    jusqu'à leurs sessions d'activation dédiées."""
+    expected_enabled = {"cooking"}
+    actual_enabled = {
+        expert_id for expert_id, cfg in EXPERT_REGISTRY.items() if cfg.corpus_enabled
+    }
+    assert actual_enabled == expected_enabled, (
+        f"Mismatch corpus_enabled : attendu {expected_enabled}, obtenu {actual_enabled}"
+    )
 
 
 # ══════════════════════════════════════════════════════════════

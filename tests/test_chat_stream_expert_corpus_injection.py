@@ -151,10 +151,23 @@ def test_language_expert_config_corpus_enabled() -> None:
 
 
 def test_other_experts_corpus_disabled() -> None:
-    """Tous les experts autres que `language` : `corpus_enabled=False` (avant G2-G7)."""
-    for slug in ("general", "computer", "science", "finance", "cooking"):
+    """Experts hors `cooking` (G2 actif) : `corpus_enabled=False` tant que la
+    session d'activation dédiée (G4/G6/G7) n'a pas eu lieu."""
+    for slug in ("general", "computer", "science", "finance"):
         cfg = get_expert_config(slug)
         assert cfg.corpus_enabled is False, (
             f"Expert '{slug}' ne doit pas avoir corpus_enabled=True avant "
             f"la session d'activation dédiée."
         )
+
+
+def test_cooking_expert_corpus_enabled_post_g2() -> None:
+    """Invariant G2 : l'expert `cooking` a `corpus_enabled=True` + bascule Pro."""
+    cfg = get_expert_config("cooking")
+    assert cfg.corpus_enabled is True
+    assert cfg.expert_id == "cooking"
+    assert cfg.primary_model == "gemini-2.5-pro", (
+        "G2 ancre le RAG sur Pro pour traçabilité des recettes camerounaises."
+    )
+    assert cfg.tier == "pro"
+    assert cfg.max_tokens == 4096
