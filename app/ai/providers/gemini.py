@@ -160,6 +160,19 @@ class GeminiChatProvider(ChatProvider):
         if request.stop_sequences:
             config_kwargs["stop_sequences"] = list(request.stop_sequences)
 
+        # G2 V1.1 2026-05-18 — Désactivation explicite du thinking mode
+        # (Gemini 2.5 Pro/Flash) pour les experts dont le `ExpertConfig.disable_thinking=True`.
+        # Cause : Gemini 2.5 Pro a un `thinkingBudget=-1` (adaptatif) par défaut
+        # qui peut consommer 5-25k tokens de raisonnement AVANT de produire le
+        # premier token de réponse — incompatible UX chat live (mesuré 25-30s
+        # par appel sur le blind test G2). Pour cooking où on n'a pas besoin
+        # de raisonnement multi-étapes (recette = format structuré), on coupe.
+        # Cap réduit la latence first-token de ~20s à ~3s sur Gemini 2.5 Pro,
+        # qualité préservée car les réponses cooking sont du formatage de
+        # contenu (issu du corpus RAG), pas du raisonnement.
+        if request.extra.get("disable_thinking") is True:
+            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+
         # F2.5 — function calling. Format spécifique Gemini :
         # `tools=[{function_declarations: [{name, description, parameters}]}]`
         # — wrapper `function_declarations` obligatoire (Gemini supporte

@@ -583,6 +583,15 @@ class StreamHandler:
         ]
         system_prompt_final = "\n\n".join(p for p in parts if p)
 
+        # G2 V1.1 2026-05-18 — Propagation de `config.disable_thinking` au
+        # provider Gemini via `request.extra["disable_thinking"]`. Seul
+        # l'expert `cooking` met ce flag à True actuellement (gain latence
+        # ~20s -> ~3s sur Vertex Pro). Voir ExpertConfig.disable_thinking
+        # pour la justification.
+        request_extra: dict = {}
+        if getattr(config, "disable_thinking", False):
+            request_extra["disable_thinking"] = True
+
         request = ChatCompletionRequest(
             messages=ctx.user_messages,
             system_prompt=system_prompt_final,
@@ -593,6 +602,7 @@ class StreamHandler:
             trace_id=ctx.trace_id,
             expert_id=config.expert_id,
             tools=ctx.tools,
+            extra=request_extra,
         )
 
         stream = stream_chat_with_retry(

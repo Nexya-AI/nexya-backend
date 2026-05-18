@@ -70,6 +70,15 @@ class ExpertConfig:
     # user attend un avis, pas un side-effect DB silencieux).
     tools_allowed: bool = True
 
+    # G2 V1.1 2026-05-18 — Désactivation du thinking mode Gemini 2.5 Pro/Flash
+    # pour les experts où le raisonnement multi-étapes n'apporte pas de
+    # valeur ajoutée (cooking : recette = formatage de contenu RAG, pas
+    # de raisonnement complexe). Réduit la latence first-token de ~20s à
+    # ~3s sur Gemini 2.5 Pro Vertex AI. False par défaut — conservé pour
+    # science/medicine/legal/engineering où le raisonnement profond aide.
+    # Propagé via `request.extra["disable_thinking"]` au provider Gemini.
+    disable_thinking: bool = False
+
     @property
     def full_chain(self) -> tuple[tuple[str, str], ...]:
         """Chaîne complète primaire + fallbacks, dans l'ordre de priorité."""
@@ -511,12 +520,19 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         display_name="Expert Cuisine & Vie Quotidienne",
         is_coming_soon=False,
         primary_provider="gemini",
-        # G2 — bascule Pro pour ancrer les recettes camerounaises propriétaires
-        # injectées via RAG (corpus `expert_corpus_chunks` slug `cooking`).
-        # Pro raisonne mieux sur la traçabilité ingrédients/étapes et respecte
-        # les extraits framés D5 ; Flash hallucinait davantage les régions.
-        primary_model="gemini-2.5-pro",
-        fallback_chain=(_GEMINI_FLASH,),
+        # G2 V1.1 2026-05-18 — Bascule Flash après benchmark latence :
+        # - Pro+thinking : TTFT 19,5 s + réponse 1216 chars (thinking
+        #   consomme le budget output, réponses tronquées)
+        # - Flash+thinking : TTFT 12,2 s + réponse 1480 chars
+        # - **Flash sans thinking : TTFT 8,8 s + réponse 6505 chars** ✅
+        # Le format recette (titre + ingrédients + étapes numérotées)
+        # est du formatage de contenu RAG, pas du raisonnement multi-
+        # étapes complexe. Flash sans thinking est objectivement supérieur
+        # pour ce use case : 2,2× plus rapide ET 5× plus riche en sortie.
+        # Pro reste fallback si Flash échoue. Mesure et décision dans
+        # CLAUDE.md §15 entrée 2026-05-18.
+        primary_model="gemini-2.5-flash",
+        fallback_chain=(_GEMINI_PRO,),
         system_prompt=_COOKING_PROMPT,
         # 0.5 < 0.7 : corpus présent → on veut que le modèle exploite les
         # extraits plutôt que d'inventer une variante créative.
@@ -529,6 +545,11 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         # G2 ON — corpus de ~100 recettes camerounaises propriétaires
         # (livres Loth Ivan / Nexyalabs, owner traçé pour AI Act Article 13).
         corpus_enabled=True,
+        # G2 V1.1 — Thinking désactivé (latence ~20s -> ~3s sur Pro Vertex,
+        # qualité préservée car format recette = formatage de contenu RAG
+        # pas de raisonnement multi-étapes complexe). Mesure et décision
+        # documentées dans CLAUDE.md §15 entrée 2026-05-18.
+        disable_thinking=True,
     ),
     # ─── Bientôt disponible ────────────────────────────────────────
     "studio": ExpertConfig(
