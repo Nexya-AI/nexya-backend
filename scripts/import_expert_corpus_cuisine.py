@@ -63,7 +63,7 @@ from typing import Any
 
 import structlog
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.ai.embeddings import (
@@ -138,21 +138,75 @@ _REGION_PATTERNS: tuple[tuple[str, str], ...] = (
 )
 
 # Mots-clés de catégorie (auto-détection sur titre).
+#
+# ⚠️ PRIORITÉ HIÉRARCHISÉE (ordre crucial) — refonte G2 V8 :
+#
+# 1. **`astuce`** d'abord (titre « Comment X », « Astuce X ») — un titre
+#    qui commence par "Comment" est forcément une astuce, pas une recette.
+# 2. **`plat_principal`** explicite — protéines (porc, poulet, poisson,
+#    bœuf, mouton, gibier, crevettes, etc.) en mode "plat principal". Ce
+#    pattern doit matcher AVANT `epice` pour éviter que "Mbongo Tchobi
+#    (Poisson)" soit classé "épice" parce que "mbongo" est dans la liste.
+# 3. **`entree`** — salade, macédoine, entrée.
+# 4. **`patisserie`** — desserts, gâteaux, beignets, koki (gâteau cornille).
+# 5. **`boisson`** — boissons STRICTES (jus, vin, bissap, matango, folere).
+#    "lait" RETIRÉ car ambigu (Lait de Coco = ingrédient, pas boisson).
+# 6. **`sauce`** — UNIQUEMENT si "sauce" est le PREMIER MOT du titre,
+#    sinon "X Sauce Y" (ex: "Crevettes Sauce Tomate") doit rester plat.
+# 7. **`accompagnement`** — féculents (foufou, plantain, manioc, igname,
+#    macabo, riz, patate, gari, tapioca seul) y compris bouillis.
+# 8. **`epice`** — ÉPICES SEULES (titre = 1-2 mots maximum identifiés
+#    comme épice). Le pattern strict évite les faux positifs sur des
+#    plats composés.
+# 9. **Default `plat_principal`** si rien ne match.
+
 _CATEGORY_PATTERNS: tuple[tuple[str, str], ...] = (
-    (r"\b(salade|entr[ée]e|spaghetti sauce avocat)\b", "entree"),
+    # 1. Astuce — priorité absolue (titre méta)
+    (r"^(comment|astuce|conseil|truc|secret)\b", "astuce"),
+    # 2. Plat principal — protéines + plats festifs
+    # NB : `sauce arachide` retiré de la liste car « Sauce Arachide » seul
+    # est ambigu (sauce vs plat) — on laisse `^sauce\b` (pattern 6) gagner.
     (
-        r"\b(g[âa]teau|bonbon|cr[êe]pe|pancake|madeleine|sabl[ée]|kossam|biscotte|croquette|caramel|cr[èe]me p[âa]tissi[èe]re)\b",
+        r"\b(porc|poulet|poisson|b[œo]euf|viande|mouton|gibier|crevettes?|"
+        r"sardine|escargot|chenille|crabe|herisson|vipere|ndomba|"
+        r"poulet dg|dg|jollof|riz jollof|sanga|brais[ée]|r[ôo]ti|"
+        r"au gibier|aux crevettes|aux \w+)\b",
+        "plat_principal",
+    ),
+    # 3. Entrée — salades + entrées légères
+    (
+        r"\b(salade|entr[ée]e|spaghetti sauce avocat|mac[ée]doine)\b",
+        "entree",
+    ),
+    # 4. Pâtisserie — desserts, gâteaux, beignets
+    (
+        r"\b(g[âa]teau|gateau|bonbon|cr[êe]pe|pancake|madeleine|sabl[ée]|"
+        r"biscotte|croquette|caramel|cr[èe]me p[âa]tissi[èe]re|beignet|"
+        r"beignets|koki|met de pistache|assok bitetam)\b",
         "patisserie",
     ),
-    (r"\b(jus|vin|bissap|matango|lait|kossam|folere)\b", "boisson"),
-    (r"\b(beignet|beignets)\b", "patisserie"),
-    (r"\b(sauce)\b", "sauce"),
+    # 5. Boisson — boissons strictes uniquement
     (
-        r"\b(foufou|b[âa]ton de manioc|kwacoco|miondos|water fufu|plantain|patate|igname|tappe|riz$|chips|frites|chikwangue|mbon lep|ntouba)\b",
+        r"\b(jus|vin|bissap|matango|folere|kossam|tisane|infusion|"
+        r"bi[èe]re|smoothie)\b",
+        "boisson",
+    ),
+    # 6. Sauce — UNIQUEMENT si "sauce" est en début de titre (pas "X Sauce Y")
+    (r"^sauce\b", "sauce"),
+    # 7. Accompagnement — féculents
+    (
+        r"\b(foufou|b[âa]ton de manioc|kwacoco|miondos|water fufu|plantain|"
+        r"patate|igname|tappe|tape de plantain|chips|frites|chikwangue|"
+        r"mbon lep|ntouba|manioc bouilli|pommes de terre bouillies|"
+        r"pile de plantains?|pile de pommes|tapioca saut[ée]|gari|macabo)\b",
         "accompagnement",
     ),
-    (r"\b(p[èe]b[èe]|hiomi|djansang|mbongo|aneth|anis|persil|thym)\b", "epice"),
-    (r"\b(comment|astuce)\b", "astuce"),
+    # 8. Épice — épices seules (titre court 1-3 mots)
+    (
+        r"^(p[èe]b[èe]|djansang|d?jansang|mbongo|hiomi|aneth|anis|persil|"
+        r"thym|odjom|kwa ni ndong)$",
+        "epice",
+    ),
 )
 
 # Titres décoratifs reconnus (à ne PAS prendre comme nom de recette).
@@ -675,12 +729,21 @@ def _detect_region(text: str) -> str | None:
 
 
 def _detect_category(name: str, body: str) -> str:
-    """Auto-détection catégorie depuis le titre (priorité) puis le body."""
+    """Auto-détection catégorie depuis le titre (priorité absolue) puis
+    le body (fallback uniquement si le titre n'a rien matché).
+
+    Refonte G2 V8 : la priorité TITRE est désormais stricte pour éviter
+    qu'un mot ambigu dans le body (« poulet » dans une description
+    culturelle) déclasse une recette correctement nommée.
+    """
     name_lower = (name or "").lower()
-    body_head = (body or "")[:500].lower()
+    # Passe 1 — TITRE en priorité absolue (haut signal)
     for pattern, category in _CATEGORY_PATTERNS:
         if re.search(pattern, name_lower, flags=re.IGNORECASE):
             return category
+    # Passe 2 — BODY en fallback (uniquement si rien dans titre)
+    body_head = (body or "")[:500].lower()
+    for pattern, category in _CATEGORY_PATTERNS:
         if re.search(pattern, body_head, flags=re.IGNORECASE):
             return category
     return "plat_principal"
@@ -954,6 +1017,110 @@ _TRUNCATED_TITLE_TAIL_RE = re.compile(
     flags=re.IGNORECASE,
 )
 
+# Lettre seule majuscule isolée en fin de titre — signe d'une coupure
+# au milieu d'un mot par pymupdf. Ex: « Preparatio N » = « Preparation »
+# où le « N » est resté orphelin sur la ligne suivante du PDF.
+_TRUNCATED_LETTER_TAIL_RE = re.compile(r"\s+[A-Z]\s*$")
+
+
+# ══════════════════════════════════════════════════════════════
+# Filtre déchets — titres méta / chapitres / fragments
+# ══════════════════════════════════════════════════════════════
+#
+# Refonte G2 V8 : 10-12 chunks "déchets" étaient acceptés à tort (titres
+# de chapitre, fragments minuscules, titres orphelins type "Ingredients"
+# ou "Owondo)"). On les filtre EN AMONT de l'extraction structurée pour
+# garder un corpus propre.
+
+# Titres méta connus (chapitres, sommaires, références internes du livre).
+_TRASH_KNOWN_TITLES = frozenset(
+    {
+        # Sous-sections orphelines (au cas où l'orphan-merge n'aurait pas
+        # joué — défense en profondeur)
+        "INGREDIENTS",
+        "INGRÉDIENTS",
+        "PREPARATION",
+        "PRÉPARATION",
+        "METHODE",
+        "MÉTHODE",
+        "ETAPES",
+        "ÉTAPES",
+        # Titres de chapitres
+        "LES COMPLEMENTS",
+        "LES COMPLÉMENTS",
+        "TENUE MILLITAIRE",  # typo sommaire vol 1.2
+        "TENUE MILITAIRE",
+        "PÂTISSERIES ET VIENOISERIES",  # typo livre
+        "PATISSERIES ET VIENOISERIES",
+        "PATISSERIES ET VIENNOISERIES",
+        # Références internes
+        "VOIR RECETTE DU MINTUMBA",
+    }
+)
+
+# Fragment commençant par caractère minuscule (phrase incomplète, pas un titre).
+_TRASH_LOWERCASE_START_RE = re.compile(r"^[a-zà-ÿ]")
+
+# Titre dupliqué pymupdf — exige >= 2 MOTS dans le motif dupliqué pour
+# éviter les faux positifs sur les noms typiques camerounais à
+# répétition intentionnelle (« Njama Njama », « Kati Kati », « Kelen
+# Kelen », « Pili Pili », « Eru Eru »). Vrai cas pathologique :
+# « SAUCE TOMATE AUX Sauce Tomate Aux » (motif = 3 mots).
+_TRASH_DUPLICATED_TITLE_RE = re.compile(
+    r"^(\S+\s+\S+(?:\s+\S+)*?)\s+\1\s*$", flags=re.IGNORECASE
+)
+
+
+def _is_trash_title(title: str) -> bool:
+    """True si le titre est un déchet à filtrer avant l'étape extraction.
+
+    Stratégie en 5 passes :
+    1. Vide ou < 3 chars (3 chars min pour préserver les recettes
+       à nom court typiques africaines comme « ERU »).
+    2. Titre méta connu (chapitre, sommaire, référence interne).
+    3. Fragment commençant par minuscule (« la pâte », « est assaisonné… »).
+    4. Parenthèses déséquilibrées (« Owondo) » seul).
+    5. Titre dupliqué avec motif >= 2 mots (« SAUCE TOMATE AUX Sauce
+       Tomate Aux ») — exclut les vraies recettes à nom répété
+       (« Njama Njama »).
+    """
+    if not title:
+        return True
+    t = title.strip()
+    if len(t) < 3:
+        return True
+    if t.upper() in _TRASH_KNOWN_TITLES:
+        return True
+    if _TRASH_LOWERCASE_START_RE.match(t):
+        return True
+    if t.count("(") != t.count(")"):
+        return True
+    if _TRASH_DUPLICATED_TITLE_RE.match(t):
+        return True
+    return False
+
+
+def _strip_retitled_header_from_body(body: str, appended_part: str) -> str:
+    """Si le retitling a joint `appended_part` (ex: « BONNE VIANDE ») au
+    titre, on retire cette ligne du body pour éviter qu'elle réapparaisse
+    en `step[0]` ou pollue la description.
+
+    Retourne le body sans la ligne supprimée (1ère occurrence uniquement).
+    """
+    if not body or not appended_part:
+        return body
+    needle = appended_part.strip().upper()
+    if not needle:
+        return body
+    new_lines: list[str] = []
+    removed = False
+    for line in body.splitlines():
+        if not removed and line.strip().upper() == needle:
+            removed = True
+            continue
+        new_lines.append(line)
+    return "\n".join(new_lines)
+
 
 def _maybe_retitle_truncated(title: str, body: str) -> str:
     """Tente de compléter un titre tronqué par pymupdf en joignant la
@@ -973,8 +1140,9 @@ def _maybe_retitle_truncated(title: str, body: str) -> str:
     if not title:
         return title
     has_truncated_tail = bool(_TRUNCATED_TITLE_TAIL_RE.search(title))
+    has_letter_tail = bool(_TRUNCATED_LETTER_TAIL_RE.search(title))
     starts_with_comment = bool(re.match(r"^\s*comment\b", title, flags=re.IGNORECASE))
-    if not has_truncated_tail and not starts_with_comment:
+    if not has_truncated_tail and not has_letter_tail and not starts_with_comment:
         return title
     for raw in body.splitlines()[:5]:
         line = raw.strip()
@@ -1076,8 +1244,14 @@ def parse_master_file(path: Path, source_book: str) -> ParseResult:
         # Étape 3.bis — Retitling de titre tronqué (« Comment Reconnaitre
         # Une » → « Comment Reconnaitre Une Bonne Viande »). Joint la
         # première ligne MAJUSCULES du body si le titre actuel finit par
-        # un déterminant orphelin.
+        # un déterminant orphelin OU une lettre seule isolée (« Preparatio N »).
+        # Si on a joint « BONNE VIANDE » au titre, on retire cette ligne
+        # du body pour éviter qu'elle ne réapparaisse en `step[0]` (P2.1).
+        _old_title = effective_title
         effective_title = _maybe_retitle_truncated(effective_title, body)
+        if effective_title != _old_title:
+            _appended = effective_title[len(_old_title):].strip()
+            body = _strip_retitled_header_from_body(body, _appended)
 
         # Garde-fou : titre vraiment trop court / vide
         if not effective_title or len(effective_title.strip()) < 3:
@@ -1087,6 +1261,23 @@ def parse_master_file(path: Path, source_book: str) -> ParseResult:
                     section_index=idx,
                     raw_title=raw_title,
                     reason="empty_title",
+                    raw_excerpt=excerpt,
+                )
+            )
+            continue
+
+        # Étape 3.ter — Filtre déchets (titres méta, fragments, doublons)
+        # introduit G2 V8 après audit qualité des 117 chunks ingérés qui
+        # a révélé ~10-12 entrées "déchets" (chapitres, fragments minuscules,
+        # parenthèses déséquilibrées, titres dupliqués pymupdf).
+        if _is_trash_title(effective_title):
+            result.rejected.append(
+                RejectionReport(
+                    source_book=source_book,
+                    section_index=idx,
+                    raw_title=effective_title,
+                    reason="trash_title",
+                    detail="Titre déchet : chapitre méta / fragment / doublon",
                     raw_excerpt=excerpt,
                 )
             )
@@ -1263,6 +1454,97 @@ def _titleize(name: str) -> str:
 # ══════════════════════════════════════════════════════════════
 # Génération du contenu RAG framé
 # ══════════════════════════════════════════════════════════════
+
+
+def _chunk_rag_content(content: str, max_chars: int = 1800) -> list[str]:
+    """Découpe un content RAG en N chunks autonomes de <= max_chars chars.
+
+    G2 V8 : remplace la troncature silencieuse pour les 34 recettes
+    longues (Lait De Coco 24k chars, Pâtisseries 20k, Gâteau Yaourt 7k,
+    etc.). Chaque chunk garde le **header recette** (Recette/Astuce +
+    Région + Catégorie) pour rester sémantiquement complet du point de
+    vue du retrieval pgvector — un user qui pose la question retrouvera
+    le bon plat même si seul un des N chunks est le plus pertinent.
+
+    Stratégie :
+    1. Si content <= max_chars : un seul chunk identique (no-op).
+    2. Extraire le header (jusqu'à la première blank line après
+       `[Catégorie]`). Ce header est répliqué dans chaque chunk.
+    3. Splitter le body par paragraphes (`\\n\\n`).
+    4. Accumuler les paragraphes jusqu'à approcher max_chars.
+    5. Si un paragraphe seul dépasse max_chars - header, le couper
+       brutalement (cas pathologique rare type bloc fusionné géant).
+    6. Si plus d'1 chunk, préfixer `[Partie N/Total]` au header pour
+       que le LLM sache que c'est un fragment.
+    """
+    if len(content) <= max_chars:
+        return [content]
+
+    lines = content.split("\n")
+    header_lines: list[str] = []
+    body_start_idx = 0
+    for i, line in enumerate(lines):
+        header_lines.append(line)
+        if line.strip() == "" and i > 0:
+            body_start_idx = i + 1
+            break
+    if body_start_idx == 0:
+        # Header non trouvé (content malformé) — fallback troncature simple
+        return [content[: max_chars - 3] + "..."]
+
+    header = "\n".join(header_lines).rstrip() + "\n\n"
+    # Réservation pour le marker `[Partie 99/99]\n` ajouté après chunking.
+    # 25 chars couvrent jusqu'à 99 parts (tous les cas réalistes).
+    _MARKER_RESERVE = 25
+    if len(header) + _MARKER_RESERVE >= max_chars - 50:
+        # Pathologique : header + marker approche le cap → on tronque
+        return [content[: max_chars - 3] + "..."]
+
+    body_after_header = "\n".join(lines[body_start_idx:])
+    paragraphs = [p.strip() for p in body_after_header.split("\n\n") if p.strip()]
+
+    chunks: list[str] = []
+    current_parts: list[str] = []
+    current_size = len(header) + _MARKER_RESERVE
+    # Taille max paragraphe = max - (header + marker + séparateur \n\n)
+    max_para_size = max_chars - len(header) - _MARKER_RESERVE - 4
+    effective_max = max_chars - _MARKER_RESERVE
+
+    def _flush() -> None:
+        nonlocal current_parts, current_size
+        if current_parts:
+            body = "\n\n".join(current_parts)
+            chunks.append(header + body)
+            current_parts = []
+            current_size = len(header) + _MARKER_RESERVE
+
+    for para in paragraphs:
+        if len(para) > max_para_size:
+            # Paragraphe géant — flush l'accumulé puis coupe brutalement
+            _flush()
+            for start in range(0, len(para), max_para_size):
+                slice_ = para[start : start + max_para_size]
+                chunks.append(header + slice_)
+            continue
+        added_size = len(para) + 4  # +4 pour le séparateur \n\n
+        if current_size + added_size > effective_max and current_parts:
+            _flush()
+        current_parts.append(para)
+        current_size += added_size
+    _flush()
+
+    if len(chunks) <= 1:
+        return chunks if chunks else [content[: max_chars - 3] + "..."]
+
+    # Préfixer chaque chunk avec [Partie N/Total]
+    total = len(chunks)
+    header_stripped = header.rstrip("\n")
+    annotated_chunks: list[str] = []
+    for i, c in enumerate(chunks, start=1):
+        marker = f"[Partie {i}/{total}]"
+        new_header = f"{header_stripped}\n{marker}\n\n"
+        annotated_chunks.append(c.replace(header, new_header, 1))
+    return annotated_chunks
 
 
 def _build_rag_content(recipe: RecipeCanonical) -> str:
@@ -1579,10 +1861,39 @@ async def _ingest_canonicals(
         except Exception as exc:  # noqa: BLE001
             log.warning("cuisine.ingest.canonical_load_failed", path=path.name, error=str(exc))
 
-    # Batch loop
-    for batch_start in range(0, len(recipes), batch_size):
-        batch = recipes[batch_start : batch_start + batch_size]
-        contents = [_build_rag_content(r) for r in batch]
+    # Cap pratique du provider Gemini text-embedding (2048 chars). On
+    # cap à 1800 pour garder une marge sécurité confortable.
+    # G2 V8 : remplacement de la troncature silencieuse par un CHUNKING
+    # par paragraphe via `_chunk_rag_content()`. Les recettes longues
+    # (Lait De Coco 24k, Pâtisseries 20k, Gâteau Yaourt 7k, etc. — 29 %
+    # du corpus) deviennent N chunks autonomes (1 header recette répliqué
+    # + N paragraphes). Chaque chunk reste retrouvable au retrieval.
+    EMBED_TEXT_CAP = 1800
+
+    # Étape pré-batch : génère TOUS les chunks pour TOUTES les recettes,
+    # puis batche par chunk (et pas par recette) — important car une
+    # recette peut générer 1-13 chunks et il faut respecter le batch_size
+    # du provider Vertex AI.
+    all_chunks: list[tuple[RecipeCanonical, int, int, str]] = []
+    for recipe in recipes:
+        full_content = _build_rag_content(recipe)
+        recipe_chunks = _chunk_rag_content(full_content, max_chars=EMBED_TEXT_CAP)
+        chunk_total = len(recipe_chunks)
+        for chunk_idx, chunk_content in enumerate(recipe_chunks):
+            all_chunks.append((recipe, chunk_idx, chunk_total, chunk_content))
+
+    log.info(
+        "cuisine.ingest.chunked",
+        recipes=len(recipes),
+        chunks_total=len(all_chunks),
+        chunks_avg_per_recipe=round(len(all_chunks) / max(1, len(recipes)), 2),
+        multi_chunk_recipes=sum(1 for c in all_chunks if c[2] > 1) // max(1, max((c[2] for c in all_chunks), default=1)),
+    )
+
+    # Batch loop sur les CHUNKS (pas sur les recettes)
+    for batch_start in range(0, len(all_chunks), batch_size):
+        batch_chunks = all_chunks[batch_start : batch_start + batch_size]
+        contents = [c[3] for c in batch_chunks]
         shas = [hashlib.sha256(c.encode("utf-8")).hexdigest() for c in contents]
         vectors = await _embed_with_retry(provider, contents, task_type="RETRIEVAL_DOCUMENT")
         if len(vectors) != len(contents):
@@ -1610,24 +1921,48 @@ async def _ingest_canonicals(
                     "section_index": recipe.source.section_index,
                     "n_ingredients": len(recipe.ingredients),
                     "n_steps": len(recipe.steps),
+                    "chunk_index": chunk_idx,
+                    "chunk_total": chunk_total,
                 },
                 "created_at": now,
             }
-            for recipe, content, sha, vec in zip(batch, contents, shas, vectors, strict=True)
+            for (recipe, chunk_idx, chunk_total, content), sha, vec in zip(
+                batch_chunks, shas, vectors, strict=True
+            )
         ]
 
         async with AsyncSessionLocal() as db:
+            # Compteur précis : `result.rowcount` retourne `-1` avec
+            # certains drivers psycopg sur `ON CONFLICT DO NOTHING` quand
+            # le driver ne peut pas savoir combien de lignes ont vraiment
+            # été insérées. On compte AVANT et APRÈS via un `SELECT
+            # COUNT(*)` pour obtenir le vrai delta — coût négligeable
+            # (~1ms) vs le batch embed (~secondes).
+            count_before_row = await db.execute(
+                text(
+                    "SELECT COUNT(*) FROM expert_corpus_chunks "
+                    "WHERE expert_slug = :slug"
+                ).bindparams(slug=EXPERT_SLUG)
+            )
+            count_before = int(count_before_row.scalar_one())
             stmt = pg_insert(ExpertCorpusChunk.__table__).values(rows)
             stmt = stmt.on_conflict_do_nothing(
                 index_elements=["expert_slug", "content_sha256"]
             )
-            result = await db.execute(stmt)
+            await db.execute(stmt)
             await db.commit()
-            inserted = result.rowcount or 0
+            count_after_row = await db.execute(
+                text(
+                    "SELECT COUNT(*) FROM expert_corpus_chunks "
+                    "WHERE expert_slug = :slug"
+                ).bindparams(slug=EXPERT_SLUG)
+            )
+            count_after = int(count_after_row.scalar_one())
+            inserted = max(0, count_after - count_before)
 
-        total_seen += len(batch)
+        total_seen += len(batch_chunks)
         total_inserted += inserted
-        if total_seen % PROGRESS_EVERY == 0 or total_seen == len(recipes):
+        if total_seen % PROGRESS_EVERY == 0 or total_seen == len(all_chunks):
             elapsed = time.monotonic() - started
             log.info(
                 "cuisine.ingest.progress",
