@@ -311,6 +311,16 @@ def render_report(verdicts: list[tuple[Question, JudgeVerdict]], out_path: Path)
 async def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--question-id",
+        type=str,
+        default=None,
+        help=(
+            "Ne tester qu'une question spécifique par son id (ex: "
+            "`daily_16_substitution`). Utile pour mesurer rapidement "
+            "l'effet d'un fix prompt sans relancer les 30 questions."
+        ),
+    )
     parser.add_argument("--no-report", action="store_true")
     args = parser.parse_args(argv)
 
@@ -328,7 +338,16 @@ async def main(argv: list[str] | None = None) -> int:
 
     questions_path = Path(__file__).parent / "questions.yaml"
     questions = load_questions(questions_path)
-    if args.limit:
+    if args.question_id:
+        questions = [q for q in questions if q.id == args.question_id]
+        if not questions:
+            print(
+                f"ERROR: question_id={args.question_id!r} non trouvée dans "
+                f"questions.yaml.",
+                file=sys.stderr,
+            )
+            return 2
+    elif args.limit:
         questions = questions[: args.limit]
 
     from app.ai.embeddings import get_embeddings_provider
