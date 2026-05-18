@@ -162,13 +162,24 @@ def test_other_experts_corpus_disabled() -> None:
 
 
 def test_cooking_expert_corpus_enabled_post_g2() -> None:
-    """Invariant G2 : l'expert `cooking` a `corpus_enabled=True` + bascule Pro."""
+    """Invariant G2 V1.1 : l'expert `cooking` a `corpus_enabled=True`,
+    bascule Flash (latence) + disable_thinking + Pro en fallback."""
     cfg = get_expert_config("cooking")
     assert cfg.corpus_enabled is True
     assert cfg.expert_id == "cooking"
-    assert cfg.primary_model == "gemini-2.5-pro", (
-        "G2 ancre le RAG sur Pro pour traçabilité des recettes camerounaises."
+    # G2 V1.1 2026-05-18 — bascule Flash après benchmark latence
+    # (Pro+thinking TTFT 19.5s -> Flash sans thinking TTFT 8.8s, et
+    # réponse 5x plus riche car le thinking ne consomme plus le budget
+    # output). Voir CLAUDE.md §15 entrée 2026-05-18 + commit historique.
+    assert cfg.primary_model == "gemini-2.5-flash", (
+        "G2 V1.1 bascule cooking sur Flash sans thinking (latence + qualité)."
     )
+    assert cfg.disable_thinking is True, (
+        "G2 V1.1 thinking désactivé sur cooking (recette = formatage RAG,"
+        " pas raisonnement multi-étapes)."
+    )
+    # Pro reste en fallback si Flash échoue
+    assert ("gemini", "gemini-2.5-pro") in cfg.fallback_chain
     assert cfg.tier == "pro"
     assert cfg.max_tokens == 4096
 
