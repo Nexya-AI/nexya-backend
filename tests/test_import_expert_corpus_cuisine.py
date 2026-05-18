@@ -34,6 +34,7 @@ from scripts.import_expert_corpus_cuisine import (
     SourceMetadata,
     _body_has_recipe_structure,
     _build_rag_content,
+    _chunk_rag_content,
     _detect_category,
     _detect_region,
     _embed_with_retry,
@@ -45,6 +46,7 @@ from scripts.import_expert_corpus_cuisine import (
     _is_decorative_title,
     _is_orphan_heading,
     _is_summary_block,
+    _is_trash_title,
     _maybe_retitle_truncated,
     _normalize_bullets,
     _parse_args,
@@ -52,6 +54,7 @@ from scripts.import_expert_corpus_cuisine import (
     _split_master_into_blocks,
     _split_sections,
     _strip_footers,
+    _strip_retitled_header_from_body,
     _titleize,
     parse_master_file,
 )
@@ -696,6 +699,218 @@ def test_maybe_retitle_truncated_unchanged_for_complete_title() -> None:
 def test_maybe_retitle_truncated_handles_empty() -> None:
     assert _maybe_retitle_truncated("", "BONNE VIANDE") == ""
     assert _maybe_retitle_truncated("Comment Une", "") == "Comment Une"
+
+
+def test_maybe_retitle_truncated_handles_isolated_letter_tail() -> None:
+    """G2 V8 : titre tronqué au milieu d'un mot (« Preparatio N » =
+    « Preparation » coupé) → joindre avec premiere ligne MAJUSCULES."""
+    title = "Preparatio N"
+    body = "VINAIGRETTE\n\n- Dans un bol, versez le vinaigre..."
+    out = _maybe_retitle_truncated(title, body)
+    assert "Vinaigrette" in out
+
+
+# ══════════════════════════════════════════════════════════════
+# _strip_retitled_header_from_body (G2 V8)
+# ══════════════════════════════════════════════════════════════
+
+
+def test_strip_retitled_header_removes_first_occurrence() -> None:
+    """Si retitling a ajouté « BONNE VIANDE » au titre, on retire la
+    ligne « BONNE VIANDE » du body pour éviter step[0]=« BONNE VIANDE »."""
+    body = "BONNE VIANDE\n\n- La couleur de la viande...\n- L'odeur..."
+    cleaned = _strip_retitled_header_from_body(body, "Bonne Viande")
+    assert "BONNE VIANDE" not in cleaned
+    assert "- La couleur de la viande" in cleaned
+
+
+def test_strip_retitled_header_case_insensitive() -> None:
+    """Comparaison MAJUSCULES indépendamment de la casse du `appended_part`."""
+    body = "POISSON FRAIS\nIngrédients..."
+    cleaned = _strip_retitled_header_from_body(body, "poisson frais")
+    assert "POISSON FRAIS" not in cleaned
+
+
+def test_strip_retitled_header_handles_empty_inputs() -> None:
+    assert _strip_retitled_header_from_body("", "BONNE VIANDE") == ""
+    assert _strip_retitled_header_from_body("body", "") == "body"
+
+
+# ══════════════════════════════════════════════════════════════
+# _is_trash_title (G2 V8)
+# ══════════════════════════════════════════════════════════════
+
+
+def test_is_trash_title_known_meta_titles() -> None:
+    """Titres méta connus (chapitres, sommaires) → déchet."""
+    for title in (
+        "INGREDIENTS",
+        "Préparation",
+        "LES COMPLEMENTS",
+        "TENUE MILITAIRE",
+        "Pâtisseries Et Vienoiseries",
+        "Voir Recette Du Mintumba",
+    ):
+        assert _is_trash_title(title) is True, f"{title!r} devrait être déchet"
+
+
+def test_is_trash_title_short_titles() -> None:
+    """Titre < 3 chars → déchet (3 chars min pour préserver noms africains courts)."""
+    assert _is_trash_title("") is True
+    assert _is_trash_title("ab") is True
+    assert _is_trash_title("   ") is True
+    # 3 chars OK (ERU, KOO, etc.)
+    assert _is_trash_title("Eru") is False
+    assert _is_trash_title("ERU") is False
+
+
+def test_is_trash_title_african_repeated_names_not_trash() -> None:
+    """Noms camerounais à répétition intentionnelle → PAS déchet
+    (Njama Njama, Kati Kati, Kelen Kelen, Pili Pili sont des vraies recettes)."""
+    for title in (
+        "Njama Njama",
+        "Kati Kati",
+        "Kelen Kelen",
+        "Pili Pili",
+        "NJAMA NJAMA",
+        "Mbongo Mbongo",  # variante théorique
+    ):
+        assert _is_trash_title(title) is False, f"{title!r} ne devrait PAS être déchet"
+
+
+def test_is_trash_title_lowercase_start_fragment() -> None:
+    """Fragment minuscule (« la pâte », « les boulettes ») → déchet."""
+    assert _is_trash_title("la pâte") is True
+    assert _is_trash_title("les boulettes") is True
+    assert _is_trash_title("est assaisonné avec douze condiments") is True
+
+
+def test_is_trash_title_unbalanced_parens() -> None:
+    """Parenthèses déséquilibrées (« Owondo) ») → déchet."""
+    assert _is_trash_title("Owondo)") is True
+    assert _is_trash_title("(en Boulou Owondo") is True
+
+
+def test_is_trash_title_duplicated_title() -> None:
+    """Titre dupliqué (« SAUCE TOMATE AUX Sauce Tomate Aux ») → déchet."""
+    assert _is_trash_title("SAUCE TOMATE AUX Sauce Tomate Aux") is True
+
+
+def test_is_trash_title_valid_recipe_names_not_trash() -> None:
+    """Vrais noms de recettes → PAS déchet."""
+    for title in (
+        "Ndolé Aux Crevettes",
+        "Pepper Soup",
+        "Poulet DG",
+        "Comment Reconnaitre Une Bonne Viande",
+        "Pebe",  # 4 chars exactement, OK
+    ):
+        assert _is_trash_title(title) is False, f"{title!r} ne devrait PAS être déchet"
+
+
+# ══════════════════════════════════════════════════════════════
+# _detect_category (G2 V8 refonte par priorité)
+# ══════════════════════════════════════════════════════════════
+
+
+def test_detect_category_plats_avec_proteines_priorite_plat() -> None:
+    """Refonte V8 : `plat_principal` matche AVANT `epice` sur les
+    plats à base d'épice (Mbongo Tchobi = plat, pas une épice)."""
+    assert _detect_category("Mbongo Tchobi (Poisson)", "") == "plat_principal"
+    assert _detect_category("Poulet Braise", "") == "plat_principal"
+    assert _detect_category("Pepper Soup", "") == "plat_principal"
+    assert _detect_category("Spaghettis Sautes A La Sardine", "") == "plat_principal"
+
+
+def test_detect_category_boisson_pas_lait_de_coco() -> None:
+    """Refonte V8 : `lait` retiré de la liste boisson → « Lait De Coco »
+    n'est plus boisson (fallback plat_principal ou autre selon body)."""
+    assert _detect_category("Lait De Coco", "") != "boisson"
+
+
+def test_detect_category_boisson_strictement_boissons() -> None:
+    """Refonte V8 : seules les vraies boissons matchent."""
+    assert _detect_category("Jus de Bissap", "") == "boisson"
+    assert _detect_category("Folere", "") == "boisson"
+    assert _detect_category("Matango", "") == "boisson"
+
+
+def test_detect_category_sauce_premier_mot_seulement() -> None:
+    """Refonte V8 : `^sauce\\b` matche UNIQUEMENT « Sauce X », pas « X Sauce Y »."""
+    assert _detect_category("Sauce Arachide", "") == "sauce"
+    assert _detect_category("Sauce Pistache", "") == "sauce"
+    # « X Sauce Y » → pas sauce (devient plat_principal via le pattern proteine)
+    cat = _detect_category("Crevettes Sauce Tomate", "")
+    assert cat == "plat_principal"  # car "crevettes" match le pattern proteine
+
+
+def test_detect_category_astuce_comment_prefix() -> None:
+    """Refonte V8 : `^(comment|astuce)` priorité absolue."""
+    assert _detect_category("Comment Reconnaitre Une Bonne Viande", "") == "astuce"
+    assert _detect_category("Astuce du Chef", "") == "astuce"
+
+
+def test_detect_category_accompagnement_feculents() -> None:
+    """Refonte V8 : féculents bouillis/frits → accompagnement."""
+    assert _detect_category("Manioc Bouilli", "") == "accompagnement"
+    assert _detect_category("Pommes De Terre Bouillies", "") == "accompagnement"
+    assert _detect_category("Plantain Bouilli", "") == "accompagnement"
+    assert _detect_category("Foufou Manioc", "") == "accompagnement"
+
+
+def test_detect_category_default_plat_principal() -> None:
+    assert _detect_category("Recette Inconnue", "body neutre") == "plat_principal"
+
+
+# ══════════════════════════════════════════════════════════════
+# _chunk_rag_content (G2 V8 chunking par paragraphe)
+# ══════════════════════════════════════════════════════════════
+
+
+def test_chunk_rag_content_short_content_no_split() -> None:
+    """Content court (<= max_chars) → 1 seul chunk identique."""
+    short = "[Recette] Foo\n[Région] Cameroun\n[Catégorie] Plat Principal\n\n[Description]\nCourte."
+    chunks = _chunk_rag_content(short, max_chars=1800)
+    assert chunks == [short]
+
+
+def test_chunk_rag_content_long_content_splits_with_header_replication() -> None:
+    """Content long → N chunks, header répliqué dans chaque chunk +
+    marqueur [Partie N/Total]."""
+    header = "[Recette] Mega Plat\n[Région] Cameroun\n[Catégorie] Plat Principal\n\n"
+    body = "\n\n".join(f"Paragraphe {i} " + ("xxx " * 50) for i in range(20))
+    full = header + body
+    assert len(full) > 1800
+    chunks = _chunk_rag_content(full, max_chars=1800)
+    assert len(chunks) >= 2
+    for i, c in enumerate(chunks, start=1):
+        assert "[Recette] Mega Plat" in c
+        assert "[Région] Cameroun" in c
+        assert "[Catégorie] Plat Principal" in c
+        assert f"[Partie {i}/{len(chunks)}]" in c
+        assert len(c) <= 1800
+
+
+def test_chunk_rag_content_giant_paragraph_brutal_cut() -> None:
+    """Paragraphe seul qui dépasse max_chars → coupure brutale en N parts."""
+    header = "[Recette] Test\n[Région] Cameroun\n[Catégorie] Plat Principal\n\n"
+    giant_para = "a" * 5000
+    full = header + giant_para
+    chunks = _chunk_rag_content(full, max_chars=1800)
+    assert len(chunks) >= 2
+    for c in chunks:
+        assert len(c) <= 1800
+
+
+def test_chunk_rag_content_preserves_all_body_content() -> None:
+    """Tous les paragraphes du body doivent être présents dans au moins 1 chunk."""
+    header = "[Recette] Test\n[Région] Cameroun\n[Catégorie] Plat Principal\n\n"
+    body_paras = [f"Paragraphe distinct numero {i}" for i in range(15)]
+    full = header + "\n\n".join(body_paras + ["x " * 200 for _ in range(5)])
+    chunks = _chunk_rag_content(full, max_chars=1000)
+    all_chunks_text = " ".join(chunks)
+    for para in body_paras:
+        assert para in all_chunks_text, f"{para!r} perdu lors du chunking"
 
 
 # ══════════════════════════════════════════════════════════════

@@ -146,7 +146,18 @@ async def test_unsupported_model_override_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_embed_without_api_key_raises_auth_error(monkeypatch) -> None:
-    """Factory passe le Mock quand clé vide, mais si on instancie directement → auth error."""
+    """Factory passe le Mock quand clé vide, mais si on instancie directement → auth error.
+
+    G2 V8 2026-05-18 : on isole explicitement le mode AI Studio en forçant
+    `gemini_use_vertex=False` car certains environnements (poste Ivan post-G2)
+    ont `GEMINI_USE_VERTEX=true` dans le `.env`, ce qui fait que le provider
+    tente d'utiliser Vertex AI + ADC à la place de la clé — l'auth Vertex
+    aboutit et le test ne raise plus. Le test mesure le comportement AI Studio,
+    on doit donc le forcer.
+    """
+    from app.config import settings as app_settings
+
+    monkeypatch.setattr(app_settings, "gemini_use_vertex", False)
     provider = GeminiEmbeddingsProvider(api_key="")
     with pytest.raises(EmbeddingsAuthError):
         await provider.embed(["x"])
