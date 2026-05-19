@@ -480,7 +480,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
     "finance": ExpertConfig(
         expert_id="finance",
         display_name="Expert Finance & Business",
-        is_coming_soon=False,
+        is_coming_soon=True,
         primary_provider="gemini",
         primary_model="gemini-2.5-flash",
         fallback_chain=(_GEMINI_PRO,),
@@ -622,7 +622,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
     "legal": ExpertConfig(
         expert_id="legal",
         display_name="Expert Légal",
-        is_coming_soon=True,
+        is_coming_soon=False,
         primary_provider="gemini",
         primary_model="gemini-2.5-pro",
         fallback_chain=(_GEMINI_FLASH,),
