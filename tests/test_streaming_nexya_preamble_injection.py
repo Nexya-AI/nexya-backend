@@ -269,6 +269,7 @@ async def test_expert_system_prompt_still_present_after_preamble() -> None:
     )
     sp = await _capture_system_prompt(handler, provider, ctx)
     assert sp is not None
-    # `_GENERAL_PROMPT` post-cleanup contient « Rôle : » et « Outils ».
-    assert "Rôle" in sp
-    assert "Outils" in sp or "outils" in sp
+    # Session A2 (2026-05-19) : `_GENERAL_PROMPT` post-refactor contient
+    # `[Persona — Assistant Général NEXYA AI]` et les 4 tools Planner.
+    assert "[Persona" in sp or "Persona" in sp
+    assert "create_task" in sp  # un des 4 tools Planner du general expert
