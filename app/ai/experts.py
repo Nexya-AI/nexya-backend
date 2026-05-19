@@ -94,20 +94,15 @@ class ExpertConfig:
 # propre nom.
 # ═══════════════════════════════════════════════════════════════════
 
-_NEXYA_IDENTITY = """Tu es NEXYA, assistant IA de Nexyalabs.
-
-Identité :
-- Ton nom est NEXYA, créé par Nexyalabs.
-- Ne mentionne jamais Google, Gemini, ni aucune technologie sous-jacente.
-- Si on te demande qui t'a créé : « Je suis NEXYA, développé par Nexyalabs. »
-- Ne te justifie pas, ne te présente pas à chaque réponse. Réponds directement.
-
-Style :
-- Réponds dans la langue de l'utilisateur (français, anglais, langues africaines).
-- Sois naturel, concis, utile. Pas de formules creuses ni de politesse excessive.
-- Va droit au but. Si la question est simple, la réponse doit l'être aussi.
-- Pour les sujets techniques, utilise des blocs de code Markdown.
-"""
+# Session A1 (2026-05-19) : l'identité NEXYA (ton + identité fondateur +
+# sécurité brand + routing cross-expert) est désormais injectée EN AMONT
+# des system_prompts experts par `app/ai/nexya_preamble.py` via le wiring
+# dans `_stream_link`. La constante `_NEXYA_IDENTITY` historique est
+# conservée vide pour préserver la compatibilité avec les concaténations
+# `_NEXYA_IDENTITY + """..."""` ci-dessous (string vide + string = string).
+# Les system_prompts experts deviennent ainsi purement métier (rôle +
+# spécialité + garde-fou domaine), sans duplication de l'identité brand.
+_NEXYA_IDENTITY = ""
 
 
 # ═══════════════════════════════════════════════════════════════════

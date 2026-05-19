@@ -6,6 +6,13 @@ dans le bon ordre avant le system prompt expert, et que le bloc est
 effectivement passé au provider via `ChatCompletionRequest.system_prompt`.
 
 On instancie un `MockChatProvider` et on capture le `system_prompt` reçu.
+
+Session A1 (2026-05-19) — Adaptation post-preamble : ces tests valident
+la logique de concat G1 (memory → corpus → system_prompt expert)
+**indépendamment** du préambule NEXYA injecté en tête par A1. Pour
+préserver l'intent original sans casser sur l'ajout du preamble, on
+désactive `settings.nexya_preamble_enabled` via fixture autouse — la
+chaîne testée devient `memory → corpus → system_prompt expert` strict.
 """
 
 from __future__ import annotations
@@ -19,6 +26,18 @@ from app.ai.providers import (
 )
 from app.ai.router import LlmRouter
 from app.ai.streaming import StreamContext, StreamHandler
+from app.config import settings
+
+
+@pytest.fixture(autouse=True)
+def _disable_nexya_preamble(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Session A1 — désactive le preamble NEXYA pour isoler la concat G1.
+
+    Le preamble est validé par sa propre suite de tests
+    (`test_nexya_preamble.py` + `test_streaming_nexya_preamble_injection.py`).
+    Ici on ne teste QUE l'ordre memory → corpus → system_prompt expert.
+    """
+    monkeypatch.setattr(settings, "nexya_preamble_enabled", False, raising=False)
 
 
 class _FakeRequest:
@@ -78,7 +97,11 @@ async def test_concat_order_memory_then_corpus_then_system() -> None:
     corpus_idx = system_prompt.index("[CORPUS_BLOCK]")
     assert mem_idx < corpus_idx
     # Le system prompt expert doit venir après les deux.
-    expert_marker = "NEXYA"  # présent dans `_NEXYA_IDENTITY`
+    # Session A1 : on cherche un marker spécifique au prompt `language`
+    # (post-cleanup `_NEXYA_IDENTITY=""`, le marker "NEXYA" n'est plus
+    # dans le prompt expert, il vit désormais dans le preamble A1 — ici
+    # désactivé via fixture autouse).
+    expert_marker = "Expert Langues"
     expert_idx = system_prompt.index(expert_marker)
     assert corpus_idx < expert_idx
 
