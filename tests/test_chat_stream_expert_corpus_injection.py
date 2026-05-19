@@ -255,8 +255,12 @@ def test_cooking_corpus_concat_order_memory_corpus_system() -> None:
     assert result is not None
     # Memory en premier (avant corpus)
     assert result.index("[MEMORY]") < result.index("[CORPUS]")
-    # Corpus avant le system prompt expert (qui contient "NEXYA")
-    assert result.index("[CORPUS]") < result.index("NEXYA")
+    # Corpus avant le system prompt expert. Session A1 (2026-05-19) :
+    # post-cleanup `_NEXYA_IDENTITY=""`, le marker "NEXYA" n'apparaît
+    # plus dans le system_prompt expert (il vit dans le preamble A1
+    # injecté en amont par streaming._stream_link). On utilise le marker
+    # spécifique au prompt cooking « Expert Cuisine » qui reste présent.
+    assert result.index("[CORPUS]") < result.index("Expert Cuisine")
 
 
 @pytest.mark.asyncio

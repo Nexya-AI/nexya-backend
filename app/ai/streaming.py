@@ -51,6 +51,7 @@ from app.ai.circuit_breaker import (
 )
 from app.ai.cost_tracker import CostTracker
 from app.ai.engine.session_store import SessionStore
+from app.ai.nexya_preamble import build_nexya_preamble
 from app.ai.observability import StreamMetrics
 from app.ai.providers import (
     ChatChunk,
@@ -545,12 +546,20 @@ class StreamHandler:
             (config.disclaimer + "\n\n") if link_index == 0 and config.disclaimer else ""
         )
 
-        # D3 + G1 + I1 — Injection automatique des blocs contextuels dans
-        # le system prompt LLM.
+        # A1 + D3 + G1 + I1 — Injection automatique des blocs contextuels
+        # dans le system prompt LLM.
         #
-        # Ordre délibéré :
-        #     memory (D3) → expert_corpus (G1) → rag (I1) → system_prompt expert
+        # Ordre délibéré (Session A1, 2026-05-19) :
+        #     nexya_preamble (A1) → memory (D3) → expert_corpus (G1)
+        #     → rag (I1) → system_prompt expert
         #
+        # (0) **NEXYA preamble (A1)** : identité NEXYA + ton conversationnel
+        #     + routing cross-expert. Construit par `build_nexya_preamble`
+        #     (fail-safe absolue, kill-switch `settings.nexya_preamble_enabled`,
+        #     cap chars `settings.nexya_preamble_max_chars`). Vient EN TÊTE
+        #     pour que toute autre information (mémoire, corpus, system
+        #     prompt expert) soit cadrée par le ton + l'identité NEXYA.
+        #     None = preamble désactivé ou erreur fail-safe (chat continue).
         # (1) mémoire d'abord (qui est l'user — préférences, faits durables),
         # (2) corpus spécialisé global (extraits documentaires expert framés
         #     D5, l'instruction anti-injection est déjà contenue dans le
@@ -575,7 +584,10 @@ class StreamHandler:
             framed, instruction = ctx.rag_context
             rag_block = f"{framed}\n\n{instruction}"
 
+        nexya_preamble = build_nexya_preamble(config.expert_id)
+
         parts = [
+            nexya_preamble,
             ctx.memory_context,
             ctx.expert_corpus_context,
             rag_block,

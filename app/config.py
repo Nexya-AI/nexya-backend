@@ -840,6 +840,48 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ── NEXYA Preamble (Session A1 — Fondations Identité + Ton + Routing)
+    # Injection automatique du préambule NEXYA (ton conversationnel 10
+    # commandements + identité fondateur 4 paliers + sécurité brand +
+    # description produit 11 experts + 15 features magnifiques + routing
+    # cross-expert intelligent) EN TÊTE du system prompt LLM via le
+    # wiring dans `_stream_link`. Source de vérité : `app/ai/nexya_preamble.py`.
+    #
+    # Kill-switch global — passer à `False` désactive intégralement
+    # l'injection. Le chat continue normalement avec uniquement les
+    # system_prompts experts (comportement pré-A1). Utile en hotfix
+    # config sans déploiement de code si le preamble génère des
+    # comportements indésirables en prod.
+    nexya_preamble_enabled: bool = Field(
+        default=True,
+        description=(
+            "Active l'injection du préambule NEXYA (identité + ton + routing) "
+            "en tête du system prompt LLM. False = comportement pré-A1."
+        ),
+    )
+
+    # Cap chars sur le bloc preamble assemblé. Au-delà, troncature
+    # lisible LLM avec marqueur. Garantit que le token estimator B2
+    # (cap 30k tokens prompt) ne sera jamais débordé silencieusement
+    # par un preamble qui aurait gonflé (futur ajout de section, etc.).
+    # Calibrage Session A1 (2026-05-19) : 12000 chars ≈ 3000 tokens
+    # (≈ 10 % du cap LLM 30k tokens, overhead ~$0.0002/req Flash). Permet
+    # d'injecter intégralement tone (10 commandements) + identité fondateur
+    # 4 paliers + sécurité brand + description produit 11 experts +
+    # routing guidance. La troncature éventuelle impacte les sections
+    # en queue (15 features), préservant tone + brand + routing.
+    # Min 500 (sous lequel le preamble n'a pas le minimum vital),
+    # max 16000 (overhead permanent significatif au-delà).
+    nexya_preamble_max_chars: int = Field(default=12000, ge=500, le=16000)
+
+    # Locale par défaut quand le caller ne précise rien. 'fr' aligné
+    # ADN Africa-first francophone NEXYA. 'en' pour des contextes
+    # internationaux (diaspora, UE, Amérique).
+    nexya_preamble_default_locale: Literal["fr", "en"] = Field(
+        default="fr",
+        description="Locale par défaut du preamble NEXYA quand non spécifiée.",
+    )
+
     @property
     def is_production(self) -> bool:
         return self.env == "production"
