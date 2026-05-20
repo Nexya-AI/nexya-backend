@@ -141,11 +141,17 @@ run() {
 
 check_dependencies() {
   local missing=()
-  for cmd in docker aws sha256sum find; do
+  for cmd in docker sha256sum find; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
       missing+=("$cmd")
     fi
   done
+
+  # `aws` n'est requis QUE si un upload S3 va réellement avoir lieu. En mode
+  # backup local (S3_BUCKET=test-skip, défaut V1), aucun outil AWS n'est utile.
+  if [[ "$S3_BUCKET" != "test-skip" ]] && ! command -v aws >/dev/null 2>&1; then
+    missing+=("aws (requis car S3_BUCKET != test-skip — upload S3 actif)")
+  fi
 
   if [[ -n "$BACKUP_GPG_RECIPIENT" ]] && ! command -v gpg >/dev/null 2>&1; then
     missing+=("gpg (requis car BACKUP_GPG_RECIPIENT défini)")

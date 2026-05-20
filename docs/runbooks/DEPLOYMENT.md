@@ -196,9 +196,13 @@ sudo tee /etc/cron.d/nexya-backup > /dev/null <<'EOF'
 EOF
 ```
 
-- `S3_BUCKET=test-skip` → backup **local uniquement** (V1, pas d'offsite).
-- Pour un backup **offsite** (Hetzner Storage Box / bucket S3), remplacer par
-  `S3_BUCKET=<bucket> S3_REGION=<region>` et configurer les credentials AWS.
+- `S3_BUCKET=test-skip` → backup **local uniquement** sur le VPS (V1, par
+  défaut). Aucun outil ni compte AWS requis.
+- Pour un backup **offsite** (option future) : il faut un bucket
+  **S3-compatible** (Cloudflare R2, AWS S3, Garage…), installer `awscli` sur le
+  VPS, puis poser `S3_BUCKET=<bucket> S3_REGION=<region>` + les credentials.
+  La Hetzner Storage Box (SFTP) n'est pas S3-compatible — elle demanderait
+  rclone/rsync à la place.
 - Vérifier un backup manuel : `bash scripts/backup_db.sh --dry-run`.
 
 ### Restauration
