@@ -11,11 +11,17 @@ venv/
 
 # Environment variables
 .env
+# Secrets de production — NE JAMAIS COMMITTER (seul .env.production.example l'est)
+.env.production
 
 # JWT RSA keys — NE JAMAIS COMMITTER
 *.pem
 private.pem
 public.pem
+
+# Dossier secrets de production — clés JWT, service account FCM,
+# bloc secrets-generated.env. NE JAMAIS COMMITTER.
+secrets/
 
 # PgBouncer userlist — contient les hash SCRAM des passwords Postgres
 # Le `.example` est commité comme template, le vrai userlist.txt non

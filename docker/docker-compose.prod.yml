@@ -1,125 +1,198 @@
 # ══════════════════════════════════════════════════════════════════════════════
-# NEXYA Backend — Docker Compose PRODUCTION (stub minimal V1)
+# NEXYA Backend — Docker Compose PRODUCTION (stack auto-hébergée complète)
 # ══════════════════════════════════════════════════════════════════════════════
 #
-# Ce compose lance UNIQUEMENT le runtime applicatif NEXYA :
-#   - nexya-api    (FastAPI / uvicorn workers, image GHCR build L1)
-#   - nexya-worker (arq, mêmes image et env, command différent)
+# TOPOLOGIE « TOUT-EN-UN AUTO-HÉBERGÉ » (V1)
 #
-# Les services persistants (PostgreSQL, Redis, stockage objet) sont
-# DÉLIBÉRÉMENT EXCLUS car ils sont externalisés en production :
-#   - PostgreSQL : Hetzner Managed Postgres (backups, replicas, patching auto)
-#   - Redis      : Hetzner Managed Redis (ou Upstash)
-#   - Stockage   : Cloudflare R2 ou AWS S3 prod (pas MinIO embedded)
+# Cette stack lance l'INTÉGRALITÉ de l'infrastructure NEXYA sur un seul VPS :
+#   - caddy        reverse proxy + HTTPS automatique (Let's Encrypt)
+#   - nexya-api    API FastAPI (uvicorn, image GHCR)
+#   - nexya-worker worker arq (crons + jobs asynchrones, même image)
+#   - postgres     PostgreSQL 16 + pgvector (base de données)
+#   - redis        Redis 7 (cache, sessions, rate limit, annulation SSE)
+#   - minio        stockage objet S3-compatible (fichiers + médias générés)
 #
-# Le reverse proxy TLS (Caddy/nginx avec Let's Encrypt) sera ajouté lors de
-# la session L2 (staging Hetzner). Ce stub ne s'occupe que du runtime app.
+# Aucun service managé externe : Ivan veut UN déploiement complet et simple,
+# pas une constellation de services facturés séparément.
 #
-# Usage typique en L2 staging :
-#   docker compose -f docker/docker-compose.prod.yml --env-file .env.prod up -d
-#
-# Validation locale (sans up) :
-#   docker compose -f docker/docker-compose.prod.yml config
+# >>> MIGRATION VERS DES SERVICES MANAGÉS (Postgres/Redis managés, replica de
+# >>> lecture, multi-region) = préoccupation de PHASE 19, post 5-10k users
+# >>> payants, déclenchée par une latence p95 mesurée comme blocker — PAS
+# >>> avant. Décision actée (cf. mémoire project_nexya_multi_region_decision).
 #
 # ──────────────────────────────────────────────────────────────────────────────
-# VARIABLES D'ENVIRONNEMENT REQUISES (.env.prod) — non exhaustif, voir
-# `.env.example` pour la liste complète. Les valeurs marquées « fail-fast »
-# font booter NEXYA en erreur si absentes/invalides en prod (config.py guard).
-# ──────────────────────────────────────────────────────────────────────────────
+# SÉCURITÉ RÉSEAU
+#   - SEUL caddy publie des ports sur l'hôte (80 + 443).
+#   - postgres / redis / minio n'ont AUCUN `ports:` — ils ne sont joignables
+#     que depuis le réseau docker interne `nexya-prod`. La console MinIO (9001)
+#     s'atteint via tunnel SSH (cf. docs/runbooks/DEPLOYMENT.md).
+#   - nexya-api `expose` 8000 au réseau interne uniquement (pas de mapping
+#     hôte) ; caddy fait le reverse proxy vers lui.
 #
-#   # ── Identité & cycle de vie ──────────────────────────────────────────────
-#   ENV=production                         # fail-fast si != production en prod
-#   APP_SECRET=<32+ chars random>          # fail-fast si vide en prod
-#   APP_VERSION=v1.0.0                     # injecté par scripts/release.sh L1
-#   APP_COMMIT_SHA=<git rev-parse HEAD>    # injecté par scripts/release.sh L1
+# USAGE
+#   docker compose -f docker/docker-compose.prod.yml --env-file .env.production up -d
+#   En pratique : passer par `scripts/deploy.sh` qui orchestre pull + migrations.
 #
-#   # ── Persistence (services managés externes) ──────────────────────────────
-#   DATABASE_URL=postgresql+psycopg://USER:PASS@managed-pg.hetzner.example/nexya
-#   REDIS_URL=redis://USER:PASS@managed-redis.hetzner.example:6379/0
-#
-#   # ── Auth JWT RS256 (paires de clés générées hors compose) ────────────────
-#   JWT_PRIVATE_KEY=<-----BEGIN PRIVATE KEY-----\n…\n-----END PRIVATE KEY----->
-#   JWT_PUBLIC_KEY=<-----BEGIN PUBLIC KEY-----\n…\n-----END PUBLIC KEY------>
-#
-#   # ── Providers IA (au moins 1 requis, mock-first sinon) ──────────────────
-#   GEMINI_API_KEY=<...>                   # priorité produit V1
-#   OPENAI_API_KEY=<...>                   # optionnel (mock si vide)
-#   ANTHROPIC_API_KEY=<...>                # optionnel (mock si vide)
-#   QWEN_API_KEY=<...>                     # optionnel (mock si vide)
-#   OPENROUTER_API_KEY=<...>               # optionnel (mock si vide)
-#
-#   # ── Stockage objet (R2 ou AWS S3 prod) ──────────────────────────────────
-#   S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com
-#   S3_ACCESS_KEY=<...>
-#   S3_SECRET_KEY=<...>
-#   S3_BUCKET=nexya-prod
-#   S3_REGION=auto                         # 'auto' pour R2, 'eu-west-1' pour AWS
-#
-#   # ── Sécurité O1 (fail-fast prod si manquant ou misconfiguré) ────────────
-#   SECURITY_HEADERS_PRESET=prod           # fail-fast si NOT IN {prod, off}
-#   PROMETHEUS_SCRAPE_TOKEN=<32 hex random>  # fail-fast si vide en prod
-#   GRAFANA_ADMIN_PASSWORD=<strong>          # fail-fast si 'admin' ou vide
-#
-#   # ── Observabilité K1 + RGPD J1 ───────────────────────────────────────────
-#   SENTRY_DSN=<https://...@sentry.io/...>
-#   OTEL_EXPORTER_OTLP_ENDPOINT=<...>      # optionnel (silencieux si vide)
-#   RGPD_ADMIN_EMAILS=ngassayimgal@gmail.com  # fail-fast si vide en prod
-#
-#   # ── Email + Captcha + FCM + Helpdesk (optionnels mock-first) ────────────
-#   BREVO_API_KEY=<...>                    # email transactionnel A1
-#   HCAPTCHA_SECRET_KEY=<...>              # captcha register A3
-#   FCM_SERVER_KEY=<...>                   # push notifications F3
-#   CRISP_WEBSITE_ID=<...>                 # escalation helpdesk N4 (optionnel)
-#   CRISP_API_KEY=<...>
-#
-#   # ── uvicorn (tuning runtime) ─────────────────────────────────────────────
-#   WEB_CONCURRENCY=4                      # nb workers uvicorn (ajuster selon CPU)
-#
+# OBSERVABILITÉ (optionnelle)
+#   Prometheus + Grafana vivent dans un overlay séparé pour ne pas alourdir le
+#   démarrage quotidien :
+#   docker compose -f docker/docker-compose.prod.yml \
+#                  -f docker/docker-compose.observability.yml \
+#                  --env-file .env.production up -d
 # ══════════════════════════════════════════════════════════════════════════════
 
+name: nexya
+
 services:
+  # ── Caddy — reverse proxy + HTTPS automatique (Let's Encrypt) ────────────────
+  caddy:
+    image: caddy:2-alpine
+    container_name: nexya-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data        # certificats TLS Let's Encrypt (PERSISTANT)
+      - caddy_config:/config
+    depends_on:
+      nexya-api:
+        condition: service_healthy
+    networks:
+      - nexya-prod
+
+  # ── API FastAPI (uvicorn) ────────────────────────────────────────────────────
   nexya-api:
-    image: ghcr.io/${GHCR_OWNER:-loth-ngassa}/nexya-backend:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER:-nexya-ai}/nexya-backend:${IMAGE_TAG:-latest}
     container_name: nexya-api
     restart: unless-stopped
     env_file:
-      - ../.env.prod
+      - ../.env.production
     expose:
-      - "8000"
+      - "8000"                  # réseau interne uniquement — PAS de `ports:`
+    volumes:
+      - ../secrets:/app/secrets:ro   # clés JWT .pem + service account FCM (lecture seule)
+      - nexya_logs:/app/logs
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
-    volumes:
-      - nexya_logs:/app/logs:rw
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     networks:
       - nexya-prod
-    command:
-      - sh
-      - -c
-      - >-
-        uvicorn app.main:app
-        --host 0.0.0.0
-        --port 8000
-        --workers ${WEB_CONCURRENCY:-4}
-        --proxy-headers
-        --forwarded-allow-ips=*
 
+  # ── Worker arq (crons + jobs asynchrones) ────────────────────────────────────
   nexya-worker:
-    image: ghcr.io/${GHCR_OWNER:-loth-ngassa}/nexya-backend:${IMAGE_TAG:-latest}
+    image: ghcr.io/${GHCR_OWNER:-nexya-ai}/nexya-backend:${IMAGE_TAG:-latest}
     container_name: nexya-worker
     restart: unless-stopped
+    command: ["arq", "workers.worker.WorkerSettings"]
     env_file:
-      - ../.env.prod
+      - ../.env.production
+    volumes:
+      - ../secrets:/app/secrets:ro
+      - nexya_logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     networks:
       - nexya-prod
-    command: ["arq", "workers.worker.WorkerSettings"]
+
+  # ── PostgreSQL 16 + pgvector ─────────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: nexya-postgres
+    restart: unless-stopped
+    # PAS de `ports:` — réseau interne uniquement.
+    # PAS de POSTGRES_HOST_AUTH_METHOD: trust — c'est un contournement DEV
+    # Windows. En prod (Linux), le mot de passe est OBLIGATOIRE.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - nexya-prod
+
+  # ── Redis 7 (cache, sessions, rate limit, annulation SSE) ────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: nexya-redis
+    restart: unless-stopped
+    # PAS de `ports:` — réseau interne uniquement.
+    # `--requirepass` : mot de passe obligatoire ; `--appendonly yes` : AOF
+    # (persistance disque, on ne perd pas le cache/queue sur un restart).
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    environment:
+      # redis-cli lit REDISCLI_AUTH automatiquement → le healthcheck
+      # s'authentifie sans manipuler le mot de passe sur la ligne de commande.
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - nexya-prod
+
+  # ── MinIO — stockage objet S3-compatible ─────────────────────────────────────
+  minio:
+    image: minio/minio
+    container_name: nexya-minio
+    restart: unless-stopped
+    # PAS de `ports:` — réseau interne uniquement. La console web (9001)
+    # s'atteint via tunnel SSH :
+    #   ssh -L 9001:localhost:9001 deploy@<IPv4-VPS>   puis  http://localhost:9001
+    command: server /data --console-address ":9001"
+    environment:
+      # Les creds root MinIO == les creds S3 utilisées par l'API
+      # (S3_ACCESS_KEY / S3_SECRET_KEY de .env.production). Un seul jeu de
+      # secrets à gérer en V1 ; le bucket `nexya-media` est auto-créé par
+      # l'app (STORAGE_AUTO_CREATE_BUCKET=true).
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - nexya-prod
 
 networks:
   nexya-prod:
     driver: bridge
 
 volumes:
-  nexya_logs:
+  postgres_data:   # données PostgreSQL — NE JAMAIS supprimer en prod
+  redis_data:      # AOF Redis
+  minio_data:      # fichiers uploadés + médias générés par les users
+  caddy_data:      # certificats TLS Let's Encrypt
+  caddy_config:    # config runtime Caddy
+  nexya_logs:      # logs applicatifs API + worker

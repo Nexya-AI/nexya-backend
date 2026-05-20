@@ -26,7 +26,7 @@ set -euo pipefail
 # Constantes + parsing args
 # ─────────────────────────────────────────────────────────────
 
-readonly IMAGE_BASE="ghcr.io/nexya/nexya-backend"
+readonly IMAGE_BASE="ghcr.io/nexya-ai/nexya-backend"
 readonly COMPOSE_FILE="docker/docker-compose.prod.yml"
 readonly SMOKE_TIMEOUT_SECONDS=20
 readonly BAK_CLEANUP_DELAY_SECONDS=300
