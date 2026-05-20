@@ -44,16 +44,13 @@ apt-get update -y
 apt-get upgrade -y
 
 log "Installation des paquets de base"
-# awscli : requis par scripts/backup_db.sh (même en backup local — il fait
-# partie de son pré-check de dépendances ; sert aussi à un futur backup S3).
 apt-get install -y --no-install-recommends \
   ca-certificates \
   curl \
   gnupg \
   ufw \
   fail2ban \
-  unattended-upgrades \
-  awscli
+  unattended-upgrades
 
 # ── 2. Docker CE + plugin compose ─────────────────────────────────────────────
 if command -v docker >/dev/null 2>&1; then
