@@ -1,0 +1,80 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# NEXYA Backend — Déploiement continu (CD)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Déclencheurs :
+#   - workflow_run  : automatiquement après un succès du workflow « Release »
+#                     (release.yml builde l'image GHCR sur un tag vX.Y.Z).
+#   - workflow_dispatch : déclenchement manuel avec un tag explicite (filet de
+#                     sécurité / redéploiement / rollback).
+#
+# Le job se connecte en SSH au VPS et y lance `scripts/deploy.sh <tag>`.
+#
+# ┌─ SECRETS GITHUB REQUIS (Settings → Secrets and variables → Actions) ────────┐
+# │  VPS_HOST     IPv4 du VPS Hetzner (ex: 203.0.113.42)                        │
+# │  VPS_USER     utilisateur SSH (V1 : `root`)                                 │
+# │  VPS_SSH_KEY  clé SSH PRIVÉE (contenu du fichier privé, ed25519) dont la     │
+# │               clé publique est dans authorized_keys du VPS                  │
+# │                                                                             │
+# │  Ajout : repo GitHub → Settings → Secrets and variables → Actions →         │
+# │          « New repository secret » pour chacun des 3.                       │
+# └─────────────────────────────────────────────────────────────────────────────┘
+# ══════════════════════════════════════════════════════════════════════════════
+
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag de version à déployer (ex: v1.0.0)"
+        required: true
+
+# Un seul déploiement à la fois — ne JAMAIS annuler un déploiement en cours.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Déploiement VPS
+    runs-on: ubuntu-latest
+    # Sur workflow_run : ne déployer QUE si la release a réussi.
+    # Sur workflow_dispatch : toujours.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Résoudre le tag à déployer
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            # release.yml est déclenché par un push de tag → head_branch = le tag.
+            TAG="${{ github.event.workflow_run.head_branch }}"
+          fi
+          if ! echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Tag invalide ou absent : '$TAG' (attendu vX.Y.Z)"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "::notice::Déploiement du tag $TAG"
+
+      - name: Déployer sur le VPS via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          command_timeout: 15m
+          script: |
+            set -e
+            cd /opt/nexya
+            bash scripts/deploy.sh ${{ steps.resolve.outputs.tag }}

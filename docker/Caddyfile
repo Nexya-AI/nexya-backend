@@ -1,0 +1,35 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# NEXYA Backend — Caddyfile (reverse proxy production)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# Caddy gère le HTTPS DE BOUT EN BOUT, automatiquement :
+#   - obtention du certificat TLS Let's Encrypt au premier démarrage ;
+#   - renouvellement automatique avant expiration ;
+#   - redirection HTTP (80) → HTTPS (443) automatique.
+#
+# PRÉ-REQUIS : le DNS `api.nexyalabs.com` doit DÉJÀ pointer sur l'IPv4 du VPS
+# (phase D5) ET être propagé AVANT le premier démarrage de Caddy — sinon le
+# challenge ACME Let's Encrypt échoue (Caddy retentera, mais autant éviter).
+# ══════════════════════════════════════════════════════════════════════════════
+
+{
+    # Adresse e-mail pour l'enregistrement ACME Let's Encrypt. Caddy renouvelle
+    # les certificats tout seul ; cette adresse sert de filet (notifications
+    # d'expiration). Ivan : remplace-la par une adresse que tu relèves.
+    email admin@nexyalabs.com
+}
+
+api.nexyalabs.com {
+    # Compression des réponses (gain réseau sensible sur 2G/3G — Africa-first).
+    encode gzip zstd
+
+    # Reverse proxy vers l'API. `nexya-api` est résolu par le DNS interne du
+    # réseau docker `nexya-prod` — pas besoin d'IP ni de port publié côté hôte.
+    reverse_proxy nexya-api:8000
+
+    # Cap de taille du corps de requête : 110 MB couvre l'upload maximal côté
+    # backend (FILES_MAX_UPLOAD_BYTES = 100 MB) avec une marge confortable.
+    request_body {
+        max_size 110MB
+    }
+}
