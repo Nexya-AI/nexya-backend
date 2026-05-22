@@ -95,7 +95,10 @@ class ScheduledTask(Base, UUIDMixin):
 
     __table_args__ = (
         CheckConstraint(
-            "schedule_type IN ('once','interval_minutes','daily','weekly')",
+            "schedule_type IN ("
+            "'once','interval_minutes','daily','weekly','monthly','yearly',"
+            "'weekly_range','monthly_range','multi_weekday','yearly_range'"
+            ")",
             name="ck_tasks_schedule_type",
         ),
         CheckConstraint(

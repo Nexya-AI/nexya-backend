@@ -84,14 +84,21 @@ class ExpertConfig:
     # user attend un avis, pas un side-effect DB silencieux).
     tools_allowed: bool = True
 
-    # G2 V1.1 2026-05-18 — Désactivation du thinking mode Gemini 2.5 Pro/Flash
-    # pour les experts où le raisonnement multi-étapes n'apporte pas de
-    # valeur ajoutée (cooking : recette = formatage de contenu RAG, pas
-    # de raisonnement complexe). Réduit la latence first-token de ~20s à
-    # ~3s sur Gemini 2.5 Pro Vertex AI. False par défaut — conservé pour
-    # science/medicine/legal/engineering où le raisonnement profond aide.
-    # Propagé via `request.extra["disable_thinking"]` au provider Gemini.
-    disable_thinking: bool = False
+    # [Fix 2026-05-22] Thinking mode Gemini 2.5 Pro/Flash DÉSACTIVÉ par
+    # défaut sur TOUS les experts. Cause du bug « réponse vide » remonté
+    # terrain : Gemini 2.5 a un `thinkingBudget=-1` (adaptatif) qui consomme
+    # 5-25k tokens de raisonnement. Or `max_output_tokens` est plafonné à
+    # 2048-4096 par expert → le modèle épuise TOUT son budget en pensant et
+    # émet ZÉRO token de réponse visible (log `ai.chat.completed chunks_count=0`,
+    # stream vide, l'app affiche une bulle sans contenu).
+    # `disable_thinking=True` rend tout le budget à la réponse réelle ET
+    # supprime la latence ~15-30s. La richesse des prompts A1/A2 (persona +
+    # méthodologie + few-shot examples) rend la phase de thinking séparée
+    # non nécessaire — la qualité est portée par le prompt, pas par le
+    # raisonnement caché. Propagé via `request.extra["disable_thinking"]`.
+    # ⚠️ Ne mettre `False` sur un expert QUE si on relève AUSSI son
+    # `max_tokens` à 8192+ (sinon le bug « réponse vide » revient).
+    disable_thinking: bool = True
 
     @property
     def full_chain(self) -> tuple[tuple[str, str], ...]:
@@ -314,9 +321,10 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_PRO, _OPENROUTER_SONNET),
         system_prompt=_GENERAL_PROMPT,
         temperature=0.7,
-        # Cap anti-runaway facture (audit 2026-05-01 finding S1).
-        # 2048 tokens ≈ 5 pages — couvre largement une réponse conversationnelle.
-        max_tokens=2048,
+        # [2026-05-22] Cap relevé 2048→4096 — confort longues réponses.
+        # Surcoût réel nul : on facture les tokens générés, pas le plafond
+        # (le cap anti-runaway de l'audit 2026-05-01 reste — 4096 ≈ 3000 mots).
+        max_tokens=4096,
         tier="flash",
         tags=("general", "conversation"),
     ),
@@ -329,9 +337,9 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_PRO,),
         system_prompt=_COMPUTER_PROMPT,
         temperature=0.3,  # code = peu de créativité, beaucoup de rigueur
-        # 2048 tokens ≈ ~150 lignes de code — suffisant pour un module
-        # autonome ; au-delà l'user devrait découper sa demande.
-        max_tokens=2048,
+        # [2026-05-22] Cap relevé 2048→4096 — un gros fichier de code
+        # (~300 lignes) ne sera plus tronqué en plein milieu.
+        max_tokens=4096,
         tier="flash",
         tags=("code", "technical"),
     ),
@@ -344,9 +352,9 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_FLASH, _OPENROUTER_SONNET),
         system_prompt=_SCIENCE_PROMPT,
         temperature=0.2,
-        # Tier pro = raisonnement multi-étapes (LaTeX, démonstrations,
-        # calculs détaillés). 4096 couvre une preuve complète.
-        max_tokens=4096,
+        # [2026-05-22] Cap relevé 4096→8192 — démonstrations LaTeX longues
+        # + calculs détaillés sans troncature en plein milieu.
+        max_tokens=8192,
         tier="pro",
         tags=("stem", "reasoning"),
     ),
@@ -359,7 +367,8 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_PRO,),
         system_prompt=_FINANCE_PROMPT,
         temperature=0.4,
-        max_tokens=2048,
+        # [2026-05-22] Cap relevé 2048→4096 (confort longues réponses).
+        max_tokens=4096,
         tier="flash",
         tags=("finance", "business", "africa"),
     ),
@@ -381,9 +390,9 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_FLASH,),
         system_prompt=_LANGUAGE_PROMPT,
         temperature=0.5,
-        # Tier pro = traduction, conjugaisons, explications culturelles
-        # peuvent demander plusieurs paragraphes.
-        max_tokens=4096,
+        # [2026-05-22] Cap relevé 4096→8192 — traductions + conjugaisons
+        # + explications culturelles longues sans troncature.
+        max_tokens=8192,
         tier="pro",
         tags=("language", "translation"),
         corpus_enabled=False,
@@ -418,11 +427,10 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         # G2 ON — corpus de ~100 recettes camerounaises propriétaires
         # (livres Loth Ivan / Nexyalabs, owner traçé pour AI Act Article 13).
         corpus_enabled=True,
-        # G2 V1.1 — Thinking désactivé (latence ~20s -> ~3s sur Pro Vertex,
-        # qualité préservée car format recette = formatage de contenu RAG
-        # pas de raisonnement multi-étapes complexe). Mesure et décision
-        # documentées dans CLAUDE.md §15 entrée 2026-05-18.
-        disable_thinking=True,
+        # [Fix 2026-05-22] `disable_thinking` n'est plus posé explicitement
+        # ici — le défaut `ExpertConfig.disable_thinking=True` couvre
+        # désormais les 11 experts (cf. commentaire du champ). Cooking était
+        # le 1ᵉʳ à en bénéficier (G2 V1.1, latence ~20s → ~3s sur Pro Vertex).
     ),
     # ─── Bientôt disponible ────────────────────────────────────────
     "studio": ExpertConfig(
@@ -449,8 +457,9 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_FLASH,),
         system_prompt=_ENGINEERING_PROMPT,
         temperature=0.2,
-        # Tier pro = calculs détaillés + trade-offs + normes citées.
-        max_tokens=4096,
+        # [2026-05-22] Cap relevé 4096→8192 — calculs détaillés +
+        # trade-offs + normes citées sans troncature.
+        max_tokens=8192,
         tier="pro",
         tags=("engineering", "technical"),
     ),
@@ -463,7 +472,8 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_PRO, _OPENROUTER_SONNET),
         system_prompt=_PRODUCTIVITY_PROMPT,
         temperature=0.6,
-        max_tokens=2048,
+        # [2026-05-22] Cap relevé 2048→4096 (confort longues réponses).
+        max_tokens=4096,
         tier="flash",
         tags=("productivity", "habits"),
     ),
@@ -476,10 +486,9 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_FLASH,),
         system_prompt=_MEDICINE_PROMPT,
         temperature=0.1,  # médecine = zéro créativité
-        # Safety-critical : info structurée + disclaimers + redirection
-        # urgences. 3072 cap entre flash (2048) et pro standard (4096) —
-        # pas de génération créative justifiée au-delà.
-        max_tokens=3072,
+        # [2026-05-22] Cap relevé 3072→4096 — info structurée + disclaimers
+        # + redirection urgences (5 symptômes vitaux) sans troncature.
+        max_tokens=4096,
         tier="pro",
         disclaimer=(
             "Les informations fournies ne remplacent pas l'avis d'un professionnel "
@@ -501,10 +510,9 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         fallback_chain=(_GEMINI_FLASH,),
         system_prompt=_LEGAL_PROMPT,
         temperature=0.1,  # juridique = zéro créativité
-        # Safety-critical : info juridique structurée + références (Code
-        # civil, Acte uniforme OHADA) + redirection avocat. 3072 idem
-        # `medicine` — pas de génération créative au-delà.
-        max_tokens=3072,
+        # [2026-05-22] Cap relevé 3072→4096 — info juridique structurée +
+        # références (Code civil, Acte uniforme OHADA) + redirection avocat.
+        max_tokens=4096,
         tier="pro",
         disclaimer=(
             "Les informations fournies ne constituent pas un conseil juridique. "

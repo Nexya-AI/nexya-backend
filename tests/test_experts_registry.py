@@ -260,7 +260,9 @@ def test_max_tokens_aligned_with_tier() -> None:
     assert flash_caps, "Au moins un expert tier=flash attendu"
     assert pro_caps, "Au moins un expert tier=pro non-safety attendu"
 
-    # Tous les flash <= max des pro non-safety (attendu : flash=2048, pro=4096)
+    # Tous les flash <= max des pro non-safety
+    # (depuis 2026-05-22 : flash=4096, pro jusqu'à 8192 — caps relevés pour
+    # supprimer la troncature des longues réponses, cf. CLAUDE.md §15)
     assert max(flash_caps) <= max(pro_caps), (
         f"Un expert tier=flash a max_tokens > tier=pro — incohérent. "
         f"flash_max={max(flash_caps)}, pro_max={max(pro_caps)}"

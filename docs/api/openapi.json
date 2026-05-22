@@ -6447,6 +6447,88 @@
         "title": "MonthlyConfig",
         "description": "Exécution mensuelle au jour `day` du mois à HH:MM UTC.\n\nClamp implicite (côté `compute_next_run`) si le mois courant ne\ncontient pas le jour demandé : `day=31` en février → 28 ou 29."
       },
+      "MonthlyRangeConfig": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "monthly_range",
+            "title": "Type",
+            "default": "monthly_range"
+          },
+          "start_day": {
+            "type": "integer",
+            "maximum": 31.0,
+            "minimum": 1.0,
+            "title": "Start Day"
+          },
+          "end_day": {
+            "type": "integer",
+            "maximum": 31.0,
+            "minimum": 1.0,
+            "title": "End Day"
+          },
+          "hour": {
+            "type": "integer",
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Hour"
+          },
+          "minute": {
+            "type": "integer",
+            "maximum": 59.0,
+            "minimum": 0.0,
+            "title": "Minute"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start_day",
+          "end_day",
+          "hour",
+          "minute"
+        ],
+        "title": "MonthlyRangeConfig",
+        "description": "Exécution sur un range continu de jours du mois à HH:MM UTC (F1.5).\n\nExemple : `start_day=15, end_day=30` (deuxième moitié du mois).\nContrainte : `start_day < end_day` strict. Clamp implicite côté\n`compute_next_run` si le mois ne contient pas le jour demandé\n(ex : `end_day=31` en février → 28 ou 29 ; `start_day=31` en avril\n→ 30)."
+      },
+      "MultiWeekdayConfig": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "multi_weekday",
+            "title": "Type",
+            "default": "multi_weekday"
+          },
+          "weekdays": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 6,
+            "minItems": 2,
+            "title": "Weekdays"
+          },
+          "hour": {
+            "type": "integer",
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Hour"
+          },
+          "minute": {
+            "type": "integer",
+            "maximum": 59.0,
+            "minimum": 0.0,
+            "title": "Minute"
+          }
+        },
+        "type": "object",
+        "required": [
+          "weekdays",
+          "hour",
+          "minute"
+        ],
+        "title": "MultiWeekdayConfig",
+        "description": "Exécution sur une liste de jours de semaine non-continus à HH:MM UTC (F1.5).\n\nExemple : `weekdays=[1, 3]` (mardi + jeudi) — différent du range\nweekday qui imposerait la continuité.\n\nValidation : minimum 2 jours (sinon utiliser `weekly`), maximum 6\njours (sinon utiliser `daily`). La liste est dédupliquée puis triée\npar le validator (idempotence DB + cohérence cache).\nConvention weekday : 0 = lundi … 6 = dimanche."
+      },
       "NexyaResponse_AbuseReportResponse_": {
         "properties": {
           "success": {
@@ -9663,6 +9745,18 @@
               },
               {
                 "$ref": "#/components/schemas/YearlyConfig"
+              },
+              {
+                "$ref": "#/components/schemas/WeeklyRangeConfig"
+              },
+              {
+                "$ref": "#/components/schemas/MonthlyRangeConfig"
+              },
+              {
+                "$ref": "#/components/schemas/MultiWeekdayConfig"
+              },
+              {
+                "$ref": "#/components/schemas/YearlyRangeConfig"
               }
             ],
             "title": "Schedule",
@@ -9672,9 +9766,13 @@
                 "daily": "#/components/schemas/DailyConfig",
                 "interval_minutes": "#/components/schemas/IntervalMinutesConfig",
                 "monthly": "#/components/schemas/MonthlyConfig",
+                "monthly_range": "#/components/schemas/MonthlyRangeConfig",
+                "multi_weekday": "#/components/schemas/MultiWeekdayConfig",
                 "once": "#/components/schemas/OnceConfig",
                 "weekly": "#/components/schemas/WeeklyConfig",
-                "yearly": "#/components/schemas/YearlyConfig"
+                "weekly_range": "#/components/schemas/WeeklyRangeConfig",
+                "yearly": "#/components/schemas/YearlyConfig",
+                "yearly_range": "#/components/schemas/YearlyRangeConfig"
               }
             }
           },
@@ -9726,7 +9824,11 @@
               "daily",
               "weekly",
               "monthly",
-              "yearly"
+              "yearly",
+              "weekly_range",
+              "monthly_range",
+              "multi_weekday",
+              "yearly_range"
             ],
             "title": "Schedule Type"
           },
@@ -10028,6 +10130,18 @@
                   },
                   {
                     "$ref": "#/components/schemas/YearlyConfig"
+                  },
+                  {
+                    "$ref": "#/components/schemas/WeeklyRangeConfig"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MonthlyRangeConfig"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MultiWeekdayConfig"
+                  },
+                  {
+                    "$ref": "#/components/schemas/YearlyRangeConfig"
                   }
                 ],
                 "discriminator": {
@@ -10036,9 +10150,13 @@
                     "daily": "#/components/schemas/DailyConfig",
                     "interval_minutes": "#/components/schemas/IntervalMinutesConfig",
                     "monthly": "#/components/schemas/MonthlyConfig",
+                    "monthly_range": "#/components/schemas/MonthlyRangeConfig",
+                    "multi_weekday": "#/components/schemas/MultiWeekdayConfig",
                     "once": "#/components/schemas/OnceConfig",
                     "weekly": "#/components/schemas/WeeklyConfig",
-                    "yearly": "#/components/schemas/YearlyConfig"
+                    "weekly_range": "#/components/schemas/WeeklyRangeConfig",
+                    "yearly": "#/components/schemas/YearlyConfig",
+                    "yearly_range": "#/components/schemas/YearlyRangeConfig"
                   }
                 }
               },
@@ -10902,7 +11020,7 @@
                   "format": "uuid"
                 },
                 "type": "array",
-                "maxItems": 3
+                "maxItems": 4
               },
               {
                 "type": "null"
@@ -11016,6 +11134,49 @@
         "title": "WeeklyConfig",
         "description": "Exécution hebdomadaire à HH:MM UTC un jour ISO weekday (lundi=0)."
       },
+      "WeeklyRangeConfig": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "weekly_range",
+            "title": "Type",
+            "default": "weekly_range"
+          },
+          "start_weekday": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 0.0,
+            "title": "Start Weekday"
+          },
+          "end_weekday": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 0.0,
+            "title": "End Weekday"
+          },
+          "hour": {
+            "type": "integer",
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Hour"
+          },
+          "minute": {
+            "type": "integer",
+            "maximum": 59.0,
+            "minimum": 0.0,
+            "title": "Minute"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start_weekday",
+          "end_weekday",
+          "hour",
+          "minute"
+        ],
+        "title": "WeeklyRangeConfig",
+        "description": "Exécution sur un range continu de jours de semaine à HH:MM UTC (F1.5).\n\nExemple : `start_weekday=0, end_weekday=4` (lundi → vendredi, jours\nouvrés). Le range va du jour `start` au jour `end` inclus. Si\n`start_weekday > end_weekday`, le range enjambe le weekend\n(ex : `start=5, end=1` = samedi → mardi via dimanche + lundi).\n\nConvention weekday : 0 = lundi … 6 = dimanche (aligné sur\n`datetime.weekday()` — voir `_ISO_WEEKDAYS` dans `scheduler.py`)."
+      },
       "YearlyConfig": {
         "properties": {
           "type": {
@@ -11058,6 +11219,56 @@
         ],
         "title": "YearlyConfig",
         "description": "Exécution annuelle au `month`/`day` à HH:MM UTC.\n\nClamp implicite côté `compute_next_run` pour le 29 février sur\nannée non bissextile → 28 février."
+      },
+      "YearlyRangeConfig": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "yearly_range",
+            "title": "Type",
+            "default": "yearly_range"
+          },
+          "month": {
+            "type": "integer",
+            "maximum": 12.0,
+            "minimum": 1.0,
+            "title": "Month"
+          },
+          "start_day": {
+            "type": "integer",
+            "maximum": 31.0,
+            "minimum": 1.0,
+            "title": "Start Day"
+          },
+          "end_day": {
+            "type": "integer",
+            "maximum": 31.0,
+            "minimum": 1.0,
+            "title": "End Day"
+          },
+          "hour": {
+            "type": "integer",
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Hour"
+          },
+          "minute": {
+            "type": "integer",
+            "maximum": 59.0,
+            "minimum": 0.0,
+            "title": "Minute"
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "start_day",
+          "end_day",
+          "hour",
+          "minute"
+        ],
+        "title": "YearlyRangeConfig",
+        "description": "Exécution sur un range de jours dans un mois précis, chaque année (F1.6).\n\nExemple : `month=1, start_day=15, end_day=30` — chaque année, en\njanvier, du 15 au 30 inclus, à HH:MM UTC. La tâche s'exécute chaque\njour du range.\n\nDifférence clé avec `monthly_range` : ici le mois est **figé** (la\nrécurrence est annuelle), alors que `monthly_range` se répète *tous*\nles mois.\n\nContraintes :\n- `start_day < end_day` strict (un seul jour → utilisez `yearly`).\n- `start_day` et `end_day` doivent exister dans `month` : le 31 avril\n  est rejeté ; le 29 février est accepté et clampé à 28 sur année non\n  bissextile au calcul `next_run_at` (cohérent avec `yearly` F0.5)."
       }
     },
     "securitySchemes": {
