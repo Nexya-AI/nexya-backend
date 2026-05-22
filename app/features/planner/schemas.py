@@ -32,9 +32,51 @@ from pydantic import (
 # Literals partagés
 # ══════════════════════════════════════════════════════════════
 
-ScheduleType = Literal["once", "interval_minutes", "daily", "weekly", "monthly", "yearly"]
+ScheduleType = Literal[
+    "once",
+    "interval_minutes",
+    "daily",
+    "weekly",
+    "monthly",
+    "yearly",
+    "weekly_range",
+    "monthly_range",
+    "multi_weekday",
+    "yearly_range",
+]
 TaskStatus = Literal["idle", "pending", "running", "completed", "failed", "paused"]
 ResultStatus = Literal["success", "failed", "skipped"]
+
+# Borne maximale de jours par mois — 29 pour février : le 29/02 est
+# accepté à la validation, le clamp en année non bissextile arrive au
+# calcul `next_run_at`. Le 30/02, le 31/04, etc. sont rejetés car
+# structurellement impossibles quelle que soit l'année. Partagé par
+# `YearlyConfig` (F0.5) et `YearlyRangeConfig` (F1.6).
+_MAX_DAYS_PER_MONTH: dict[int, int] = {
+    1: 31,
+    2: 29,
+    3: 31,
+    4: 30,
+    5: 31,
+    6: 30,
+    7: 31,
+    8: 31,
+    9: 30,
+    10: 31,
+    11: 30,
+    12: 31,
+}
+
+
+def _ensure_day_in_month(month: int, day: int, *, field: str) -> None:
+    """Lève `ValueError` si `day` ne peut pas exister dans `month`.
+
+    Le 29 février est accepté (clamp à 28 sur année non bissextile au
+    calcul `next_run_at`). Le 30 février, le 31 avril, le 31 juin et le
+    31 septembre/novembre sont rejetés — ils n'existent jamais.
+    """
+    if day > _MAX_DAYS_PER_MONTH[month]:
+        raise ValueError(f"`{field}` ({day}) n'existe pas dans le mois {month}.")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -128,30 +170,157 @@ class YearlyConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_month_day(self) -> YearlyConfig:
-        # Borne maximale par mois (sans tenir compte de l'année bissextile —
-        # 29 février est accepté ici, le clamp arrive au calcul next_run_at).
-        max_days_per_month = {
-            1: 31,
-            2: 29,
-            3: 31,
-            4: 30,
-            5: 31,
-            6: 30,
-            7: 31,
-            8: 31,
-            9: 30,
-            10: 31,
-            11: 30,
-            12: 31,
-        }
-        if self.day > max_days_per_month[self.month]:
-            raise ValueError(f"Le jour {self.day} n'existe pas dans le mois {self.month}.")
+        _ensure_day_in_month(self.month, self.day, field="day")
+        return self
+
+
+class WeeklyRangeConfig(BaseModel):
+    """Exécution sur un range continu de jours de semaine à HH:MM UTC (F1.5).
+
+    Exemple : `start_weekday=0, end_weekday=4` (lundi → vendredi, jours
+    ouvrés). Le range va du jour `start` au jour `end` inclus. Si
+    `start_weekday > end_weekday`, le range enjambe le weekend
+    (ex : `start=5, end=1` = samedi → mardi via dimanche + lundi).
+
+    Convention weekday : 0 = lundi … 6 = dimanche (aligné sur
+    `datetime.weekday()` — voir `_ISO_WEEKDAYS` dans `scheduler.py`).
+    """
+
+    type: Literal["weekly_range"] = "weekly_range"
+    start_weekday: int = Field(ge=0, le=6)
+    end_weekday: int = Field(ge=0, le=6)
+    hour: int = Field(ge=0, le=23)
+    minute: int = Field(ge=0, le=59)
+
+    @model_validator(mode="after")
+    def _validate_range_not_single_day(self) -> WeeklyRangeConfig:
+        # `start == end` = un seul jour → préférer `weekly` (atomique).
+        if self.start_weekday == self.end_weekday:
+            raise ValueError(
+                "Pour un seul jour de la semaine, utilisez `weekly` "
+                "au lieu de `weekly_range`."
+            )
+        return self
+
+
+class MonthlyRangeConfig(BaseModel):
+    """Exécution sur un range continu de jours du mois à HH:MM UTC (F1.5).
+
+    Exemple : `start_day=15, end_day=30` (deuxième moitié du mois).
+    Contrainte : `start_day < end_day` strict. Clamp implicite côté
+    `compute_next_run` si le mois ne contient pas le jour demandé
+    (ex : `end_day=31` en février → 28 ou 29 ; `start_day=31` en avril
+    → 30).
+    """
+
+    type: Literal["monthly_range"] = "monthly_range"
+    start_day: int = Field(ge=1, le=31)
+    end_day: int = Field(ge=1, le=31)
+    hour: int = Field(ge=0, le=23)
+    minute: int = Field(ge=0, le=59)
+
+    @model_validator(mode="after")
+    def _validate_range_ordered(self) -> MonthlyRangeConfig:
+        if self.start_day > self.end_day:
+            raise ValueError(
+                f"`start_day` ({self.start_day}) doit être strictement "
+                f"inférieur à `end_day` ({self.end_day})."
+            )
+        if self.start_day == self.end_day:
+            raise ValueError(
+                "Pour un seul jour du mois, utilisez `monthly` "
+                "au lieu de `monthly_range`."
+            )
+        return self
+
+
+class MultiWeekdayConfig(BaseModel):
+    """Exécution sur une liste de jours de semaine non-continus à HH:MM UTC (F1.5).
+
+    Exemple : `weekdays=[1, 3]` (mardi + jeudi) — différent du range
+    weekday qui imposerait la continuité.
+
+    Validation : minimum 2 jours (sinon utiliser `weekly`), maximum 6
+    jours (sinon utiliser `daily`). La liste est dédupliquée puis triée
+    par le validator (idempotence DB + cohérence cache).
+    Convention weekday : 0 = lundi … 6 = dimanche.
+    """
+
+    type: Literal["multi_weekday"] = "multi_weekday"
+    weekdays: list[int] = Field(min_length=2, max_length=6)
+    hour: int = Field(ge=0, le=23)
+    minute: int = Field(ge=0, le=59)
+
+    @model_validator(mode="after")
+    def _validate_weekdays(self) -> MultiWeekdayConfig:
+        # Toutes les valeurs dans la borne 0-6.
+        if not all(0 <= wd <= 6 for wd in self.weekdays):
+            raise ValueError(
+                "Chaque jour doit être compris entre 0 (lundi) et 6 (dimanche)."
+            )
+        # Doublons interdits (avant tri pour message d'erreur explicite).
+        if len(set(self.weekdays)) != len(self.weekdays):
+            raise ValueError("Doublons interdits dans `weekdays`.")
+        # Normalisation : tri croissant (idempotence DB + dédup cache).
+        self.weekdays = sorted(self.weekdays)
+        return self
+
+
+class YearlyRangeConfig(BaseModel):
+    """Exécution sur un range de jours dans un mois précis, chaque année (F1.6).
+
+    Exemple : `month=1, start_day=15, end_day=30` — chaque année, en
+    janvier, du 15 au 30 inclus, à HH:MM UTC. La tâche s'exécute chaque
+    jour du range.
+
+    Différence clé avec `monthly_range` : ici le mois est **figé** (la
+    récurrence est annuelle), alors que `monthly_range` se répète *tous*
+    les mois.
+
+    Contraintes :
+    - `start_day < end_day` strict (un seul jour → utilisez `yearly`).
+    - `start_day` et `end_day` doivent exister dans `month` : le 31 avril
+      est rejeté ; le 29 février est accepté et clampé à 28 sur année non
+      bissextile au calcul `next_run_at` (cohérent avec `yearly` F0.5).
+    """
+
+    type: Literal["yearly_range"] = "yearly_range"
+    month: int = Field(ge=1, le=12)
+    start_day: int = Field(ge=1, le=31)
+    end_day: int = Field(ge=1, le=31)
+    hour: int = Field(ge=0, le=23)
+    minute: int = Field(ge=0, le=59)
+
+    @model_validator(mode="after")
+    def _validate_range(self) -> YearlyRangeConfig:
+        if self.start_day > self.end_day:
+            raise ValueError(
+                f"`start_day` ({self.start_day}) doit être strictement "
+                f"inférieur à `end_day` ({self.end_day})."
+            )
+        if self.start_day == self.end_day:
+            raise ValueError(
+                "Pour un seul jour de l'année, utilisez `yearly` "
+                "au lieu de `yearly_range`."
+            )
+        # Le mois est figé : les deux bornes doivent exister dans ce mois.
+        _ensure_day_in_month(self.month, self.start_day, field="start_day")
+        _ensure_day_in_month(self.month, self.end_day, field="end_day")
         return self
 
 
 # Union discriminée par `type`.
 ScheduleConfig = Annotated[
-    OnceConfig | IntervalMinutesConfig | DailyConfig | WeeklyConfig | MonthlyConfig | YearlyConfig,
+    OnceConfig
+    | IntervalMinutesConfig
+    | DailyConfig
+    | WeeklyConfig
+    | MonthlyConfig
+    | YearlyConfig
+    | WeeklyRangeConfig
+    | MonthlyRangeConfig
+    | MultiWeekdayConfig
+    | YearlyRangeConfig,
     Discriminator("type"),
 ]
 
