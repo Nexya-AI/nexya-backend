@@ -973,6 +973,7 @@ class ConversationService:
         total_tokens: int | None,
         cost_usd: Decimal | float | None,
         error_code: str | None,
+        metadata_json: dict | None = None,
     ) -> None:
         """UPDATE atomique du placeholder assistant avec son état final.
 
@@ -1020,6 +1021,7 @@ class ConversationService:
                 total_tokens=total_tokens,
                 cost_usd=cost_value,
                 error_code=error_code,
+                metadata_json=metadata_json,
                 finished_at=now,
                 updated_at=now,
             )

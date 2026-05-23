@@ -38,7 +38,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database.base import Base, UUIDMixin
@@ -173,6 +173,13 @@ class Message(Base, UUIDMixin):
     total_tokens: Mapped[int | None] = mapped_column(Integer)
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
     error_code: Mapped[str | None] = mapped_column(String(64))
+    # planner-from-chat (2026-05-22) — métadonnées structurées d'un message
+    # assistant. V1 : `{"tool_calls": [{id, name, success, data, error}, …]}`
+    # — instantané des tool calls Planner exécutés pendant le stream. Permet
+    # à la carte de tâche du chat de survivre à la réouverture de la
+    # conversation (sans ça, les tool calls vivaient seulement en mémoire).
+    # `None` pour la quasi-totalité des messages.
+    metadata_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

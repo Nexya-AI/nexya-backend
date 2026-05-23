@@ -176,7 +176,12 @@ class QwenChatProvider(ChatProvider):
         # `_map_sdk_exception` en `ProviderInvalidRequestError`.
         if request.tools:
             kwargs["tools"] = list(request.tools)
-            kwargs["tool_choice"] = "auto"
+            # [planner-from-chat LOT 5] — "required" force un appel de tool
+            # quand l'intent classifier a détecté une planification claire
+            # (round 0, `request.extra["force_tool_call"]`). Sinon "auto".
+            kwargs["tool_choice"] = (
+                "required" if request.extra.get("force_tool_call") else "auto"
+            )
 
         client = _get_client()
 

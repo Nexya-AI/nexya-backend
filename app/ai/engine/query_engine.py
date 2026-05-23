@@ -90,11 +90,19 @@ class StreamOutcome:
       Concaténée en `content` final par le caller. On stocke en liste
       plutôt qu'en `str` cumulé pour éviter des `O(N²)` sur les
       concaténations successives de longs streams.
+
+    - `tool_results` : payloads bruts des `event: tool_result`
+      (planner-from-chat). Chaque entrée `{id, name, success, data, error}`
+      = résultat d'exécution serveur d'un tool. Le caller chat les
+      persiste dans `messages.metadata_json` pour que la carte de tâche
+      survive à la réouverture de la conversation. Vide pour les streams
+      sans tool (cas nominal du chat texte).
     """
 
     done_reason: str = "error"
     error_code: str | None = None
     content_parts: list[str] = field(default_factory=list)
+    tool_results: list[dict] = field(default_factory=list)
 
     def final_content(self) -> str:
         """Joint les deltas en une unique string — à appeler après le stream."""
@@ -168,6 +176,12 @@ def observe_sse_event(event: str, outcome: StreamOutcome) -> None:
         code = payload.get("code")
         if isinstance(code, str):
             outcome.error_code = code
+    elif event_type == "tool_result":
+        # planner-from-chat — résultat d'exécution serveur d'un tool. On
+        # accumule le payload entier `{id, name, success, data, error}` ;
+        # le caller chat le persiste dans `messages.metadata_json`.
+        if isinstance(payload, dict):
+            outcome.tool_results.append(payload)
 
 
 # ═══════════════════════════════════════════════════════════════════

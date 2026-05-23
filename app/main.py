@@ -62,6 +62,10 @@ from app.core.observability import (
     verify_scrape_token,
 )
 from app.core.observability.trace import get_trace_id
+from app.core.observability.worker_health import (
+    check_worker_health,
+    log_worker_health_report,
+)
 from app.core.openapi import customize_openapi
 from app.core.security.headers import NexyaSecurityHeadersMiddleware
 from app.features.ai_models.router import router as ai_models_router
@@ -135,6 +139,21 @@ async def lifespan(app: FastAPI):
         log.warning("nexya.startup.no_database", hint="L'API démarre sans base de données")
     if not redis_ok:
         log.warning("nexya.startup.no_redis", hint="L'API démarre sans Redis")
+
+    # **LOT D (2026-05-23)** — Diagnostic worker arq best-effort.
+    # Scanne Redis pour vérifier que le cron Planner est enregistré.
+    # Si absent, log warning avec CTA inline (`arq workers.worker...`).
+    # **Aucune exception** : fail-safe absolu, l'API démarre quand même
+    # (le worker arq est un service séparé qui peut être relancé sans
+    # toucher à Uvicorn). Cf. mémoire bug Ivan 2026-05-22.
+    try:
+        from app.core.database.redis import get_redis  # noqa: PLC0415
+
+        redis_client = get_redis() if redis_ok else None
+        worker_report = await check_worker_health(redis_client)
+        log_worker_health_report(worker_report)
+    except Exception as exc:  # noqa: BLE001 — défense en profondeur
+        log.warning("nexya.startup.worker_health_check_failed", error=str(exc))
 
     # Construction éagère de la Couche IA (log l'état au démarrage)
     get_stream_handler()

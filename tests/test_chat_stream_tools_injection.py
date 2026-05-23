@@ -6,7 +6,8 @@ l'expert courant autorise les tools.
 Garde-fous testés :
 1. Le `StreamContext` passé au handler porte `tools` peuplé quand tout est OK.
 2. `settings.tools_enabled_in_chat=False` → `ctx.tools is None`.
-3. `ExpertConfig.tools_allowed=False` (medical, legal) → `ctx.tools is None`.
+3. Le mode Médecine reçoit les tools (planner-from-chat LOT 4 :
+   `tools_allowed=True` désormais sur les 11 experts).
 4. Registry vide → `ctx.tools is None` (pas une liste vide).
 5. Mode legacy stateless ET mode persisté propagent tous deux le champ.
 
@@ -183,11 +184,14 @@ def test_legacy_stream_skips_tools_when_kill_switch_off(
     assert captured["ctx"].tools is None
 
 
-def test_legacy_stream_skips_tools_for_safety_critical_experts(
+def test_legacy_stream_injects_tools_for_medicine_after_lot4(
     monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:
-    """`expert_id='medicine'` → `tools_allowed=False` → `ctx.tools is None`
-    même si le kill-switch global est ON."""
+    """[planner-from-chat LOT 4] `expert_id='medicine'` a désormais
+    `tools_allowed=True` (décision produit Ivan) → les tools Planner sont
+    injectés comme pour tout autre expert. F2.5 excluait medicine/legal,
+    ce n'est plus le cas : poser un rappel depuis le mode Médecine
+    (« rappelle-moi mon traitement ») est un cas d'usage légitime."""
     _register_dummy_tool()
     _install_minimal_ai(monkeypatch)
     captured = _install_capture_handler(monkeypatch)
@@ -197,13 +201,15 @@ def test_legacy_stream_skips_tools_for_safety_critical_experts(
     resp = client.post(
         "/chat/stream",
         json={
-            "message": "Quel est le traitement de l'hypertension ?",
+            "message": "Rappelle-moi de prendre mon traitement à 8h.",
             "history": [{"role": "assistant", "content": "Je suis prêt."}],
             "expert_id": "medicine",
         },
     )
     assert resp.status_code == 200
-    assert captured["ctx"].tools is None
+    ctx = captured["ctx"]
+    assert ctx.tools is not None
+    assert any(t.get("function", {}).get("name") == "dummy_tool" for t in ctx.tools)
 
 
 def test_legacy_stream_skips_tools_when_registry_empty(

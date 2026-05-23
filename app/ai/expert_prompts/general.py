@@ -8,12 +8,16 @@ spécialisé).
 
 Particularité du mode Général :
 
-- C'est le **seul expert** avec **function calling activé** (4 tools
-  Planner : `create_task`, `list_tasks`, `update_task`, `pause_task`).
-  Quand l'utilisateur exprime une intention de programmation (« rappelle-moi
+- C'est l'expert **par défaut pour le function calling** (4 tools Planner :
+  `create_task`, `list_tasks`, `update_task`, `pause_task`). Quand
+  l'utilisateur exprime une intention de programmation (« rappelle-moi
   demain à 8h », « crée un rappel quotidien »), le LLM appelle le tool
-  approprié au lieu de répondre en texte. C'est ce qui rend NEXYA
-  « action-oriented », pas juste « réponse-oriented ».
+  approprié au lieu de répondre en texte — ce qui rend NEXYA
+  « action-oriented », pas juste « réponse-oriented ». La **doctrine
+  d'usage** des tools n'est plus codée ici : elle est centralisée dans
+  `app/ai/nexya_temporal.build_tools_guidance()`, source unique injectée à
+  la volée pour tout expert outillé (general, medicine et legal). Ce
+  module ne garde qu'un few-shot illustrant un appel `create_task`.
 
 - C'est le **catch-all** vers lequel les autres experts redirigent quand
   une question est manifestement hors de leur domaine.
@@ -120,34 +124,6 @@ Pour « Donne-moi des idées pour… » ou « Comment je pourrais… » :
 - Pour chacune : titre + description courte + niveau d'effort + 1
   premier pas concret réalisable aujourd'hui
 - ## Ma recommandation : laquelle je choisirais à ta place + pourquoi"""
-
-
-# ══════════════════════════════════════════════════════════════
-# Tools Planner (préservés — fonctionnalité critique F2.5)
-# ══════════════════════════════════════════════════════════════
-
-_PLANNER_TOOLS: Final[str] = """[Outils Planner disponibles — function calling]
-
-Tu as accès à 4 outils Planner via le mécanisme de function calling :
-
-- `create_task` : crée une tâche planifiée pour l'utilisateur (rappels,
-  jobs récurrents). Utilise-le **dès que** l'utilisateur exprime une
-  intention de programmation : « rappelle-moi… », « crée un rappel… »,
-  « tous les jours à 8h… », « le X à H… », « toutes les N minutes… ».
-
-- `list_tasks` : liste les tâches actives quand l'utilisateur demande
-  « mes rappels », « ce qui est programmé », « ma liste de tâches », etc.
-
-- `update_task` : modifie une tâche existante (titre, prompt, horaire).
-
-- `pause_task` : met en pause une tâche existante.
-
-**Règle de priorité absolue** : quand l'intention est claire de
-programmer ou de consulter des rappels, **APPELLE LE TOOL APPROPRIÉ AU
-LIEU DE RÉPONDRE EN TEXTE**. Le système confirmera visuellement
-l'exécution à l'utilisateur via une carte preview. Ne demande pas de
-confirmation préalable pour un cas simple — l'utilisateur peut toujours
-supprimer ou modifier après."""
 
 
 # ══════════════════════════════════════════════════════════════
@@ -273,5 +249,7 @@ SYSTEM_PROMPT: Final[str] = build_system_prompt(
     output_templates=_OUTPUT_TEMPLATES,
     anti_patterns=_ANTI_PATTERNS,
     few_shot_examples=_FEW_SHOT_EXAMPLES,
-    extra_blocks=(_PLANNER_TOOLS,),
+    # [planner-from-chat LOT 2] — la doctrine d'usage des tools Planner a
+    # été sortie d'ici vers `app/ai/nexya_temporal.build_tools_guidance()`
+    # (source unique injectée à la runtime pour tout expert outillé).
 )

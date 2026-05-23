@@ -11,8 +11,13 @@ Session A1 (2026-05-19) — Adaptation post-preamble : ces tests valident
 la logique de concat G1 (memory → corpus → system_prompt expert)
 **indépendamment** du préambule NEXYA injecté en tête par A1. Pour
 préserver l'intent original sans casser sur l'ajout du preamble, on
-désactive `settings.nexya_preamble_enabled` via fixture autouse — la
-chaîne testée devient `memory → corpus → system_prompt expert` strict.
+désactive `settings.nexya_preamble_enabled` via fixture autouse.
+
+Note (planner-from-chat LOT 2) : le bloc `[Contexte temporel]` est
+désormais TOUJOURS injecté en tête (juste après le préambule, donc en
+1ʳᵉ position quand le préambule est désactivé). Les tests vérifient donc
+l'**ordre relatif** memory < corpus < system_prompt expert, jamais un
+`startswith` sur un bloc optionnel.
 """
 
 from __future__ import annotations
@@ -132,7 +137,12 @@ async def test_concat_only_corpus_present_no_memory() -> None:
 
     sp = captured["system_prompt"]
     assert "[CORPUS_ONLY]" in sp
-    assert sp.startswith("[CORPUS_ONLY]")
+    # Aucun bloc mémoire injecté (memory_context=None).
+    assert "[MEMORY_BLOCK]" not in sp
+    # Le corpus précède le system prompt expert. On ne teste plus
+    # `startswith` : le bloc `[Contexte temporel]` (LOT 2) est désormais
+    # toujours injecté en tête.
+    assert sp.index("[CORPUS_ONLY]") < sp.index("Expert Langues")
 
 
 @pytest.mark.asyncio

@@ -192,7 +192,15 @@ class AnthropicChatProvider(ChatProvider):
             anthropic_tools = _to_anthropic_tools(request.tools)
             if anthropic_tools:
                 kwargs["tools"] = anthropic_tools
-                kwargs["tool_choice"] = {"type": "auto"}
+                # [planner-from-chat LOT 5] — {"type": "any"} force un appel
+                # de tool quand l'intent classifier a détecté une
+                # planification claire (round 0,
+                # `request.extra["force_tool_call"]`) ; sinon {"type": "auto"}.
+                kwargs["tool_choice"] = (
+                    {"type": "any"}
+                    if request.extra.get("force_tool_call")
+                    else {"type": "auto"}
+                )
 
         client = _get_client()
 

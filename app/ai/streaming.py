@@ -51,7 +51,9 @@ from app.ai.circuit_breaker import (
 )
 from app.ai.cost_tracker import CostTracker
 from app.ai.engine.session_store import SessionStore
+from app.ai.intent_classifier import detect_planning_intent
 from app.ai.nexya_preamble import build_nexya_preamble
+from app.ai.nexya_temporal import build_temporal_context, build_tools_guidance
 from app.ai.observability import StreamMetrics
 from app.ai.providers import (
     ChatChunk,
@@ -61,6 +63,7 @@ from app.ai.providers import (
 )
 from app.ai.retry import DEFAULT_POLICY, RetryPolicy, stream_chat_with_retry
 from app.ai.router import ChatResolution, LlmRouter
+from app.ai.tools import get_tool_registry, run_with_tool_rounds
 from app.config import settings as _settings
 from app.core.database.redis import get_redis
 from app.core.observability import get_tracer, record_ai_chat_call
@@ -233,6 +236,30 @@ class StreamContext:
     # Peuplé par le router `/chat/stream` uniquement quand le caller
     # active explicitement le function calling pour l'expert courant.
     tools: list[dict] | None = None
+    # [planner-from-chat LOT 1] — Exécution serveur des tools.
+    # `user` : l'objet ORM `User` chargé par `get_current_user`. Les
+    # handlers de tools (create_task…) en ont besoin pour le quota plan +
+    # l'user_id. On ne lit que des attributs déjà chargés (`id`, `is_pro`)
+    # — l'objet peut être détaché de sa session sans risque.
+    # `db_session_factory` : callable retournant un context manager de
+    # session DB async (`AsyncSessionLocal`). L'orchestrateur ouvre une
+    # session FRAÎCHE par tool exécuté — le stream tourne APRÈS le retour
+    # de l'endpoint, la session `Depends(get_db)` n'est plus fiable.
+    # Les deux à `None` (défaut) → l'orchestrateur n'est pas branché et le
+    # comportement F2 historique est strictement préservé (un function_call
+    # est émis en SSE mais aucun tool n'est exécuté côté serveur).
+    # Type `object` volontaire : garde `streaming.py` découplé de
+    # `app.features.auth` et de `app.core.database`.
+    user: object | None = None
+    db_session_factory: object | None = None
+    # planner-from-chat tz-fix (2026-05-23) — offset ISO du client
+    # (`+01:00` / `-05:00` / `Z`). Propagé jusqu'à `build_temporal_context`
+    # qui enrichit le bloc temporel avec l'heure LOCALE de l'utilisateur
+    # + instruction au LLM de produire ses ISO datetimes avec l'offset.
+    # `None` = bloc UTC-only (comportement legacy strictement préservé).
+    # Format strict validé côté Pydantic (`ChatStreamRequest`) + côté
+    # `_parse_client_timezone` (fail-safe).
+    client_timezone: str | None = None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -586,12 +613,26 @@ class StreamHandler:
 
         nexya_preamble = build_nexya_preamble(config.expert_id)
 
+        # [planner-from-chat LOT 2] — Blocs contextuels recalculés à chaque
+        # requête (≠ prompts experts statiques) :
+        # - `temporal` : date/heure UTC courante. Injecté juste après le
+        #   préambule (contexte environnemental fondamental) et TOUJOURS —
+        #   le « maintenant » est utile à tout chat. Sans lui, le LLM ne
+        #   peut pas transformer « demain 8h » en date ISO absolue.
+        # - `tools_guidance` : doctrine d'usage des tools Planner. Injecté
+        #   en DERNIER (effet de récence → signal fort « appelle le tool »)
+        #   et UNIQUEMENT quand des tools sont actifs pour cet expert.
+        temporal_block = build_temporal_context(client_timezone=ctx.client_timezone)
+        tools_guidance_block = build_tools_guidance() if ctx.tools else None
+
         parts = [
             nexya_preamble,
+            temporal_block,
             ctx.memory_context,
             ctx.expert_corpus_context,
             rag_block,
             config.system_prompt or None,
+            tools_guidance_block,
         ]
         system_prompt_final = "\n\n".join(p for p in parts if p)
 
@@ -604,24 +645,74 @@ class StreamHandler:
         if getattr(config, "disable_thinking", False):
             request_extra["disable_thinking"] = True
 
-        request = ChatCompletionRequest(
-            messages=ctx.user_messages,
-            system_prompt=system_prompt_final,
-            model=model,
-            temperature=config.temperature,
-            max_tokens=ctx.max_tokens or config.max_tokens,
-            user_id=ctx.user_id,
-            trace_id=ctx.trace_id,
-            expert_id=config.expert_id,
-            tools=ctx.tools,
-            extra=request_extra,
+        # [planner-from-chat LOT 5] — Détection d'intention de planification
+        # sur le dernier message user. Si elle est claire ET que des tools
+        # sont actifs, on force le tool call sur le round 0 (provider en
+        # `tool_config=ANY` / `tool_choice="required"`) — garantit que
+        # `create_task` parte même si Gemini Flash flake en `AUTO`.
+        # `_force_round_0` est une liste à une case = drapeau one-shot :
+        # seul le 1ᵉʳ appel de la fabrique (round 0) est forcé ; les rounds
+        # suivants de l'orchestrateur restent en `AUTO`, sinon le LLM serait
+        # contraint d'enchaîner un tool call à l'infini au lieu de produire
+        # sa réponse texte de confirmation.
+        _last_user_text = next(
+            (m.content for m in reversed(ctx.user_messages) if m.role == "user"),
+            "",
         )
+        _force_round_0 = [
+            bool(ctx.tools) and detect_planning_intent(_last_user_text or "")
+        ]
 
-        stream = stream_chat_with_retry(
-            provider=provider,
-            request=request,
-            policy=self._retry_policy,
-        )
+        # [planner-from-chat LOT 1] — Fabrique de stream par round.
+        # Réutilisée telle quelle sans tools (1 seul appel direct) et par
+        # l'orchestrateur `run_with_tool_rounds` (1 appel par round, avec
+        # les messages enrichis des résultats de tools du round précédent).
+        def _round_stream_factory(
+            round_messages: list[ChatMessage],
+        ) -> AsyncIterator[ChatChunk]:
+            round_extra = dict(request_extra)
+            if _force_round_0[0]:
+                round_extra["force_tool_call"] = True
+                _force_round_0[0] = False  # round 0 uniquement
+            round_request = ChatCompletionRequest(
+                messages=round_messages,
+                system_prompt=system_prompt_final,
+                model=model,
+                temperature=config.temperature,
+                max_tokens=ctx.max_tokens or config.max_tokens,
+                user_id=ctx.user_id,
+                trace_id=ctx.trace_id,
+                expert_id=config.expert_id,
+                tools=ctx.tools,
+                extra=round_extra,
+            )
+            return stream_chat_with_retry(
+                provider=provider,
+                request=round_request,
+                policy=self._retry_policy,
+            )
+
+        # F2.5 + [planner-from-chat LOT 1] — Branchement de l'orchestrateur.
+        # Quand des tools sont attachés ET que le contexte porte un `user`
+        # + une `db_session_factory`, on passe par `run_with_tool_rounds` :
+        # il détecte `finish_reason=TOOL_CALLS`, exécute le tool côté serveur
+        # (create_task crée vraiment la tâche en base), ré-injecte le
+        # résultat et relance le stream — jusqu'à `chat_max_tool_rounds`.
+        # Sans ce branchement (cas F2 historique), le LLM émettait un
+        # function_call que PERSONNE n'exécutait : la tâche n'était jamais
+        # créée. C'est le défaut structurel corrigé par le LOT 1.
+        if bool(ctx.tools) and ctx.user is not None and ctx.db_session_factory is not None:
+            stream = run_with_tool_rounds(
+                initial_messages=list(ctx.user_messages),
+                stream_factory=_round_stream_factory,
+                registry=get_tool_registry(),
+                user=ctx.user,
+                db_session_factory=ctx.db_session_factory,
+                max_rounds=_settings.chat_max_tool_rounds,
+                default_expert_id=config.expert_id,
+            )
+        else:
+            stream = _round_stream_factory(ctx.user_messages)
 
         first_chunk = True
         last_keepalive = time.monotonic()
@@ -649,6 +740,25 @@ class StreamHandler:
                         "index": chunk.tool_call.index,
                     }
                     yield _sse("tool_call", tc_payload)
+
+                # [planner-from-chat LOT 6] — tool_result : résultat
+                # d'EXÉCUTION serveur d'un tool, émis par l'orchestrateur
+                # `run_with_tool_rounds` juste après `create_task` & co.
+                # Traduit en `event: tool_result` SSE — le frontend affiche
+                # alors la carte de tâche avec les VRAIES données backend
+                # (id, schedule, next_run_at), sans matching approximatif.
+                if chunk.tool_result is not None:
+                    tr_delta = chunk.tool_result
+                    yield _sse(
+                        "tool_result",
+                        {
+                            "id": tr_delta.id,
+                            "name": tr_delta.name,
+                            "success": tr_delta.success,
+                            "data": tr_delta.data,
+                            "error": tr_delta.error,
+                        },
+                    )
 
                 payload: dict = {}
                 if first_chunk and disclaimer_prefix:

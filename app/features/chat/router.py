@@ -49,6 +49,7 @@ from collections.abc import AsyncIterator
 import structlog
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.budget_tracker import get_budget_tracker
@@ -74,7 +75,8 @@ from app.core.errors.exceptions import LlmQuotaExceededException
 from app.core.observability.trace import get_trace_id
 from app.core.security.rate_limiter import rate_limit_abuse_reports
 from app.features.auth.models import User
-from app.features.chat.models import Conversation
+from app.features.chat.models import Conversation, Message
+from app.features.planner.models import ScheduledTask
 from app.features.chat.schemas import (
     AbuseReportCreate,
     AbuseReportResponse,
@@ -368,6 +370,153 @@ async def permanent_delete_conversation(
 # ══════════════════════════════════════════════════════════════
 
 
+# Lifecycle fields synthétiques pour les tâches purgées / soft-deleted.
+# Le frontend (TaskPreviewCard) mappe `status='deleted'` vers une carte
+# « Tâche supprimée » discrète (icône + couleur neutres) — l'user a fait
+# l'action volontairement OU l'admin a purgé RGPD, on ne crie pas dessus.
+_DELETED_TASK_STATUS: str = "deleted"
+
+
+async def _build_messages_with_live_task_status(
+    messages: list[Message],
+    user: User,
+    db: AsyncSession,
+) -> list[MessageResponse]:
+    """Construit les `MessageResponse` Pydantic + enrichit `metadata_json.tool_calls`
+    avec le statut **live** des `scheduled_tasks` référencées.
+
+    Pourquoi un enrichissement à la lecture plutôt qu'une dénormalisation
+    à l'écriture ? — Le `metadata_json` est figé au moment où le tool a
+    été exécuté (LOT B). Le lifecycle de la tâche (idle → pending →
+    running → completed/failed/paused) évolue ensuite côté worker arq
+    sans notification au message d'origine. Une dénormalisation
+    impliquerait un UPDATE cross-table à chaque tick du worker — coûteux
+    + fragile (race conditions, vues désynchronisées sur reload). Le
+    pattern « enrichir au GET messages » garantit que la carte chat
+    affiche le statut RÉEL au moment de la lecture, sans pollution
+    de la table `messages` ni polling tight-loop côté client.
+
+    Pipeline :
+    1. **Collecte** les `task_id` depuis `metadata_json.tool_calls[*]
+       .data.task.id` sur tous les messages porteurs (parsing
+       défensif strict : tout type inattendu → skip silencieux).
+    2. **Court-circuit** : si aucun `task_id` → retour direct sans
+       SQL supplémentaire. Cas nominal du chat texte sans tool.
+    3. **UN seul SELECT** `scheduled_tasks WHERE id IN (...) AND
+       user_id = user.id` — filtre IDOR-safe (un user qui forgerait un
+       UUID d'une tâche d'un autre user ne verrait jamais son statut,
+       elle apparaîtrait comme « supprimée »).
+    4. **Patch in-place** sur une deep-copy du `metadata_json` : les 5
+       champs lifecycle (`status, paused, next_run_at, last_run_at,
+       run_count`). Une tâche absente du SELECT (purge RGPD physique)
+       OU `deleted_at != None` (soft-delete) → `status='deleted'`
+       synthétique. Le payload original côté DB reste intact (lecture
+       seule, on ne mute pas `m.metadata_json`).
+    5. **`MessageResponse.model_copy(update={metadata_json: enriched})`**
+       préserve les autres champs validés via `from_attributes` puis
+       remplace uniquement le `metadata_json` patché.
+
+    Coût SQL : 1 requête supplémentaire avec un `IN`, optimisée par l'index
+    PK sur `scheduled_tasks.id`. Pour une page de 50 messages × max
+    5 tool_calls chacun ≈ 250 IDs au pire — négligeable.
+    """
+    # Étape 1 — collecte des task_id (parsing défensif).
+    task_ids: set[uuid.UUID] = set()
+    for m in messages:
+        meta = m.metadata_json
+        if not isinstance(meta, dict):
+            continue
+        tool_calls = meta.get("tool_calls")
+        if not isinstance(tool_calls, list):
+            continue
+        for tc in tool_calls:
+            if not isinstance(tc, dict):
+                continue
+            data = tc.get("data")
+            if not isinstance(data, dict):
+                continue
+            task = data.get("task")
+            if not isinstance(task, dict):
+                continue
+            tid_raw = task.get("id")
+            if not isinstance(tid_raw, str):
+                continue
+            try:
+                task_ids.add(uuid.UUID(tid_raw))
+            except (ValueError, TypeError):
+                continue
+
+    # Étape 2 — court-circuit : pas de tool_calls = pas de SQL en plus.
+    if not task_ids:
+        return [MessageResponse.model_validate(m) for m in messages]
+
+    # Étape 3 — UN seul SELECT, filtre IDOR-safe (user_id = user.id).
+    stmt = select(ScheduledTask).where(
+        ScheduledTask.id.in_(task_ids),
+        ScheduledTask.user_id == user.id,
+    )
+    result = await db.execute(stmt)
+    live_tasks = result.scalars().all()
+    task_by_id: dict[str, ScheduledTask] = {str(t.id): t for t in live_tasks}
+
+    # Étape 4 + 5 — patch + MessageResponse.model_copy.
+    enriched_items: list[MessageResponse] = []
+    for m in messages:
+        meta = m.metadata_json
+        if not isinstance(meta, dict) or not isinstance(
+            meta.get("tool_calls"), list
+        ):
+            enriched_items.append(MessageResponse.model_validate(m))
+            continue
+
+        # Deep-copy via JSON — le metadata_json est JSONB côté DB, donc
+        # 100 % JSON-serializable. Garantit qu'on ne mute pas l'ORM.
+        new_meta = json.loads(json.dumps(meta))
+        for tc in new_meta["tool_calls"]:
+            if not isinstance(tc, dict):
+                continue
+            data = tc.get("data")
+            if not isinstance(data, dict):
+                continue
+            task = data.get("task")
+            if not isinstance(task, dict):
+                continue
+            tid = task.get("id")
+            if not isinstance(tid, str):
+                continue
+
+            live_task = task_by_id.get(tid)
+            if live_task is None or live_task.deleted_at is not None:
+                # Purgée RGPD OU soft-deleted → statut synthétique.
+                task["status"] = _DELETED_TASK_STATUS
+                continue
+
+            # Patch les 5 champs lifecycle. Le `next_run_at`/`last_run_at`
+            # peuvent être None (tâche `once` exécutée ou `failed`
+            # définitif → next_run_at=null).
+            task["status"] = live_task.status
+            task["paused"] = live_task.paused
+            task["next_run_at"] = (
+                live_task.next_run_at.isoformat()
+                if live_task.next_run_at is not None
+                else None
+            )
+            task["last_run_at"] = (
+                live_task.last_run_at.isoformat()
+                if live_task.last_run_at is not None
+                else None
+            )
+            task["run_count"] = live_task.run_count
+
+        enriched_items.append(
+            MessageResponse.model_validate(m).model_copy(
+                update={"metadata_json": new_meta}
+            )
+        )
+
+    return enriched_items
+
+
 @router.get(
     "/conversations/{conversation_id}/messages",
     response_model=NexyaResponse[MessagesPage],
@@ -388,6 +537,15 @@ async def list_conversation_messages(
     Owner check effectué dans le service : un `conversation_id` inexistant
     OU appartenant à un autre utilisateur retourne 404 (jamais 403, pas de
     distinction côté client).
+
+    **LOT C (2026-05-23)** — enrichissement live du `metadata_json.tool_calls`.
+    Pour chaque message assistant porteur d'un `create_task`/`update_task`/
+    `pause_task`, on patche `data.task.{status,paused,next_run_at,
+    last_run_at,run_count}` avec les valeurs ACTUELLES de la table
+    `scheduled_tasks` (UN seul SELECT `WHERE id IN (...)`, pas de N+1). La
+    carte tâche côté Flutter affiche ainsi le statut réel à chaque
+    réouverture de la conv (« Programmée » → « Terminée » après exécution,
+    « Supprimée » si purgée), sans polling côté client.
     """
     page = await ConversationService.list_messages(
         conversation_id,
@@ -396,12 +554,17 @@ async def list_conversation_messages(
         cursor=cursor,
         limit=limit,
     )
+
+    # Enrichissement LOT C — patch metadata_json.tool_calls avec le statut
+    # live des tâches. Le helper retourne les `MessageResponse` déjà
+    # construits + enrichis, dans le même ordre que `page.items`.
+    items = await _build_messages_with_live_task_status(
+        page.items, current_user, db
+    )
+
     return NexyaResponse(
         success=True,
-        data=MessagesPage(
-            items=[MessageResponse.model_validate(m) for m in page.items],
-            next_cursor=page.next_cursor,
-        ),
+        data=MessagesPage(items=items, next_cursor=page.next_cursor),
     )
 
 
@@ -672,6 +835,13 @@ async def chat_stream(
             expert_corpus_context=expert_corpus_context,
             rag_context=rag_context_tuple,
             tools=tools_for_request,
+            # [planner-from-chat LOT 1] — exécution serveur des tools.
+            user=current_user,
+            db_session_factory=AsyncSessionLocal,
+            # planner-from-chat tz-fix (2026-05-23) — offset ISO du
+            # client (Flutter `DateTime.now().timeZoneOffset`). Permet
+            # au LLM d'interpréter « 20h » comme heure LOCALE.
+            client_timezone=body.client_timezone,
         )
         handler = get_stream_handler()
         return StreamingResponse(
@@ -710,6 +880,11 @@ async def chat_stream(
         expert_corpus_context=expert_corpus_context,
         rag_context=rag_context_tuple,
         tools=tools_for_request,
+        # [planner-from-chat LOT 1] — exécution serveur des tools.
+        user=current_user,
+        db_session_factory=AsyncSessionLocal,
+        # planner-from-chat tz-fix (2026-05-23) — offset ISO du client.
+        client_timezone=body.client_timezone,
     )
 
     response_headers["X-Conversation-Id"] = str(conversation.id)
@@ -885,6 +1060,14 @@ async def _finalize_in_fresh_session(
     content = outcome.final_content()
     usage = metrics.usage
 
+    # planner-from-chat — instantané des tool calls exécutés pendant le
+    # stream, persisté dans `messages.metadata_json` pour que la carte de
+    # tâche du chat survive à la réouverture de la conversation. `None`
+    # quand aucun tool n'a tourné (cas nominal du chat texte).
+    metadata_json = (
+        {"tool_calls": outcome.tool_results} if outcome.tool_results else None
+    )
+
     should_enqueue_title = False
     should_enqueue_memory_extraction = False
     try:
@@ -902,6 +1085,7 @@ async def _finalize_in_fresh_session(
                 total_tokens=usage.total_tokens if usage else None,
                 cost_usd=metrics.cost_usd if usage else None,
                 error_code=outcome.error_code,
+                metadata_json=metadata_json,
             )
             # Décide d'enqueuer le titre auto une fois la finalisation
             # commitée — on ne déclenche que sur une fin propre, et tant

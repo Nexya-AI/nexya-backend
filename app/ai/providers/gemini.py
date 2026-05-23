@@ -80,6 +80,18 @@ def _get_client() -> Client:
     return _client
 
 
+def _reset_client_for_tests() -> None:
+    """Réinitialise le singleton client (isolation tests).
+
+    Pattern aligné `anthropic_provider`, `openai_provider`, `qwen_provider`,
+    `openrouter_provider`, `gemini_vision`, `openai_voice`, `openai_vision`.
+    Appelé en fixture pour garantir qu'un test qui monkeypatch `_get_client`
+    ne pollue pas le singleton d'un test suivant.
+    """
+    global _client
+    _client = None
+
+
 # ═══════════════════════════════════════════════════════════════════
 # MAPPING DES ERREURS Vertex AI → ProviderError
 # ═══════════════════════════════════════════════════════════════════
@@ -170,8 +182,37 @@ class GeminiChatProvider(ChatProvider):
         # Cap réduit la latence first-token de ~20s à ~3s sur Gemini 2.5 Pro,
         # qualité préservée car les réponses cooking sont du formatage de
         # contenu (issu du corpus RAG), pas du raisonnement.
+        #
+        # [Bug-experts-Pro 2026-05-23] **DIFFÉRENCIATION FLASH vs PRO obligatoire.**
+        # Cause racine bug terrain Ivan « 5 experts ne répondent pas » :
+        # l'API Gemini accepte `thinking_budget` selon des ranges spécifiques
+        # par modèle (cf. https://ai.google.dev/gemini-api/docs/thinking) :
+        #   - **Gemini 2.5 Flash**     : range [0, 24576] OU -1 (dynamic)
+        #                                → `0` désactive complètement le thinking ✅
+        #   - **Gemini 2.5 Flash-Lite** : range [512, 24576] OU 0 OU -1
+        #                                → `0` accepté pour off ✅
+        #   - **Gemini 2.5 Pro**       : range [128, 32768] OU -1 (dynamic)
+        #                                → `0` **REJETÉ par l'API** ❌
+        # Le code précédent posait `thinking_budget=0` pour TOUS les modèles
+        # → les 5 experts Pro (Langue, Sciences, Ingénierie, Médecine, Légal)
+        # recevaient un stream vide silencieux (l'API rejette le payload mais
+        # le SDK ne lève pas toujours d'exception nette — selon version, on
+        # obtient soit `parts=[]` soit un 400 mal mappé). Cuisine/Informatique/
+        # Général/Finance/Productivité fonctionnaient car ils sont sur Flash.
+        # Le fix : poser le **minimum API** `128` pour Pro (ce qui revient à
+        # ~1.5% du budget sur max_tokens=8192, négligeable côté coût et
+        # latence — on récupère 99% du budget pour la réponse réelle).
+        # Détection robuste via `"pro" in model.lower()` — couvre `gemini-2.5-pro`,
+        # futur `gemini-3-pro`, et anciens `gemini-1.5-pro` (qui n'expose pas
+        # thinking, mais le SDK ignore proprement le param dans ce cas).
         if request.extra.get("disable_thinking") is True:
-            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+            if "pro" in model.lower():
+                # Gemini 2.5 Pro refuse `thinking_budget=0` → minimum API forcé.
+                # 128 = 0.4% du budget thinking max, libère 99% pour la réponse.
+                config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=128)
+            else:
+                # Gemini 2.5 Flash / Flash-Lite : `0` accepté pour off complet.
+                config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
 
         # F2.5 — function calling. Format spécifique Gemini :
         # `tools=[{function_declarations: [{name, description, parameters}]}]`
@@ -184,15 +225,22 @@ class GeminiChatProvider(ChatProvider):
             gemini_tools = _to_gemini_tools(request.tools)
             if gemini_tools:
                 config_kwargs["tools"] = gemini_tools
-                # Bug-010 partial fix 2026-05-13 — Gemini 2.5 Flash a tendance
-                # à ignorer les tools même avec `mode=AUTO` explicite. On le
-                # garde pour la cohérence avec la doc Google + futurs SDK
-                # bumps + portabilité Gemini 2.5 Pro / GPT-4o / Claude qui
-                # eux respectent le contrat. Le vrai fix F3 (intent routing
-                # ou upgrade model selon contexte) est différé V1.1.
-                # Voir mémoire `project_nexya_future_features.md` § F3.fix.
+                # [planner-from-chat LOT 5] — tool_config dynamique AUTO/ANY.
+                # Historique Bug-010 : Gemini 2.5 Flash ignorait souvent les
+                # tools en `mode=AUTO`. Le fix : quand l'intent classifier a
+                # détecté une demande de planification claire (round 0,
+                # `request.extra["force_tool_call"]` posé par
+                # `streaming._run_link`), on bascule en `mode=ANY` — Gemini
+                # DOIT alors émettre un function_call. Garantit que
+                # `create_task` parte même si Flash flake. Les rounds suivants
+                # de l'orchestrateur repassent en `AUTO` (force absent) pour
+                # laisser le LLM produire sa réponse texte de confirmation —
+                # sinon il serait forcé d'enchaîner un tool call à l'infini.
+                force_tool = bool(request.extra.get("force_tool_call"))
                 config_kwargs["tool_config"] = {
-                    "function_calling_config": {"mode": "AUTO"}
+                    "function_calling_config": {
+                        "mode": "ANY" if force_tool else "AUTO"
+                    }
                 }
 
         client = _get_client()
