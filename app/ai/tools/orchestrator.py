@@ -26,7 +26,7 @@ from typing import Any
 
 import structlog
 
-from app.ai.providers import ChatChunk, ChatMessage, FinishReason
+from app.ai.providers import ChatChunk, ChatMessage, FinishReason, ToolResultDelta
 from app.core.observability import get_tracer, record_tool_execution
 
 from .base import ToolDefinition, ToolExecutionError, ToolRegistry, ToolResult
@@ -86,12 +86,28 @@ async def execute_tool_call(
     *,
     registry: ToolRegistry,
     user: Any,
-    db: Any,
+    db_session_factory: Any,
+    default_expert_id: str | None = None,
 ) -> ToolResult:
     """Exécute un tool_call accumulé via le registry.
 
     Parse les arguments JSON, invoque le handler, et catche les exceptions
     typées pour les remonter au LLM en format `ToolResult(success=False)`.
+
+    `default_expert_id` — expert de la conversation courante. Injecté dans
+    les arguments de `create_task` quand le LLM a laissé `expert_id` absent
+    ou au défaut 'general' : un rappel créé depuis l'expert Cuisine doit
+    s'exécuter sous Cuisine à l'heure dite ET sa carte doit prendre la
+    couleur de l'expert. Le LLM ne renseigne presque jamais ce champ
+    (c'est un défaut de schéma) — d'où l'injection côté orchestrateur.
+
+    `db_session_factory` est un callable retournant un context manager de
+    session DB async (typiquement `AsyncSessionLocal`). Une session
+    **fraîche** est ouverte par tool exécuté : le stream `/chat/stream`
+    tourne APRÈS le retour de l'endpoint, la session `Depends(get_db)` de
+    la requête n'est plus fiable à ce moment-là. Le handler est responsable
+    de son propre `commit` ; à la sortie du `async with`, la session est
+    fermée (les changements non commités sont rollbackés).
 
     K1 — ouvre un span OTel `tools.execute` + enregistre métrique
     `tools_executed_total{name, success}` + histogramme `duration`.
@@ -126,8 +142,34 @@ async def execute_tool_call(
                     },
                 )
 
+            # Héritage de l'expert de la conversation pour `create_task`.
+            # [Bug-couleur-carte 2026-05-23] Override **SYSTÉMATIQUE** quand
+            # `default_expert_id` est un expert spécialisé (≠ general). Le
+            # LLM Gemini Flash francophone passe parfois `"informatique"`/
+            # `"cuisine"`/`"langues"` (variations linguistiques FR) au lieu
+            # des slugs canoniques `computer`/`cooking`/`language`. La
+            # condition `current_expert == "general"` précédente ne couvrait
+            # PAS ces variations → DB stockait `expert_id="informatique"` →
+            # Flutter `_resolveExpert()` ne matchait aucun `ExpertDomain` →
+            # carte bleue par défaut. L'expert de la conv prime TOUJOURS sur
+            # ce que le LLM tente de deviner (l'user pourra changer
+            # manuellement via le Planner s'il veut). Pour `general` on
+            # respecte le default_expert_id seulement si le LLM n'a rien
+            # mis (compat conv générale qui pourrait laisser le LLM choisir).
+            if tool_call.name == "create_task" and default_expert_id:
+                if default_expert_id != "general":
+                    # Expert spécialisé : override systématique, le LLM ne
+                    # décide pas (anti variations linguistiques).
+                    arguments["expert_id"] = default_expert_id
+                else:
+                    # Conv générale : seulement si LLM n'a rien passé.
+                    current_expert = arguments.get("expert_id")
+                    if not current_expert or current_expert == "general":
+                        arguments["expert_id"] = default_expert_id
+
             try:
-                result = await tool.handler(user, db, arguments)
+                async with db_session_factory() as db:
+                    result = await tool.handler(user, db, arguments)
             except ToolExecutionError as exc:
                 return ToolResult(
                     success=False,
@@ -224,8 +266,9 @@ async def run_with_tool_rounds(
     stream_factory: StreamFactory,
     registry: ToolRegistry,
     user: Any,
-    db: Any,
+    db_session_factory: Any,
     max_rounds: int,
+    default_expert_id: str | None = None,
 ) -> AsyncIterator[ChatChunk]:
     """Boucle de rounds : stream LLM → détecte TOOL_CALLS → exécute tools →
     ré-injecte → re-stream.
@@ -235,9 +278,18 @@ async def run_with_tool_rounds(
     rounds de manière continue, y compris les chunks `tool_call` qui
     peuvent servir à afficher une UI intermédiaire.
 
-    Cap strict à `max_rounds` : au-delà, on force un chunk d'erreur
-    synthétique + STOP pour ne pas boucler ad vitam (ex: LLM buggé qui
-    ne sait plus s'arrêter d'appeler un tool).
+    Cap strict à `max_rounds` : au-delà, on s'arrête sans ré-injecter pour
+    ne pas boucler ad vitam (ex: LLM buggé qui ne sait plus s'arrêter
+    d'appeler un tool).
+
+    **Anti-double-exécution** : si `stream_factory` lève (provider down)
+    APRÈS qu'au moins un tool ait déjà été exécuté, l'exception n'est PAS
+    propagée — sinon le `StreamHandler` basculerait sur le provider de
+    fallback, qui recréerait un `run_with_tool_rounds` neuf re-streamant le
+    round 0 et **ré-exécutant `create_task`** → tâche planifiée en double.
+    Dans ce cas on termine proprement : le client garde le résultat du/des
+    tool(s) déjà exécuté(s). Au round 0 (aucun tool exécuté), l'exception
+    remonte normalement pour laisser jouer la chaîne de fallback.
     """
     if max_rounds < 1:
         max_rounds = 1
@@ -247,6 +299,7 @@ async def run_with_tool_rounds(
     tracer = get_tracer()
     rounds_executed = 0
     cap_reached = False
+    tools_executed_total = 0
     with tracer.start_as_current_span(
         "tools.run", attributes={"tools.max_rounds": max_rounds}
     ) as span:
@@ -255,19 +308,55 @@ async def run_with_tool_rounds(
             for round_idx in range(max_rounds):
                 rounds_executed = round_idx + 1
                 collected: list[ChatChunk] = []
-                async for chunk in stream_factory(messages):
-                    collected.append(chunk)
-                    yield chunk
+                try:
+                    async for chunk in stream_factory(messages):
+                        collected.append(chunk)
+                        yield chunk
+                except Exception:  # noqa: BLE001 — voir docstring anti-double-exécution
+                    # Round 0, aucun tool exécuté → on laisse remonter pour
+                    # que le StreamHandler bascule sur le provider de fallback.
+                    if tools_executed_total == 0:
+                        raise
+                    # Round ≥1, ≥1 tool déjà exécuté → on NE relance PAS
+                    # (un fallback ré-exécuterait create_task → doublon).
+                    log.warning(
+                        "tools.orchestrator.stream_failed_after_tool_executed",
+                        round_idx=round_idx,
+                        tools_executed=tools_executed_total,
+                    )
+                    return
 
                 round_result = collect_tool_calls_from_chunks(collected)
                 if not round_result.finished_with_tool_calls:
                     return
 
-                # Exécute chaque tool_call
+                # Exécute chaque tool_call (1 session DB fraîche par tool).
                 results: list[tuple[CollectedToolCall, ToolResult]] = []
                 for tc in round_result.tool_calls:
-                    tr = await execute_tool_call(tc, registry=registry, user=user, db=db)
+                    tr = await execute_tool_call(
+                        tc,
+                        registry=registry,
+                        user=user,
+                        db_session_factory=db_session_factory,
+                        default_expert_id=default_expert_id,
+                    )
                     results.append((tc, tr))
+                    tools_executed_total += 1
+                    # [planner-from-chat LOT 6] — émet le résultat
+                    # d'exécution comme ChatChunk dédié. `_run_link` le
+                    # traduit en `event: tool_result` SSE → le frontend
+                    # affiche la carte de tâche avec les VRAIES données
+                    # backend (id, schedule, next_run_at), sans matching
+                    # approximatif par titre + date de création.
+                    yield ChatChunk(
+                        tool_result=ToolResultDelta(
+                            id=tc.id,
+                            name=tc.name,
+                            success=tr.success,
+                            data=tr.data,
+                            error=tr.error,
+                        )
+                    )
                 round_result.results = results
 
                 # Si c'était le dernier round autorisé, stop sans ré-injecter.
@@ -285,5 +374,6 @@ async def run_with_tool_rounds(
             try:
                 span.set_attribute("tools.rounds_executed", rounds_executed)
                 span.set_attribute("tools.cap_reached", cap_reached)
+                span.set_attribute("tools.executed_total", tools_executed_total)
             except Exception:  # noqa: BLE001
                 pass

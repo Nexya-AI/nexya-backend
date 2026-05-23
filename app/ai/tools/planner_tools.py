@@ -45,22 +45,145 @@ log = structlog.get_logger(__name__)
 _SCHEDULE_CONFIG_SCHEMA = {
     "type": "object",
     "description": (
-        "Configuration du schedule. 4 types supportés (champ `type` obligatoire) : "
-        "'once' avec `at` (ISO 8601 UTC future), "
-        "'interval_minutes' avec `minutes` (>=5), "
-        "'daily' avec `hour` (0-23) et `minute` (0-59), "
-        "'weekly' avec `weekday` (0=lundi..6=dimanche), `hour`, `minute`."
+        "Configuration de la planification. Le champ `type` est OBLIGATOIRE "
+        "et détermine quels autres champs fournir. Toutes les heures sont en "
+        "UTC, format 24h. Convention des jours de semaine : 0=lundi, 1=mardi, "
+        "2=mercredi, 3=jeudi, 4=vendredi, 5=samedi, 6=dimanche.\n"
+        "\n"
+        "10 types disponibles — choisis le plus adapté à la demande :\n"
+        "• 'once' — une seule fois. Champ : `at` (date-heure ISO 8601 UTC "
+        "dans le futur, ex: '2026-05-23T08:00:00Z').\n"
+        "• 'interval_minutes' — toutes les N minutes. Champ : `minutes` "
+        "(entier >= 5).\n"
+        "• 'daily' — tous les jours. Champs : `hour` (0-23), `minute` (0-59).\n"
+        "• 'weekly' — un jour de semaine précis, chaque semaine. Champs : "
+        "`weekday` (0-6), `hour`, `minute`.\n"
+        "• 'monthly' — un jour précis du mois, chaque mois. Champs : `day` "
+        "(1-31), `hour`, `minute`.\n"
+        "• 'yearly' — une date précise, chaque année. Champs : `month` "
+        "(1-12), `day` (1-31), `hour`, `minute`.\n"
+        "• 'weekly_range' — du jour X au jour Y de la semaine, range continu "
+        "(ex: lundi→vendredi = jours ouvrés). Champs : `start_weekday` (0-6), "
+        "`end_weekday` (0-6), `hour`, `minute`.\n"
+        "• 'monthly_range' — du jour X au jour Y du mois, chaque mois (ex: "
+        "du 15 au 30). Champs : `start_day` (1-31), `end_day` (1-31, "
+        "strictement > start_day), `hour`, `minute`.\n"
+        "• 'multi_weekday' — plusieurs jours de semaine non contigus (ex: "
+        "mardi+jeudi). Champs : `weekdays` (liste de 2 à 6 entiers 0-6), "
+        "`hour`, `minute`.\n"
+        "• 'yearly_range' — du jour X au jour Y d'un mois précis, chaque "
+        "année (ex: chaque janvier du 15 au 30). Champs : `month` (1-12), "
+        "`start_day` (1-31), `end_day` (1-31, strictement > start_day), "
+        "`hour`, `minute`.\n"
+        "\n"
+        "Ne fournis QUE les champs du type choisi. N'invente jamais un type "
+        "hors de cette liste de 10."
     ),
     "properties": {
         "type": {
             "type": "string",
-            "enum": ["once", "interval_minutes", "daily", "weekly"],
+            "enum": [
+                "once",
+                "interval_minutes",
+                "daily",
+                "weekly",
+                "monthly",
+                "yearly",
+                "weekly_range",
+                "monthly_range",
+                "multi_weekday",
+                "yearly_range",
+            ],
         },
-        "at": {"type": "string", "format": "date-time"},
-        "minutes": {"type": "integer", "minimum": 5},
-        "hour": {"type": "integer", "minimum": 0, "maximum": 23},
-        "minute": {"type": "integer", "minimum": 0, "maximum": 59},
-        "weekday": {"type": "integer", "minimum": 0, "maximum": 6},
+        "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Type 'once' : date-heure ISO 8601 UTC dans le futur.",
+        },
+        "minutes": {
+            "type": "integer",
+            "minimum": 5,
+            "maximum": 1440,
+            "description": "Type 'interval_minutes' : intervalle en minutes (>= 5).",
+        },
+        "hour": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 23,
+            "description": (
+                "Heure UTC (0-23). Requis pour tous les types sauf "
+                "'once' et 'interval_minutes'."
+            ),
+        },
+        "minute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 59,
+            "description": (
+                "Minute (0-59). Requise pour tous les types sauf "
+                "'once' et 'interval_minutes'."
+            ),
+        },
+        "weekday": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6,
+            "description": "Type 'weekly' : jour de semaine (0=lundi..6=dimanche).",
+        },
+        "day": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31,
+            "description": "Types 'monthly' et 'yearly' : jour du mois (1-31).",
+        },
+        "month": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12,
+            "description": (
+                "Types 'yearly' et 'yearly_range' : mois "
+                "(1=janvier..12=décembre)."
+            ),
+        },
+        "start_weekday": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6,
+            "description": "Type 'weekly_range' : premier jour du range (0-6).",
+        },
+        "end_weekday": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 6,
+            "description": "Type 'weekly_range' : dernier jour du range (0-6).",
+        },
+        "start_day": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31,
+            "description": (
+                "Types 'monthly_range' et 'yearly_range' : premier jour (1-31)."
+            ),
+        },
+        "end_day": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31,
+            "description": (
+                "Types 'monthly_range' et 'yearly_range' : dernier jour "
+                "(1-31, strictement supérieur à start_day)."
+            ),
+        },
+        "weekdays": {
+            "type": "array",
+            "items": {"type": "integer", "minimum": 0, "maximum": 6},
+            "minItems": 2,
+            "maxItems": 6,
+            "description": (
+                "Type 'multi_weekday' : liste de 2 à 6 jours de semaine "
+                "non contigus (0=lundi..6=dimanche), ex: [1, 3] = mardi+jeudi."
+            ),
+        },
     },
     "required": ["type"],
 }
@@ -262,10 +385,15 @@ def build_planner_tools() -> list[ToolDefinition]:
         ToolDefinition(
             name="create_task",
             description=(
-                "Crée une tâche IA planifiée pour l'utilisateur. Utilise-le "
-                "quand l'user demande un rappel ou une action récurrente "
-                "(ex: « rappelle-moi demain 18h »). Choisis le bon type de "
-                "schedule parmi once / interval_minutes / daily / weekly."
+                "Crée une tâche IA planifiée (rappel ou action récurrente) "
+                "pour l'utilisateur. Appelle ce tool dès que l'user demande "
+                "un rappel, un pense-bête, une alerte ou une action à "
+                "déclencher plus tard (ex: « rappelle-moi demain 8h de "
+                "prendre mes médicaments », « tous les lundis à 9h fais-moi "
+                "un résumé »). Renseigne `title` (court), `prompt` (ce que "
+                "l'IA devra faire/dire au moment voulu) et `schedule` (voir "
+                "ses 10 types). Le `prompt` doit être auto-suffisant car il "
+                "sera exécuté seul, hors de cette conversation."
             ),
             parameters_schema=_CREATE_TASK_SCHEMA,
             handler=create_task_handler,

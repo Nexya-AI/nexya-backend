@@ -8,8 +8,10 @@ Ces tests garantissent que :
 3. `get_expert_config()` est permissif : `None` ou expert_id inconnu
    retombe sur "general" sans lever.
 4. Les invariants safety-critical sont préservés : `medicine` et `legal`
-   ont `tools_allowed=False` + un disclaimer non-vide ; `studio` a une
-   chaîne de fallback vide (image-only).
+   ont un disclaimer non-vide + une température basse ; `studio` a une
+   chaîne de fallback vide (image-only). NB : depuis planner-from-chat
+   LOT 4, ces deux experts ont `tools_allowed=True` (rappels Planner
+   autorisés depuis le chat).
 5. La `full_chain` commence par le primaire et liste ensuite les fallbacks.
 
 Aucun appel LLM. Pure introspection du registre.
@@ -126,12 +128,17 @@ def test_get_expert_config_known_id_returns_exact_config() -> None:
 
 
 @pytest.mark.parametrize("expert_id", sorted(SAFETY_CRITICAL_IDS))
-def test_safety_critical_experts_have_tools_disabled(expert_id: str) -> None:
-    """F2.5 : `medicine` et `legal` n'ont PAS le droit de déclencher des
-    function calls (pas de side-effect DB depuis une consultation)."""
+def test_safety_critical_experts_have_tools_enabled(expert_id: str) -> None:
+    """[planner-from-chat LOT 4, 2026-05-22] `medicine` et `legal` ont
+    désormais le function calling ACTIVÉ (décision produit Ivan). F2.5 les
+    avait exclus par prudence ; mais les 4 tools Planner sont bénins (ils
+    posent des rappels, ne prescrivent ni ne rédigent aucun acte), et
+    planifier « prendre mes médicaments » depuis le mode Médecine est un
+    cas d'usage légitime — voir `ExpertConfig.tools_allowed` dans
+    `experts.py`."""
     config = EXPERT_REGISTRY[expert_id]
-    assert config.tools_allowed is False, (
-        f"{expert_id} doit avoir tools_allowed=False (safety-critical)"
+    assert config.tools_allowed is True, (
+        f"{expert_id} doit avoir tools_allowed=True (LOT 4 planner-from-chat)"
     )
 
 

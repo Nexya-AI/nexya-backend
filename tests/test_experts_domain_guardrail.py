@@ -12,8 +12,9 @@ Stratégie : tests prompt-level (pas de call LLM) — on garantit que :
 3. Le helper `_with_guardrail` produit le bon format avec les substitutions
    (`domain_label`, `domain_description`, `suggested_mode`).
 4. Les invariants sécurité ne sont pas cassés (disclaimer médecine/légal
-   préservé, identité NEXYA conservée, prompts safety-critical encore
-   `tools_allowed=False`).
+   préservé, identité NEXYA conservée). NB : depuis planner-from-chat
+   LOT 4, `medicine`/`legal` ont `tools_allowed=True` — le wrap guardrail
+   doit préserver cet état (et non le ré-éteindre).
 """
 
 from __future__ import annotations
@@ -134,9 +135,11 @@ def test_medicine_disclaimer_still_present_after_wrap() -> None:
     assert "professionnel" in cfg.disclaimer.lower()
 
 
-def test_medicine_tools_still_disabled_after_wrap() -> None:
+def test_medicine_tools_enabled_after_wrap() -> None:
+    """[planner-from-chat LOT 4] `medicine` a `tools_allowed=True` depuis
+    la décision produit Ivan ; le wrap guardrail ne doit pas le ré-éteindre."""
     cfg = get_expert_config("medicine")
-    assert cfg.tools_allowed is False
+    assert cfg.tools_allowed is True
 
 
 def test_legal_disclaimer_still_present_after_wrap() -> None:
@@ -145,9 +148,11 @@ def test_legal_disclaimer_still_present_after_wrap() -> None:
     assert "avocat" in cfg.disclaimer.lower() or "notaire" in cfg.disclaimer.lower()
 
 
-def test_legal_tools_still_disabled_after_wrap() -> None:
+def test_legal_tools_enabled_after_wrap() -> None:
+    """[planner-from-chat LOT 4] `legal` a `tools_allowed=True` depuis la
+    décision produit Ivan ; le wrap guardrail ne doit pas le ré-éteindre."""
     cfg = get_expert_config("legal")
-    assert cfg.tools_allowed is False
+    assert cfg.tools_allowed is True
 
 
 def test_medicine_emergency_redirect_preserved_after_wrap() -> None:

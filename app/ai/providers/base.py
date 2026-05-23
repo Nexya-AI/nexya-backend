@@ -85,6 +85,32 @@ class ToolCallDelta:
 
 
 @dataclass(frozen=True, slots=True)
+class ToolResultDelta:
+    """Résultat d'EXÉCUTION serveur d'un tool (planner-from-chat LOT 6).
+
+    Distinct de `ToolCallDelta` : `ToolCallDelta` = ce que le LLM *demande*
+    (le function_call), `ToolResultDelta` = ce que le serveur *a fait* après
+    avoir exécuté le handler. Émis par l'orchestrateur `run_with_tool_rounds`
+    juste après `execute_tool_call`, traduit en `event: tool_result` SSE par
+    `streaming._run_link`. Le frontend l'utilise pour afficher la carte de
+    tâche avec les VRAIES données backend (id, schedule, next_run_at) — pas
+    de matching approximatif par titre + date.
+
+    - `id` : identifiant du tool_call correspondant (corrélation front).
+    - `name` : nom du tool exécuté (ex: "create_task").
+    - `success` : True si le handler a réussi.
+    - `data` : `ToolResult.data` — ex: `{"task": {...}}` pour create_task.
+    - `error` : `ToolResult.error` (`{code, message}`) si échec, sinon None.
+    """
+
+    id: str = ""
+    name: str = ""
+    success: bool = False
+    data: dict[str, Any] = field(default_factory=dict)
+    error: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ChatChunk:
     """Fragment de réponse en streaming.
 
@@ -92,12 +118,16 @@ class ChatChunk:
     - `finish_reason` : non-nul uniquement sur le dernier chunk
     - `usage` : renseigné uniquement sur le dernier chunk si le provider le donne
     - `tool_call` : non-nul si le chunk porte un fragment de tool_call (F2)
+    - `tool_result` : non-nul si le chunk porte le résultat d'exécution d'un
+      tool côté serveur (planner-from-chat LOT 6). Émis par l'orchestrateur,
+      jamais par un provider LLM.
     """
 
     delta: str = ""
     finish_reason: FinishReason | None = None
     usage: ChatUsage | None = None
     tool_call: ToolCallDelta | None = None
+    tool_result: ToolResultDelta | None = None
 
 
 # ═══════════════════════════════════════════════════════════════════

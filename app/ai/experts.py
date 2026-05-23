@@ -78,10 +78,13 @@ class ExpertConfig:
     # `tool_registry.build_openai_tools()` dans `StreamContext.tools` ;
     # le LLM peut alors décider d'appeler `create_task`, `list_tasks`,
     # `update_task` ou `pause_task` (4 tools Planner enregistrés au
-    # lifespan). Désactivé pour `medical` et `legal` parce qu'un expert
-    # médical / juridique ne devrait pas créer une tâche planifiée
-    # depuis une consultation — risque de confusion fonctionnelle (le
-    # user attend un avis, pas un side-effect DB silencieux).
+    # lifespan).
+    # [planner-from-chat LOT 4, 2026-05-22] Activé sur les **11 experts**,
+    # y compris `medicine` et `legal` (décision produit Ivan). F2.5 les
+    # avait exclus par prudence ; mais les 4 tools Planner sont bénins —
+    # ils posent des rappels, ne prescrivent ni ne rédigent aucun acte.
+    # Pouvoir planifier « prendre mes médicaments » depuis le mode
+    # Médecine est un cas d'usage légitime et même plus pertinent là.
     tools_allowed: bool = True
 
     # [Fix 2026-05-22] Thinking mode Gemini 2.5 Pro/Flash DÉSACTIVÉ par
@@ -495,11 +498,15 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
             "de santé. Consulte un médecin pour tout cas concret."
         ),
         tags=("medical", "safety-critical"),
-        # F2.5 — pas de function calling sur safety-critical : un expert
-        # médical ne doit pas créer une tâche planifiée silencieusement
-        # depuis une consultation (l'user attend un avis, pas un effet
-        # de bord DB).
-        tools_allowed=False,
+        # [planner-from-chat LOT 4] — function calling RÉACTIVÉ (était False
+        # sous F2.5). Décision produit Ivan : un utilisateur en mode Médecine
+        # doit pouvoir poser un rappel depuis le chat (« rappelle-moi de
+        # prendre mes médicaments à 8h ») — c'est un cas d'usage légitime,
+        # et même PLUS pertinent dans cet expert. Les 4 tools Planner sont
+        # bénins (rappels, pas de prescription). Le bloc URGENCE en tête du
+        # prompt medicine reste prioritaire ; l'intent classifier (LOT 5) ne
+        # force JAMAIS un tool call sur une phrase d'urgence vitale.
+        tools_allowed=True,
     ),
     "legal": ExpertConfig(
         expert_id="legal",
@@ -519,8 +526,12 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
             "Consulte un avocat ou un notaire pour tout cas concret."
         ),
         tags=("legal", "safety-critical", "ohada"),
-        # F2.5 — idem `medicine` : aucun tool LLM autorisé sur le mode légal.
-        tools_allowed=False,
+        # [planner-from-chat LOT 4] — idem `medicine` : function calling
+        # RÉACTIVÉ (décision produit Ivan). Un utilisateur en mode Légal
+        # doit pouvoir poser un rappel (« rappelle-moi l'échéance du
+        # contrat le 30 »). Les 4 tools Planner ne rédigent aucun acte
+        # juridique engageant — ils planifient des rappels.
+        tools_allowed=True,
     ),
 }
 

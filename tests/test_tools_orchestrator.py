@@ -32,6 +32,27 @@ from app.ai.tools import (
 from app.ai.tools.base import ToolExecutionError
 
 
+# ───────────────────────────────────────────────────────────────────
+# Fake db_session_factory — l'orchestrateur ouvre `async with
+# db_session_factory() as db:` pour chaque tool exécuté (LOT 1).
+# ───────────────────────────────────────────────────────────────────
+
+
+class _FakeDbSession:
+    """Session DB factice — context manager async pour les tests."""
+
+    async def __aenter__(self) -> MagicMock:
+        return MagicMock()
+
+    async def __aexit__(self, *exc_info: object) -> bool:
+        return False
+
+
+def _fake_db_factory() -> _FakeDbSession:
+    """`db_session_factory` factice : `async with _fake_db_factory() as db`."""
+    return _FakeDbSession()
+
+
 def _mk_tool_call_chunk(
     *, name="create_task", args_json='{"title":"x"}', index=0, call_id="c1"
 ) -> ChatChunk:
@@ -132,7 +153,7 @@ async def test_execute_tool_happy_path():
     from app.ai.tools.orchestrator import CollectedToolCall
 
     tc = CollectedToolCall(id="c1", name="echo", arguments_json='{"a":1}')
-    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db=MagicMock())
+    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory)
     assert result.success is True
     assert result.data["echo"] == {"a": 1}
 
@@ -143,7 +164,7 @@ async def test_execute_tool_not_found_returns_failure():
 
     reg = ToolRegistry()
     tc = CollectedToolCall(id="c1", name="unknown", arguments_json="{}")
-    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db=MagicMock())
+    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory)
     assert result.success is False
     assert result.error["code"] == "TOOL_NOT_FOUND"
 
@@ -165,7 +186,7 @@ async def test_execute_tool_bad_json_args_returns_failure():
     from app.ai.tools.orchestrator import CollectedToolCall
 
     tc = CollectedToolCall(id="c1", name="x", arguments_json="{not-json")
-    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db=MagicMock())
+    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory)
     assert result.success is False
     assert result.error["code"] == "TOOL_ARGS_INVALID"
 
@@ -187,7 +208,7 @@ async def test_execute_tool_raises_execution_error_caught():
     from app.ai.tools.orchestrator import CollectedToolCall
 
     tc = CollectedToolCall(id="c1", name="fail", arguments_json="{}")
-    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db=MagicMock())
+    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory)
     assert result.success is False
     assert result.error["code"] == "SOMETHING"
 
@@ -209,7 +230,7 @@ async def test_execute_tool_catches_unexpected_exception():
     from app.ai.tools.orchestrator import CollectedToolCall
 
     tc = CollectedToolCall(id="c1", name="boom", arguments_json="{}")
-    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db=MagicMock())
+    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory)
     assert result.success is False
     assert result.error["code"] == "TOOL_INTERNAL_ERROR"
 
@@ -257,7 +278,7 @@ async def test_run_with_tool_rounds_single_round_no_tools_stops():
         stream_factory=_stream,
         registry=reg,
         user=MagicMock(),
-        db=MagicMock(),
+        db_session_factory=_fake_db_factory,
         max_rounds=3,
     ):
         emitted.append(chunk)
@@ -295,7 +316,7 @@ async def test_run_with_tool_rounds_executes_tool_then_second_round():
         stream_factory=_stream,
         registry=reg,
         user=MagicMock(),
-        db=MagicMock(),
+        db_session_factory=_fake_db_factory,
         max_rounds=5,
     ):
         chunks.append(c)
@@ -333,10 +354,186 @@ async def test_run_with_tool_rounds_caps_at_max_rounds():
         stream_factory=_stream,
         registry=reg,
         user=MagicMock(),
-        db=MagicMock(),
+        db_session_factory=_fake_db_factory,
         max_rounds=3,
     ):
         pass
 
     # Au max 3 rounds, pas plus — sinon boucle infinie
     assert call_count["n"] == 3
+
+
+# ───────────────────────────────────────────────────────────────────
+# planner-from-chat LOT 6 — émission du ChatChunk tool_result
+# ───────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_with_tool_rounds_emits_tool_result_chunk():
+    """Après exécution d'un tool, l'orchestrateur yield un ChatChunk
+    portant un `tool_result` (traduit en `event: tool_result` SSE)."""
+
+    async def handler(user, db, args):
+        return ToolResult(success=True, data={"task": {"id": "task-42"}})
+
+    tool = ToolDefinition(
+        name="create_task",
+        description="create",
+        parameters_schema={"type": "object"},
+        handler=handler,
+    )
+    reg = ToolRegistry()
+    reg.register(tool)
+
+    call_count = {"n": 0}
+
+    async def _stream(messages) -> AsyncIterator[ChatChunk]:
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            yield _mk_tool_call_chunk(name="create_task", args_json='{"title":"x"}')
+            yield _mk_done_tool_calls()
+        else:
+            yield ChatChunk(delta="C'est noté.")
+            yield _mk_done_stop()
+
+    chunks = []
+    async for c in run_with_tool_rounds(
+        initial_messages=[],
+        stream_factory=_stream,
+        registry=reg,
+        user=MagicMock(),
+        db_session_factory=_fake_db_factory,
+        max_rounds=5,
+    ):
+        chunks.append(c)
+
+    tool_results = [c.tool_result for c in chunks if c.tool_result is not None]
+    assert len(tool_results) == 1
+    tr = tool_results[0]
+    assert tr.name == "create_task"
+    assert tr.success is True
+    assert tr.data["task"]["id"] == "task-42"
+
+
+@pytest.mark.asyncio
+async def test_run_with_tool_rounds_emits_tool_result_on_failure():
+    """Un tool qui échoue produit aussi un ChatChunk tool_result, mais
+    avec `success=False` et l'erreur typée."""
+
+    async def handler(user, db, args):
+        return ToolResult(
+            success=False,
+            error={"code": "TASKS_QUOTA_EXCEEDED", "message": "Quota atteint."},
+        )
+
+    tool = ToolDefinition(
+        name="create_task",
+        description="create",
+        parameters_schema={"type": "object"},
+        handler=handler,
+    )
+    reg = ToolRegistry()
+    reg.register(tool)
+
+    call_count = {"n": 0}
+
+    async def _stream(messages) -> AsyncIterator[ChatChunk]:
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            yield _mk_tool_call_chunk(name="create_task", args_json="{}")
+            yield _mk_done_tool_calls()
+        else:
+            yield ChatChunk(delta="Désolé.")
+            yield _mk_done_stop()
+
+    chunks = []
+    async for c in run_with_tool_rounds(
+        initial_messages=[],
+        stream_factory=_stream,
+        registry=reg,
+        user=MagicMock(),
+        db_session_factory=_fake_db_factory,
+        max_rounds=5,
+    ):
+        chunks.append(c)
+
+    tool_results = [c.tool_result for c in chunks if c.tool_result is not None]
+    assert len(tool_results) == 1
+    assert tool_results[0].success is False
+    assert tool_results[0].error["code"] == "TASKS_QUOTA_EXCEEDED"
+
+
+# ───────────────────────────────────────────────────────────────────
+# planner-from-chat LOT 1 — anti-double-exécution
+# ───────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_with_tool_rounds_round0_failure_propagates():
+    """Round 0, aucun tool exécuté → l'exception remonte pour laisser
+    jouer la chaîne de fallback du StreamHandler."""
+
+    async def _stream(messages) -> AsyncIterator[ChatChunk]:
+        raise RuntimeError("provider down")
+        yield  # noqa — fait de _stream un async generator
+
+    reg = ToolRegistry()
+    with pytest.raises(RuntimeError):
+        async for _ in run_with_tool_rounds(
+            initial_messages=[],
+            stream_factory=_stream,
+            registry=reg,
+            user=MagicMock(),
+            db_session_factory=_fake_db_factory,
+            max_rounds=3,
+        ):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_run_with_tool_rounds_round1_failure_after_tool_is_swallowed():
+    """Round 1, ≥1 tool DÉJÀ exécuté → l'exception est avalée (pas de
+    fallback qui ré-exécuterait create_task → tâche en double). Le tool
+    n'a été exécuté qu'UNE seule fois."""
+    exec_count = {"n": 0}
+
+    async def handler(user, db, args):
+        exec_count["n"] += 1
+        return ToolResult(success=True, data={"task": {"id": "t-1"}})
+
+    tool = ToolDefinition(
+        name="create_task",
+        description="create",
+        parameters_schema={"type": "object"},
+        handler=handler,
+    )
+    reg = ToolRegistry()
+    reg.register(tool)
+
+    call_count = {"n": 0}
+
+    async def _stream(messages) -> AsyncIterator[ChatChunk]:
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            yield _mk_tool_call_chunk(name="create_task", args_json='{"title":"x"}')
+            yield _mk_done_tool_calls()
+        else:
+            raise RuntimeError("provider down round 1")
+            yield  # noqa — async generator
+
+    # Aucune exception ne doit remonter.
+    chunks = []
+    async for c in run_with_tool_rounds(
+        initial_messages=[],
+        stream_factory=_stream,
+        registry=reg,
+        user=MagicMock(),
+        db_session_factory=_fake_db_factory,
+        max_rounds=5,
+    ):
+        chunks.append(c)
+
+    # Le tool create_task n'a été exécuté qu'UNE fois — pas de doublon.
+    assert exec_count["n"] == 1
+    # Le chunk tool_result du round 0 a bien été émis avant la coupure.
+    assert any(c.tool_result is not None for c in chunks)

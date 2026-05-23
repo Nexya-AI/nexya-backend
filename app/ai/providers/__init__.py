@@ -27,6 +27,7 @@ from .base import (
     ProviderRateLimitError,
     ProviderUnavailableError,
     ToolCallDelta,
+    ToolResultDelta,
 )
 from .gemini import GeminiChatProvider, GeminiImageProvider
 from .mock import MockChatProvider
@@ -64,4 +65,5 @@ __all__ = [
     "OpenRouterChatProvider",
     "MockChatProvider",
     "ToolCallDelta",
+    "ToolResultDelta",
 ]

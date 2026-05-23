@@ -177,6 +177,11 @@ class MessageResponse(BaseModel):
     total_tokens: int | None
     cost_usd: Decimal | None
     error_code: str | None
+    # planner-from-chat (2026-05-22) — métadonnées structurées du message.
+    # V1 : `{"tool_calls": [...]}` quand l'assistant a déclenché des tools
+    # Planner. `None` sur la quasi-totalité des messages. Permet au client
+    # de reconstruire la carte de tâche au rechargement de la conversation.
+    metadata_json: dict | None = None
     finished_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -289,6 +294,13 @@ class ChatStreamRequest(BaseModel):
     project_id: uuid.UUID | None = None
     rag_context: RagContextPayload | None = None
     history: list[ChatStreamInlineMessage] = Field(default_factory=list, max_length=50)
+    # planner-from-chat tz-fix (2026-05-23) — offset ISO du client
+    # (`+01:00` / `-05:00` / `Z`). Permet au LLM d'interpréter « 20h »
+    # comme heure LOCALE de l'utilisateur (et non UTC) lors de la
+    # création de tâches planifiées. Si `None` ou invalide côté
+    # `_parse_client_timezone`, fallback UTC-only (comportement legacy).
+    # Le frontend Flutter le calcule via `DateTime.now().timeZoneOffset`.
+    client_timezone: str | None = Field(default=None, min_length=1, max_length=8)
 
     @field_validator("message")
     @classmethod

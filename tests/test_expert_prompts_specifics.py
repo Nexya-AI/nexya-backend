@@ -6,12 +6,14 @@ générique et le **niveau divin Silicon Valley** :
 
 - **Medicine** : bloc URGENCE + 5 symptômes critiques + numéros
   Cameroun 117/118/119
-- **Legal** : OHADA + Code civil + article exact + tools_allowed=False
+- **Legal** : OHADA + Code civil + article exact + tools_allowed=True
+  (planner-from-chat LOT 4)
 - **Cooking** : substitution 2+ alternatives + corpus RAG G2 +
   attribution Loth Ivan / Nexyalabs
 - **Science** : LaTeX obligatoire + étapes intermédiaires
 - **Computer** : code exécutable + edge cases + Python/Dart/TS/Go/Rust
-- **General** : 4 tools Planner (create_task/list_tasks/update_task/pause_task)
+- **General** : few-shot illustrant un appel `create_task` (la doctrine
+  des 4 tools Planner vit dans `nexya_temporal.build_tools_guidance()`)
 - **Studio** : redirection vers Général si conversation
 - **Finance** : FCFA + OHADA + Mobile Money + BRVM/DSX
 - **Engineering** : SI + normes ISO/EN/NF + 13 branches
@@ -92,10 +94,13 @@ def test_medicine_forbids_nominative_posology() -> None:
     assert "posologie nominative" in prompt or "posologie" in prompt
 
 
-def test_medicine_in_registry_has_tools_disabled() -> None:
-    """Safety-critical : pas de side-effect DB depuis consultation médicale."""
+def test_medicine_in_registry_has_tools_enabled() -> None:
+    """[planner-from-chat LOT 4] Le mode Médecine a désormais le function
+    calling ACTIVÉ (décision produit Ivan) — poser un rappel Planner
+    (« rappelle-moi de prendre mes médicaments ») y est légitime. F2.5
+    l'avait exclu par prudence ; les 4 tools Planner sont bénins."""
     cfg = get_expert_config("medicine")
-    assert cfg.tools_allowed is False
+    assert cfg.tools_allowed is True
 
 
 def test_medicine_in_registry_has_low_temperature() -> None:
@@ -147,9 +152,12 @@ def test_legal_redirects_to_lawyer_or_notaire() -> None:
     assert "notaire" in prompt
 
 
-def test_legal_in_registry_has_tools_disabled() -> None:
+def test_legal_in_registry_has_tools_enabled() -> None:
+    """[planner-from-chat LOT 4] Le mode Légal a désormais le function
+    calling ACTIVÉ (décision produit Ivan) — poser un rappel d'échéance
+    y est légitime. Les 4 tools Planner ne rédigent aucun acte engageant."""
     cfg = get_expert_config("legal")
-    assert cfg.tools_allowed is False
+    assert cfg.tools_allowed is True
 
 
 def test_legal_in_registry_has_disclaimer() -> None:
@@ -258,30 +266,19 @@ def test_computer_requires_imports() -> None:
 
 
 # ══════════════════════════════════════════════════════════════
-# GENERAL — 4 tools Planner préservés
+# GENERAL — intention Planner illustrée via few-shot
+#
+# [planner-from-chat LOT 2] La DOCTRINE des 4 tools Planner a été sortie
+# de `general.py` vers `app/ai/nexya_temporal.build_tools_guidance()` —
+# source unique injectée à la runtime pour tout expert outillé (general,
+# medicine, legal). Couverture dédiée : `tests/test_nexya_temporal.py`.
+# Ici on garde uniquement la garantie que le few-shot général illustre
+# encore concrètement un appel de tool Planner.
 # ══════════════════════════════════════════════════════════════
 
 
-def test_general_mentions_create_task_tool() -> None:
+def test_general_few_shot_illustrates_planner_tool_call() -> None:
     assert "create_task" in GENERAL_PROMPT
-
-
-def test_general_mentions_list_tasks_tool() -> None:
-    assert "list_tasks" in GENERAL_PROMPT
-
-
-def test_general_mentions_update_task_tool() -> None:
-    assert "update_task" in GENERAL_PROMPT
-
-
-def test_general_mentions_pause_task_tool() -> None:
-    assert "pause_task" in GENERAL_PROMPT
-
-
-def test_general_mentions_planner_priority_rule() -> None:
-    """Règle de priorité : APPELLE LE TOOL AU LIEU DE RÉPONDRE EN TEXTE."""
-    prompt = GENERAL_PROMPT
-    assert "APPELLE LE TOOL" in prompt or "appelle le tool" in prompt.lower()
 
 
 # ══════════════════════════════════════════════════════════════
