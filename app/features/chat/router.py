@@ -54,6 +54,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.budget_tracker import get_budget_tracker
 from app.ai.cache import CachedResponse, get_prompt_cache
+from app.ai.experts import resolve_model_for_pill
 from app.ai.engine import (
     QueryEngine,
     StreamOutcome,
@@ -684,6 +685,28 @@ async def chat_stream(
         if registry_tools:
             tools_for_request = registry_tools
 
+    # ── 4.6. Model pills (2026-05-23) — résolution UI → backend.
+    # Si l'utilisateur a sélectionné une pill (GEEK/LOTH/JUSTO) avant
+    # d'envoyer son message, on résout vers `(model_name, disable_thinking)`
+    # selon `ExpertConfig.model_pill_mapping` (matrice 11 experts × 3 pills).
+    # Pill absente / inconnue / studio → fail-safe `(None, None)` → le
+    # `StreamContext` garde ses override à None et `_run_link` utilise la
+    # config legacy A1+A2 (config.primary_model + config.disable_thinking).
+    # Voir [experts.py::resolve_model_for_pill] pour la matrice complète.
+    pill_model_override, pill_thinking_override = resolve_model_for_pill(
+        body.expert_id, body.model_pill
+    )
+    if body.model_pill and pill_model_override is None:
+        # Pill envoyée mais non résolue (studio image-only, ou pill inconnue
+        # passée par un client buggé). Log debug uniquement — pas d'erreur
+        # user-visible, on retombe sur le comportement legacy.
+        log.debug(
+            "ai.chat.pill_unresolved",
+            user_id=user_id_str,
+            expert_id=body.expert_id,
+            pill=body.model_pill,
+        )
+
     # ── 5. Préparation des messages IA selon le mode ────────────────
     is_legacy_stateless = body.conversation_id is None and bool(body.history)
     response_headers: dict[str, str] = {
@@ -842,6 +865,10 @@ async def chat_stream(
             # client (Flutter `DateTime.now().timeZoneOffset`). Permet
             # au LLM d'interpréter « 20h » comme heure LOCALE.
             client_timezone=body.client_timezone,
+            # Model pills (2026-05-23) — overrides résolus depuis
+            # `body.model_pill` (None si pas de pill ou pill non-résolue).
+            pill_model_override=pill_model_override,
+            pill_disable_thinking_override=pill_thinking_override,
         )
         handler = get_stream_handler()
         return StreamingResponse(
@@ -885,6 +912,10 @@ async def chat_stream(
         db_session_factory=AsyncSessionLocal,
         # planner-from-chat tz-fix (2026-05-23) — offset ISO du client.
         client_timezone=body.client_timezone,
+        # Model pills (2026-05-23) — overrides résolus depuis
+        # `body.model_pill` (None si pas de pill ou pill non-résolue).
+        pill_model_override=pill_model_override,
+        pill_disable_thinking_override=pill_thinking_override,
     )
 
     response_headers["X-Conversation-Id"] = str(conversation.id)

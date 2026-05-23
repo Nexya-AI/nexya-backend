@@ -1019,7 +1019,7 @@
           "chat"
         ],
         "summary": "List Conversation Messages",
-        "description": "Historique paginé d'une conversation — tri chronologique ASC.\n\nOwner check effectué dans le service : un `conversation_id` inexistant\nOU appartenant à un autre utilisateur retourne 404 (jamais 403, pas de\ndistinction côté client).",
+        "description": "Historique paginé d'une conversation — tri chronologique ASC.\n\nOwner check effectué dans le service : un `conversation_id` inexistant\nOU appartenant à un autre utilisateur retourne 404 (jamais 403, pas de\ndistinction côté client).\n\n**LOT C (2026-05-23)** — enrichissement live du `metadata_json.tool_calls`.\nPour chaque message assistant porteur d'un `create_task`/`update_task`/\n`pause_task`, on patche `data.task.{status,paused,next_run_at,\nlast_run_at,run_count}` avec les valeurs ACTUELLES de la table\n`scheduled_tasks` (UN seul SELECT `WHERE id IN (...)`, pas de N+1). La\ncarte tâche côté Flutter affiche ainsi le statut réel à chaque\nréouverture de la conv (« Programmée » → « Terminée » après exécution,\n« Supprimée » si purgée), sans polling côté client.",
         "operationId": "list_conversation_messages_chat_conversations__conversation_id__messages_get",
         "security": [
           {
@@ -4342,6 +4342,35 @@
             "type": "array",
             "maxItems": 50,
             "title": "History"
+          },
+          "client_timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Timezone"
+          },
+          "model_pill": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "geek",
+                  "loth",
+                  "justo"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Pill"
           }
         },
         "type": "object",
@@ -6243,6 +6272,18 @@
               }
             ],
             "title": "Error Code"
+          },
+          "metadata_json": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata Json"
           },
           "finished_at": {
             "anyOf": [
