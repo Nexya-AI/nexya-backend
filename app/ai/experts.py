@@ -9,6 +9,12 @@ Chaque expert mappe vers :
 - Une température et un max_tokens adaptés au domaine
 - Un éventuel disclaimer à coller en préfixe de la première réponse
   (médecine, juridique : NEXYA ne remplace pas un professionnel)
+- Une matrice `model_pill_mapping` (11 experts × 3 pills GEEK/LOTH/JUSTO)
+  qui résout chaque pill UI vers (modèle Gemini, thinking_mode) selon
+  l'expert actif. Permet aux pills d'avoir une vraie sémantique backend
+  (pas seulement cosmétique) tout en préservant les invariants safety-
+  critical (medicine = thinking always on) et G2 V8 (cooking = disable
+  thinking partout).
 
 Mapping frontend ↔ backend :
 - Les `expert_id` correspondent EXACTEMENT à `ExpertDomain.name` côté Flutter
@@ -22,6 +28,7 @@ Liste des 10 experts :
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 from app.ai.expert_prompts import (
     COMPUTER_PROMPT,
@@ -36,6 +43,153 @@ from app.ai.expert_prompts import (
     SCIENCE_PROMPT,
     STUDIO_PROMPT,
 )
+
+# ═══════════════════════════════════════════════════════════════════
+# MODEL PILLS — résolution UI → backend (GEEK / LOTH / JUSTO)
+# ═══════════════════════════════════════════════════════════════════
+#
+# Trois "pills" affichées dans la NxInputBar (frontend) :
+# - GEEK  : puissance maximale (modèle pro + thinking selon contexte)
+# - LOTH  : équilibré (défaut quotidien, qualité/vitesse)
+# - JUSTO : rapide (réponse express, contextes simples)
+#
+# Chaque pill se résout vers un couple (model_tier, disable_thinking)
+# DÉPENDANT DE L'EXPERT actif. Cette dépendance permet :
+# 1. Préserver G2 V8 (Cuisine garde disable_thinking=True partout — le
+#    benchmark a prouvé que Flash sans thinking sort 2.2× plus vite et
+#    5× plus riche pour le format recette structuré, cf. CLAUDE.md
+#    §15 entrée 2026-05-18).
+# 2. Préserver safety-critical (Médecine garde thinking always on sur
+#    les 3 pills — un patient mérite la même rigueur clinique qu'il
+#    soit en JUSTO express ou GEEK approfondi).
+# 3. Préserver safety-critical Légal (GEEK + LOTH thinking on, JUSTO
+#    thinking off pour la rapidité — l'expert Légal info reste cadré).
+# 4. Studio est image-only : pas de pill mapping, l'endpoint
+#    /image/generate ignore le pill (geste utilisateur transparent).
+#
+# Decisions clés (validées Ivan 2026-05-23) :
+# - Gemini-only V1 (Claude API trop cher : ~$1500/mois vs ~$300/mois
+#   Gemini à 1k users payants). OpenRouter facile à brancher V2.
+# - Default pattern (7 experts non-spéciaux) : GEEK = pro+thinking,
+#   LOTH = pro sans thinking, JUSTO = flash sans thinking.
+# ═══════════════════════════════════════════════════════════════════
+
+ModelPillId = Literal["geek", "loth", "justo"]
+ModelTier = Literal["flash", "pro"]
+
+
+@dataclass(frozen=True, slots=True)
+class ModelPillConfig:
+    """Résolution backend d'un pill UI (GEEK/LOTH/JUSTO).
+
+    Attributes:
+        model_tier: "flash" → gemini-2.5-flash, "pro" → gemini-2.5-pro.
+            Le helper `resolve_model_for_pill` fait la résolution vers
+            le nom de modèle effectif.
+        disable_thinking: True = thinking_budget=0 (Flash) ou 128 (Pro,
+            minimum API forcé). False = thinking adaptatif activé.
+            Voir [gemini.py:163-198] pour la traduction Flash/Pro.
+    """
+
+    model_tier: ModelTier
+    disable_thinking: bool
+
+
+# Pattern par défaut appliqué à 7 experts conversationnels :
+# general, computer, science, finance, language, engineering, productivity
+_DEFAULT_PILL_MAPPING: dict[str, ModelPillConfig] = {
+    "geek": ModelPillConfig(model_tier="pro", disable_thinking=False),
+    "loth": ModelPillConfig(model_tier="pro", disable_thinking=True),
+    "justo": ModelPillConfig(model_tier="flash", disable_thinking=True),
+}
+
+# Cuisine — G2 V8 preserve : disable_thinking=True sur les 3 pills.
+# Le benchmark 2026-05-18 a prouvé que pour le format recette (RAG +
+# structure ingredients/étapes), Flash sans thinking est objectivement
+# meilleur (2.2× plus rapide, 5× plus riche en sortie).
+_COOKING_PILL_MAPPING: dict[str, ModelPillConfig] = {
+    "geek": ModelPillConfig(model_tier="pro", disable_thinking=True),
+    "loth": ModelPillConfig(model_tier="flash", disable_thinking=True),
+    "justo": ModelPillConfig(model_tier="flash", disable_thinking=True),
+}
+
+# Médecine — Safety-critical MAX : thinking always on sur les 3 pills.
+# Un patient en JUSTO mérite la même rigueur clinique qu'en GEEK.
+# Le modèle reste Pro partout (vies humaines > coût latence).
+_MEDICINE_PILL_MAPPING: dict[str, ModelPillConfig] = {
+    "geek": ModelPillConfig(model_tier="pro", disable_thinking=False),
+    "loth": ModelPillConfig(model_tier="pro", disable_thinking=False),
+    "justo": ModelPillConfig(model_tier="pro", disable_thinking=False),
+}
+
+# Légal — Safety-critical : thinking on sur GEEK+LOTH (rigueur juridique),
+# off sur JUSTO (rapidité pour cas factuels simples type "définition SARL").
+# Modèle Pro partout (même JUSTO — pas de dégradation Flash sur sujets
+# OHADA, articles Code civil exact obligatoire).
+_LEGAL_PILL_MAPPING: dict[str, ModelPillConfig] = {
+    "geek": ModelPillConfig(model_tier="pro", disable_thinking=False),
+    "loth": ModelPillConfig(model_tier="pro", disable_thinking=False),
+    "justo": ModelPillConfig(model_tier="pro", disable_thinking=True),
+}
+
+# Studio — image-only, mapping vide. Le helper `resolve_model_for_pill`
+# court-circuite et retourne (None, None) — l'endpoint /image/generate
+# ignore le pill (geste utilisateur transparent sur Studio).
+_STUDIO_PILL_MAPPING: dict[str, ModelPillConfig] = {}
+
+
+# Résolution du nom de modèle effectif depuis le tier.
+_TIER_TO_MODEL: dict[ModelTier, str] = {
+    "flash": "gemini-2.5-flash",
+    "pro": "gemini-2.5-pro",
+}
+
+
+def resolve_model_for_pill(
+    expert_id: str | None,
+    pill: str | None,
+) -> tuple[str | None, bool | None]:
+    """Résout un pill UI vers (model_name, disable_thinking) pour un expert.
+
+    Args:
+        expert_id: slug expert ("general", "computer", ...). None ou
+            inconnu → retombe sur "general" (cohérent avec
+            `get_expert_config`).
+        pill: "geek", "loth", "justo" (case-insensitive). None ou
+            inconnu → retourne (None, None) — l'appelant doit retomber
+            sur `config.primary_model` + `config.disable_thinking`
+            (comportement legacy A1+A2 préservé).
+
+    Returns:
+        Tuple (model_name, disable_thinking) :
+        - model_name : "gemini-2.5-flash" ou "gemini-2.5-pro" ou None.
+        - disable_thinking : True/False/None.
+
+        (None, None) signifie : pas de résolution pill possible
+        (studio, pill inconnu, expert sans mapping). L'appelant doit
+        utiliser la config primaire de l'expert.
+
+    Fail-safe : aucune exception levée. Pill malformé, expert inconnu,
+    studio → retour (None, None) silencieux. L'appelant continue avec
+    la config legacy.
+    """
+    if not pill:
+        return None, None
+    normalized_pill = pill.strip().lower()
+    if normalized_pill not in ("geek", "loth", "justo"):
+        return None, None
+
+    config = get_expert_config(expert_id)
+    pill_config = config.model_pill_mapping.get(normalized_pill)
+    if pill_config is None:
+        # Studio (mapping vide) ou expert sans mapping configuré.
+        return None, None
+
+    model_name = _TIER_TO_MODEL.get(pill_config.model_tier)
+    if model_name is None:
+        # Garde-fou défensif — ne devrait jamais arriver.
+        return None, None
+    return model_name, pill_config.disable_thinking
 
 # ═══════════════════════════════════════════════════════════════════
 # DATACLASS — ExpertConfig
@@ -102,6 +256,16 @@ class ExpertConfig:
     # ⚠️ Ne mettre `False` sur un expert QUE si on relève AUSSI son
     # `max_tokens` à 8192+ (sinon le bug « réponse vide » revient).
     disable_thinking: bool = True
+
+    # Pills modèles UI (GEEK / LOTH / JUSTO). Si l'utilisateur a sélectionné
+    # une pill avant d'envoyer son message, le router `/chat/stream` résout
+    # via `resolve_model_for_pill(expert_id, pill)` puis override
+    # `request.model` et `request.extra["disable_thinking"]` AVANT l'appel
+    # provider. Si la pill est absente / inconnue / studio → comportement
+    # legacy A1+A2 préservé (config.primary_model + config.disable_thinking).
+    # Mapping vide par défaut → le champ existe sur tous les ExpertConfig
+    # mais reste no-op tant qu'on ne le peuple pas explicitement.
+    model_pill_mapping: dict[str, ModelPillConfig] = field(default_factory=dict)
 
     @property
     def full_chain(self) -> tuple[tuple[str, str], ...]:
@@ -330,6 +494,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         max_tokens=4096,
         tier="flash",
         tags=("general", "conversation"),
+        model_pill_mapping=_DEFAULT_PILL_MAPPING,
     ),
     "computer": ExpertConfig(
         expert_id="computer",
@@ -345,6 +510,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         max_tokens=4096,
         tier="flash",
         tags=("code", "technical"),
+        model_pill_mapping=_DEFAULT_PILL_MAPPING,
     ),
     "science": ExpertConfig(
         expert_id="science",
@@ -360,6 +526,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         max_tokens=8192,
         tier="pro",
         tags=("stem", "reasoning"),
+        model_pill_mapping=_DEFAULT_PILL_MAPPING,
     ),
     "finance": ExpertConfig(
         expert_id="finance",
@@ -374,6 +541,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         max_tokens=4096,
         tier="flash",
         tags=("finance", "business", "africa"),
+        model_pill_mapping=_DEFAULT_PILL_MAPPING,
     ),
     "language": ExpertConfig(
         expert_id="language",
@@ -399,6 +567,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         tier="pro",
         tags=("language", "translation"),
         corpus_enabled=False,
+        model_pill_mapping=_DEFAULT_PILL_MAPPING,
     ),
     "cooking": ExpertConfig(
         expert_id="cooking",
@@ -434,6 +603,8 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         # ici — le défaut `ExpertConfig.disable_thinking=True` couvre
         # désormais les 11 experts (cf. commentaire du champ). Cooking était
         # le 1ᵉʳ à en bénéficier (G2 V1.1, latence ~20s → ~3s sur Pro Vertex).
+        # G2 V8 preserve : pills GEEK/LOTH/JUSTO gardent disable_thinking=True.
+        model_pill_mapping=_COOKING_PILL_MAPPING,
     ),
     # ─── Bientôt disponible ────────────────────────────────────────
     "studio": ExpertConfig(
@@ -450,6 +621,8 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         max_tokens=2048,
         tier="image",
         tags=("image", "creative"),
+        # Studio image-only : mapping vide, /image/generate ignore le pill.
+        model_pill_mapping=_STUDIO_PILL_MAPPING,
     ),
     "engineering": ExpertConfig(
         expert_id="engineering",
@@ -465,6 +638,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         max_tokens=8192,
         tier="pro",
         tags=("engineering", "technical"),
+        model_pill_mapping=_DEFAULT_PILL_MAPPING,
     ),
     "productivity": ExpertConfig(
         expert_id="productivity",
@@ -479,6 +653,7 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         max_tokens=4096,
         tier="flash",
         tags=("productivity", "habits"),
+        model_pill_mapping=_DEFAULT_PILL_MAPPING,
     ),
     "medicine": ExpertConfig(
         expert_id="medicine",
@@ -507,6 +682,9 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         # prompt medicine reste prioritaire ; l'intent classifier (LOT 5) ne
         # force JAMAIS un tool call sur une phrase d'urgence vitale.
         tools_allowed=True,
+        # Safety-critical MAX : thinking on sur les 3 pills (un patient mérite
+        # la même rigueur clinique en JUSTO express qu'en GEEK approfondi).
+        model_pill_mapping=_MEDICINE_PILL_MAPPING,
     ),
     "legal": ExpertConfig(
         expert_id="legal",
@@ -532,6 +710,9 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
         # contrat le 30 »). Les 4 tools Planner ne rédigent aucun acte
         # juridique engageant — ils planifient des rappels.
         tools_allowed=True,
+        # Safety-critical : thinking on sur GEEK+LOTH (rigueur OHADA),
+        # off sur JUSTO (cas factuels simples type « définition SARL »).
+        model_pill_mapping=_LEGAL_PILL_MAPPING,
     ),
 }
 

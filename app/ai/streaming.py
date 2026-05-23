@@ -260,6 +260,17 @@ class StreamContext:
     # Format strict validé côté Pydantic (`ChatStreamRequest`) + côté
     # `_parse_client_timezone` (fail-safe).
     client_timezone: str | None = None
+    # Model pills (2026-05-23) — override du modèle Gemini + thinking_mode
+    # pour ce stream selon la pill UI (GEEK/LOTH/JUSTO) sélectionnée par
+    # l'utilisateur dans la `NxInputBar`. Résolu côté router par
+    # `resolve_model_for_pill(expert_id, pill)` qui retourne
+    # `(model_name, disable_thinking)` ou `(None, None)` (fail-safe).
+    # Si `pill_model_override` n'est PAS None → `_stream_link` utilise
+    # ces valeurs au lieu de `config.primary_model` / `config.disable_thinking`
+    # pour le 1ᵉʳ lien de la chaîne (les fallbacks gardent leur modèle natif
+    # pour éviter une cascade « override + fallback dégradé »).
+    pill_model_override: str | None = None
+    pill_disable_thinking_override: bool | None = None
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -559,6 +570,47 @@ class StreamHandler:
         model = link.model
         config = link.config
 
+        # Model pill override (2026-05-23) — appliqué UNIQUEMENT sur le 1er
+        # lien de la chaîne. Les fallbacks gardent leur modèle natif pour
+        # ne pas cascader « override + fallback dégradé » (ex: pill JUSTO
+        # → Flash override, mais si Flash crash on retombe sur le Pro natif
+        # du fallback chain de l'expert, pas sur un Flash dégradé).
+        # Si l'override produit un modèle déjà supporté par le provider,
+        # on l'applique tel quel. Sinon log warning + on garde le modèle
+        # natif (fail-safe : un override invalide ne casse jamais le stream).
+        if (
+            link_index == 0
+            and ctx.pill_model_override
+            and ctx.pill_model_override != model
+        ):
+            # Garde-fou : le provider doit supporter le modèle override.
+            # Gemini provider supporte gemini-2.5-flash ET gemini-2.5-pro
+            # (les 2 seules cibles V1), donc la condition passe toujours
+            # en pratique. On garde le `if` défensif pour les évolutions
+            # futures (Anthropic, OpenAI override via OpenRouter, etc.).
+            try:
+                supported = getattr(provider, "supported_models", None)
+                if supported is None or ctx.pill_model_override in supported:
+                    log.info(
+                        "ai.stream.pill_model_override",
+                        provider=provider.name,
+                        original_model=model,
+                        override_model=ctx.pill_model_override,
+                    )
+                    model = ctx.pill_model_override
+                else:
+                    log.warning(
+                        "ai.stream.pill_model_override_unsupported",
+                        provider=provider.name,
+                        original_model=model,
+                        override_model=ctx.pill_model_override,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "ai.stream.pill_model_override_error",
+                    error=str(exc),
+                )
+
         try:
             self._breakers.before_call(provider.name, model)
         except CircuitOpenError:
@@ -637,12 +689,23 @@ class StreamHandler:
         system_prompt_final = "\n\n".join(p for p in parts if p)
 
         # G2 V1.1 2026-05-18 — Propagation de `config.disable_thinking` au
-        # provider Gemini via `request.extra["disable_thinking"]`. Seul
-        # l'expert `cooking` met ce flag à True actuellement (gain latence
-        # ~20s -> ~3s sur Vertex Pro). Voir ExpertConfig.disable_thinking
-        # pour la justification.
+        # provider Gemini via `request.extra["disable_thinking"]`. Le
+        # défaut est `True` sur les 11 experts (fix 2026-05-22 "réponse
+        # vide"), voir ExpertConfig.disable_thinking.
+        #
+        # Model pill override (2026-05-23) — si la pill UI a explicitement
+        # défini un thinking_mode (`pill_disable_thinking_override is not
+        # None`), il prime sur la config par défaut de l'expert, MAIS
+        # seulement sur le 1ᵉʳ lien (les fallbacks gardent le défaut, idem
+        # logique modèle ci-dessus).
+        # - pill_disable_thinking_override=True → thinking désactivé.
+        # - pill_disable_thinking_override=False → thinking activé
+        #   (override explicite vs défaut expert qui désactiverait).
         request_extra: dict = {}
-        if getattr(config, "disable_thinking", False):
+        effective_disable_thinking: bool = bool(getattr(config, "disable_thinking", False))
+        if link_index == 0 and ctx.pill_disable_thinking_override is not None:
+            effective_disable_thinking = ctx.pill_disable_thinking_override
+        if effective_disable_thinking:
             request_extra["disable_thinking"] = True
 
         # [planner-from-chat LOT 5] — Détection d'intention de planification

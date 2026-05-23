@@ -301,6 +301,17 @@ class ChatStreamRequest(BaseModel):
     # `_parse_client_timezone`, fallback UTC-only (comportement legacy).
     # Le frontend Flutter le calcule via `DateTime.now().timeZoneOffset`.
     client_timezone: str | None = Field(default=None, min_length=1, max_length=8)
+    # Model pills (2026-05-23) — sélection UI (GEEK / LOTH / JUSTO) qui
+    # détermine le modèle Gemini et le thinking_mode utilisés pour ce
+    # message. Résolu côté backend via `resolve_model_for_pill(expert_id,
+    # pill)` qui retourne `(model_name, disable_thinking)` selon la
+    # matrice `ExpertConfig.model_pill_mapping` (11 experts × 3 pills).
+    # `None` → comportement legacy A1+A2 préservé (config.primary_model
+    # + config.disable_thinking). Pill inconnue / studio (image-only)
+    # → fail-safe (None, None) → idem legacy. Voir [experts.py] pour
+    # la matrice complète et la sémantique safety-critical
+    # medicine/legal/cooking.
+    model_pill: Literal["geek", "loth", "justo"] | None = None
 
     @field_validator("message")
     @classmethod
