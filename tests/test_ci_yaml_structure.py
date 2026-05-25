@@ -29,6 +29,9 @@ ALLOWED_ORGS = {
     "dependabot",
     # N4 — k6 load tests (org Grafana Labs, action officielle)
     "grafana",
+    # Déploiement CD — `appleboy/ssh-action` (action SSH GHA Marketplace,
+    # 5M+ runs/jour, maintained ; utilisée par `deploy.yml`).
+    "appleboy",
 }
 
 # Pattern action use : `org/action@ref`
@@ -63,7 +66,10 @@ def test_workflows_dir_exists():
 
 
 def test_four_workflows_present():
-    """Workflows GHA livrés (L1=4 + N3 evals + N4 load + O2 dd-exports = 7)."""
+    """Workflows GHA livrés (L1=4 + N3 evals + N4 load + O2 dd-exports + CD deploy = 8).
+
+    Nom historique conservé (était `four` à L1) pour ne pas casser le cache pytest.
+    """
     files = _all_workflow_files()
     names = {p.name for p in files}
     expected = {
@@ -77,6 +83,8 @@ def test_four_workflows_present():
         "load.yml",
         # O2 — DD exports freshness (push main)
         "dd-exports-fresh.yml",
+        # CD — déploiement VPS SSH (workflow_run après release.yml succès)
+        "deploy.yml",
     }
     assert names == expected, f"Workflow files mismatch: {names} vs {expected}"
 
