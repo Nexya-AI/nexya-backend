@@ -53,10 +53,19 @@ RUN uv venv /opt/venv --python python3 \
 # Image finale — slim, sans toolchain, non-root.
 FROM python:3.14-slim-bookworm AS runtime
 
+# Build args propagés par release.yml (workflow GitHub Actions) pour que
+# `/version` retourne le vrai tag git + commit SHA (sinon `_from_env_vars()`
+# fallback retourne `unknown` → /version affiche `v1.0.0` legacy au lieu de
+# la version réelle). Détecté en post-launch 2026-05-26.
+ARG APP_VERSION=dev
+ARG APP_COMMIT_SHA=unknown
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
-    WEB_CONCURRENCY=4
+    WEB_CONCURRENCY=4 \
+    APP_VERSION=${APP_VERSION} \
+    APP_COMMIT_SHA=${APP_COMMIT_SHA}
 
 # Runtime deps — libpq5 pour psycopg v3 + curl pour le HEALTHCHECK
 RUN apt-get update && apt-get install -y --no-install-recommends \
