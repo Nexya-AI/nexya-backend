@@ -179,9 +179,7 @@ class QwenChatProvider(ChatProvider):
             # [planner-from-chat LOT 5] — "required" force un appel de tool
             # quand l'intent classifier a détecté une planification claire
             # (round 0, `request.extra["force_tool_call"]`). Sinon "auto".
-            kwargs["tool_choice"] = (
-                "required" if request.extra.get("force_tool_call") else "auto"
-            )
+            kwargs["tool_choice"] = "required" if request.extra.get("force_tool_call") else "auto"
 
         client = _get_client()
 

@@ -197,9 +197,7 @@ class AnthropicChatProvider(ChatProvider):
                 # planification claire (round 0,
                 # `request.extra["force_tool_call"]`) ; sinon {"type": "auto"}.
                 kwargs["tool_choice"] = (
-                    {"type": "any"}
-                    if request.extra.get("force_tool_call")
-                    else {"type": "auto"}
+                    {"type": "any"} if request.extra.get("force_tool_call") else {"type": "auto"}
                 )
 
         client = _get_client()

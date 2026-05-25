@@ -214,9 +214,7 @@ async def build_expert_corpus_context(
     # filtrer dessus retournerait toujours zéro résultat.
     if language_pair_hint is None:
         effective_lang = (
-            _detect_language_pair_hint(stripped_query)
-            if expert_slug == "language"
-            else None
+            _detect_language_pair_hint(stripped_query) if expert_slug == "language" else None
         )
     elif language_pair_hint == "":
         effective_lang = None

@@ -99,8 +99,7 @@ résidentiel au Cameroun ? ») :
 _FEW_SHOT_EXAMPLES: Final[tuple[FewShotExample, ...]] = (
     FewShotExample(
         user_question=(
-            "Quel acier choisir pour fabriquer un châssis de remorque "
-            "agricole de 2 tonnes ?"
+            "Quel acier choisir pour fabriquer un châssis de remorque agricole de 2 tonnes ?"
         ),
         nexya_response=(
             "## Critères de choix identifiés\n"
@@ -184,7 +183,7 @@ _FEW_SHOT_EXAMPLES: Final[tuple[FewShotExample, ...]] = (
             "|---|---|---|---|\n"
             "| Éclairage LED (6 ampoules 10 W) | 60 | 5 | 300 |\n"
             "| Réfrigérateur efficace (A++) | 80 | 24 (cycle) | 800 |\n"
-            "| TV LED 32\" | 60 | 4 | 240 |\n"
+            '| TV LED 32" | 60 | 4 | 240 |\n'
             "| Ventilateur (2 unités) | 100 | 8 | 800 |\n"
             "| Petits appareils (chargeurs, micro-ondes ponctuel) | 200 | 2 | 400 |\n"
             "| **Total consommation journalière** | — | — | **2 540 Wh** |\n\n"

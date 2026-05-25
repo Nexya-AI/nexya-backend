@@ -148,9 +148,7 @@ def test_no_private_contact_exposed_anywhere(contact: str) -> None:
     """Aucune coordonnée personnelle Ivan ne doit apparaître dans
     l'identité publique du LLM (email perso, téléphone)."""
     full = get_identity("fr") + get_identity("en")
-    assert contact not in full, (
-        f"Coordonnée personnelle exposée : {contact!r}. Privacy strict."
-    )
+    assert contact not in full, f"Coordonnée personnelle exposée : {contact!r}. Privacy strict."
 
 
 # ══════════════════════════════════════════════════════════════

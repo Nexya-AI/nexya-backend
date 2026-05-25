@@ -35,7 +35,8 @@ def _selector_loop_factory() -> asyncio.AbstractEventLoop:
 
 
 async def _run_worker_async() -> None:
-    from arq.worker import async_check_health, create_worker
+    from arq.worker import create_worker
+
     from workers.worker import WorkerSettings
 
     worker = create_worker(WorkerSettings)

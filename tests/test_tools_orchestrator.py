@@ -31,7 +31,6 @@ from app.ai.tools import (
 )
 from app.ai.tools.base import ToolExecutionError
 
-
 # ───────────────────────────────────────────────────────────────────
 # Fake db_session_factory — l'orchestrateur ouvre `async with
 # db_session_factory() as db:` pour chaque tool exécuté (LOT 1).
@@ -153,7 +152,9 @@ async def test_execute_tool_happy_path():
     from app.ai.tools.orchestrator import CollectedToolCall
 
     tc = CollectedToolCall(id="c1", name="echo", arguments_json='{"a":1}')
-    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory)
+    result = await execute_tool_call(
+        tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory
+    )
     assert result.success is True
     assert result.data["echo"] == {"a": 1}
 
@@ -164,7 +165,9 @@ async def test_execute_tool_not_found_returns_failure():
 
     reg = ToolRegistry()
     tc = CollectedToolCall(id="c1", name="unknown", arguments_json="{}")
-    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory)
+    result = await execute_tool_call(
+        tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory
+    )
     assert result.success is False
     assert result.error["code"] == "TOOL_NOT_FOUND"
 
@@ -186,7 +189,9 @@ async def test_execute_tool_bad_json_args_returns_failure():
     from app.ai.tools.orchestrator import CollectedToolCall
 
     tc = CollectedToolCall(id="c1", name="x", arguments_json="{not-json")
-    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory)
+    result = await execute_tool_call(
+        tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory
+    )
     assert result.success is False
     assert result.error["code"] == "TOOL_ARGS_INVALID"
 
@@ -208,7 +213,9 @@ async def test_execute_tool_raises_execution_error_caught():
     from app.ai.tools.orchestrator import CollectedToolCall
 
     tc = CollectedToolCall(id="c1", name="fail", arguments_json="{}")
-    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory)
+    result = await execute_tool_call(
+        tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory
+    )
     assert result.success is False
     assert result.error["code"] == "SOMETHING"
 
@@ -230,7 +237,9 @@ async def test_execute_tool_catches_unexpected_exception():
     from app.ai.tools.orchestrator import CollectedToolCall
 
     tc = CollectedToolCall(id="c1", name="boom", arguments_json="{}")
-    result = await execute_tool_call(tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory)
+    result = await execute_tool_call(
+        tc, registry=reg, user=MagicMock(), db_session_factory=_fake_db_factory
+    )
     assert result.success is False
     assert result.error["code"] == "TOOL_INTERNAL_ERROR"
 

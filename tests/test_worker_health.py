@@ -28,7 +28,6 @@ from app.core.observability.worker_health import (
     log_worker_health_report,
 )
 
-
 # ════════════════════════════════════════════════════════════════════
 # check_worker_health
 # ════════════════════════════════════════════════════════════════════

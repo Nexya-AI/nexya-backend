@@ -59,7 +59,6 @@ from scripts.import_expert_corpus_cuisine import (
     parse_master_file,
 )
 
-
 # ══════════════════════════════════════════════════════════════
 # Helpers de pré-traitement
 # ══════════════════════════════════════════════════════════════
@@ -858,7 +857,7 @@ def test_detect_category_accompagnement_feculents() -> None:
     assert _detect_category("Foufou Manioc", "") == "accompagnement"
 
 
-def test_detect_category_default_plat_principal() -> None:
+def test_detect_category_default_plat_principal_unknown_name() -> None:
     assert _detect_category("Recette Inconnue", "body neutre") == "plat_principal"
 
 
@@ -1206,11 +1205,16 @@ def test_cli_force_reembed_flag() -> None:
 def test_cli_custom_paths() -> None:
     args = _parse_args(
         [
-            "--source-dir", "/tmp/src",
-            "--canonical-dir", "/tmp/canon",
-            "--rejected-dir", "/tmp/rejet",
-            "--report", "/tmp/report.md",
-            "--batch-size", "50",
+            "--source-dir",
+            "/tmp/src",
+            "--canonical-dir",
+            "/tmp/canon",
+            "--rejected-dir",
+            "/tmp/rejet",
+            "--report",
+            "/tmp/report.md",
+            "--batch-size",
+            "50",
         ]
     )
     assert args.source_dir == "/tmp/src"

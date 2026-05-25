@@ -21,7 +21,7 @@ Doc Gemini API : https://ai.google.dev/gemini-api/docs/thinking
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -31,7 +31,6 @@ from app.ai.providers.base import (
 )
 from app.ai.providers.gemini import GeminiChatProvider, _reset_client_for_tests
 
-
 # ═══════════════════════════════════════════════════════════════════
 # Helpers — monkeypatch du client SDK Gemini pour capturer les kwargs
 # ═══════════════════════════════════════════════════════════════════
@@ -40,7 +39,7 @@ from app.ai.providers.gemini import GeminiChatProvider, _reset_client_for_tests
 class _EmptyAsyncIterator:
     """Async iterator vide — yield 0 chunk, on capture juste les kwargs."""
 
-    def __aiter__(self) -> "_EmptyAsyncIterator":
+    def __aiter__(self) -> _EmptyAsyncIterator:
         return self
 
     async def __anext__(self) -> Any:
@@ -146,8 +145,7 @@ async def test_pro_with_disable_thinking_sets_budget_minimum(
     thinking_config = getattr(config, "thinking_config", None)
     assert thinking_config is not None, "thinking_config doit être posé"
     assert thinking_config.thinking_budget == 128, (
-        f"Pro doit avoir thinking_budget=128 (minimum API), "
-        f"got {thinking_config.thinking_budget}"
+        f"Pro doit avoir thinking_budget=128 (minimum API), got {thinking_config.thinking_budget}"
     )
 
 

@@ -342,8 +342,7 @@ async def main(argv: list[str] | None = None) -> int:
         questions = [q for q in questions if q.id == args.question_id]
         if not questions:
             print(
-                f"ERROR: question_id={args.question_id!r} non trouvée dans "
-                f"questions.yaml.",
+                f"ERROR: question_id={args.question_id!r} non trouvée dans questions.yaml.",
                 file=sys.stderr,
             )
             return 2

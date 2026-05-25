@@ -54,12 +54,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.budget_tracker import get_budget_tracker
 from app.ai.cache import CachedResponse, get_prompt_cache
-from app.ai.experts import resolve_model_for_pill
 from app.ai.engine import (
     QueryEngine,
     StreamOutcome,
     observe_sse_event,
 )
+from app.ai.experts import resolve_model_for_pill
 from app.ai.moderation import get_moderation_service
 from app.ai.moderation_rules import check_business_rules
 from app.ai.observability import StreamMetrics
@@ -77,7 +77,6 @@ from app.core.observability.trace import get_trace_id
 from app.core.security.rate_limiter import rate_limit_abuse_reports
 from app.features.auth.models import User
 from app.features.chat.models import Conversation, Message
-from app.features.planner.models import ScheduledTask
 from app.features.chat.schemas import (
     AbuseReportCreate,
     AbuseReportResponse,
@@ -94,6 +93,7 @@ from app.features.chat.schemas import (
 from app.features.chat.service import ConversationService, ReportService
 from app.features.experts.context_builder import build_expert_corpus_context
 from app.features.memory.context_builder import build_memory_context
+from app.features.planner.models import ScheduledTask
 from app.shared.schemas import NexyaResponse
 from workers.chat_tasks import enqueue_title_generation
 from workers.memory_tasks import (
@@ -464,9 +464,7 @@ async def _build_messages_with_live_task_status(
     enriched_items: list[MessageResponse] = []
     for m in messages:
         meta = m.metadata_json
-        if not isinstance(meta, dict) or not isinstance(
-            meta.get("tool_calls"), list
-        ):
+        if not isinstance(meta, dict) or not isinstance(meta.get("tool_calls"), list):
             enriched_items.append(MessageResponse.model_validate(m))
             continue
 
@@ -498,21 +496,15 @@ async def _build_messages_with_live_task_status(
             task["status"] = live_task.status
             task["paused"] = live_task.paused
             task["next_run_at"] = (
-                live_task.next_run_at.isoformat()
-                if live_task.next_run_at is not None
-                else None
+                live_task.next_run_at.isoformat() if live_task.next_run_at is not None else None
             )
             task["last_run_at"] = (
-                live_task.last_run_at.isoformat()
-                if live_task.last_run_at is not None
-                else None
+                live_task.last_run_at.isoformat() if live_task.last_run_at is not None else None
             )
             task["run_count"] = live_task.run_count
 
         enriched_items.append(
-            MessageResponse.model_validate(m).model_copy(
-                update={"metadata_json": new_meta}
-            )
+            MessageResponse.model_validate(m).model_copy(update={"metadata_json": new_meta})
         )
 
     return enriched_items
@@ -559,9 +551,7 @@ async def list_conversation_messages(
     # Enrichissement LOT C — patch metadata_json.tool_calls avec le statut
     # live des tâches. Le helper retourne les `MessageResponse` déjà
     # construits + enrichis, dans le même ordre que `page.items`.
-    items = await _build_messages_with_live_task_status(
-        page.items, current_user, db
-    )
+    items = await _build_messages_with_live_task_status(page.items, current_user, db)
 
     return NexyaResponse(
         success=True,
@@ -1095,9 +1085,7 @@ async def _finalize_in_fresh_session(
     # stream, persisté dans `messages.metadata_json` pour que la carte de
     # tâche du chat survive à la réouverture de la conversation. `None`
     # quand aucun tool n'a tourné (cas nominal du chat texte).
-    metadata_json = (
-        {"tool_calls": outcome.tool_results} if outcome.tool_results else None
-    )
+    metadata_json = {"tool_calls": outcome.tool_results} if outcome.tool_results else None
 
     should_enqueue_title = False
     should_enqueue_memory_extraction = False

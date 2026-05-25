@@ -25,7 +25,6 @@ from app.ai.expert_prompts._shared import (
     source_attribution_clause,
 )
 
-
 # ══════════════════════════════════════════════════════════════
 # Constantes brand & urgences
 # ══════════════════════════════════════════════════════════════
@@ -153,8 +152,7 @@ def test_format_few_shot_examples_single_example() -> None:
 
 def test_format_few_shot_examples_numbered_correctly() -> None:
     examples = tuple(
-        FewShotExample(user_question=f"Q{i}", nexya_response=f"R{i}")
-        for i in range(1, 4)
+        FewShotExample(user_question=f"Q{i}", nexya_response=f"R{i}") for i in range(1, 4)
     )
     result = format_few_shot_examples(examples)
     assert "--- Exemple 1 ---" in result
@@ -250,10 +248,6 @@ def test_build_system_prompt_extra_blocks_injected_before_clauses() -> None:
 
 def test_build_system_prompt_idempotent() -> None:
     """2 appels avec mêmes args → string égal byte-à-byte."""
-    a = build_system_prompt(
-        persona="P", methodology="M", output_templates="T", anti_patterns="A"
-    )
-    b = build_system_prompt(
-        persona="P", methodology="M", output_templates="T", anti_patterns="A"
-    )
+    a = build_system_prompt(persona="P", methodology="M", output_templates="T", anti_patterns="A")
+    b = build_system_prompt(persona="P", methodology="M", output_templates="T", anti_patterns="A")
     assert a == b

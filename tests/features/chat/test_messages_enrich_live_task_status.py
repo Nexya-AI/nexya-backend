@@ -44,7 +44,6 @@ from app.features.chat.models import Message
 from app.features.chat.router import _build_messages_with_live_task_status
 from app.features.planner.models import ScheduledTask
 
-
 # ════════════════════════════════════════════════════════════════════
 # Helpers
 # ════════════════════════════════════════════════════════════════════
@@ -170,9 +169,7 @@ async def test_patches_lifecycle_fields_from_live_task():
     user = _make_user()
     task_uuid = uuid.uuid4()
     last_run = datetime.now(tz=UTC)
-    msg = _make_message(
-        metadata_json={"tool_calls": [_tool_call_payload(str(task_uuid))]}
-    )
+    msg = _make_message(metadata_json={"tool_calls": [_tool_call_payload(str(task_uuid))]})
     live_task = _make_scheduled_task(
         task_id=task_uuid,
         status="completed",
@@ -200,9 +197,7 @@ async def test_marks_task_deleted_when_purged_from_db():
     (purge RGPD physique) → status='deleted' synthétique."""
     user = _make_user()
     ghost_uuid = uuid.uuid4()
-    msg = _make_message(
-        metadata_json={"tool_calls": [_tool_call_payload(str(ghost_uuid))]}
-    )
+    msg = _make_message(metadata_json={"tool_calls": [_tool_call_payload(str(ghost_uuid))]})
 
     db = _make_db_returning_tasks([])  # task purgée
     result = await _build_messages_with_live_task_status([msg], user, db)
@@ -216,9 +211,7 @@ async def test_marks_task_deleted_when_soft_deleted():
     """Task trouvée mais `deleted_at != None` → status='deleted' également."""
     user = _make_user()
     task_uuid = uuid.uuid4()
-    msg = _make_message(
-        metadata_json={"tool_calls": [_tool_call_payload(str(task_uuid))]}
-    )
+    msg = _make_message(metadata_json={"tool_calls": [_tool_call_payload(str(task_uuid))]})
     soft_deleted_task = _make_scheduled_task(
         task_id=task_uuid,
         status="completed",
@@ -290,9 +283,7 @@ async def test_does_not_mutate_original_metadata_json():
     l'enrichissement (pas de mutation accidentelle de l'ORM)."""
     user = _make_user()
     task_uuid = uuid.uuid4()
-    original_metadata = {
-        "tool_calls": [_tool_call_payload(str(task_uuid), initial_status="idle")]
-    }
+    original_metadata = {"tool_calls": [_tool_call_payload(str(task_uuid), initial_status="idle")]}
     snapshot_before = copy.deepcopy(original_metadata)
     msg = _make_message(metadata_json=original_metadata)
     live_task = _make_scheduled_task(task_id=task_uuid, status="completed", run_count=1)
@@ -302,6 +293,6 @@ async def test_does_not_mutate_original_metadata_json():
 
     # L'ORM source DOIT rester intact (status='idle' figé au moment du SSE)
     assert original_metadata == snapshot_before
-    assert (
-        original_metadata["tool_calls"][0]["data"]["task"]["status"] == "idle"
-    ), "Le metadata_json ORM source a été muté (anti-pattern deep-copy raté)"
+    assert original_metadata["tool_calls"][0]["data"]["task"]["status"] == "idle", (
+        "Le metadata_json ORM source a été muté (anti-pattern deep-copy raté)"
+    )

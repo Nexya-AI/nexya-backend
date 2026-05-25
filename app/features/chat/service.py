@@ -64,12 +64,12 @@ from app.core.errors.exceptions import (
 )
 from app.features.auth.models import User
 from app.features.chat.models import AbuseReport, Conversation, Message
-from app.features.chat.title_generator import derive_deterministic_title
 from app.features.chat.schemas import (
     AbuseReportCreate,
     ConversationCreate,
     ConversationUpdate,
 )
+from app.features.chat.title_generator import derive_deterministic_title
 
 log = structlog.get_logger()
 

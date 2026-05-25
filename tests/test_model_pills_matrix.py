@@ -26,7 +26,6 @@ from app.ai.experts import (
 )
 from app.features.chat.schemas import ChatStreamRequest
 
-
 # ─────────────────────────────────────────────────────────────────────
 # Matrice canonique 33 cellules (spec Ivan 2026-05-23)
 # ─────────────────────────────────────────────────────────────────────
@@ -84,7 +83,7 @@ EXPECTED_MATRIX = {
 @pytest.mark.parametrize(
     "expert_id,pill,expected",
     [(k[0], k[1], v) for k, v in EXPECTED_MATRIX.items()],
-    ids=[f"{k[0]}-{k[1]}" for k in EXPECTED_MATRIX.keys()],
+    ids=[f"{k[0]}-{k[1]}" for k in EXPECTED_MATRIX],
 )
 def test_matrix_all_33_cells(
     expert_id: str,
@@ -93,16 +92,14 @@ def test_matrix_all_33_cells(
 ) -> None:
     """Chaque cellule de la matrice produit le couple (modèle, thinking) attendu."""
     result = resolve_model_for_pill(expert_id, pill)
-    assert result == expected, (
-        f"{expert_id}/{pill}: attendu {expected}, obtenu {result}"
-    )
+    assert result == expected, f"{expert_id}/{pill}: attendu {expected}, obtenu {result}"
 
 
 def test_matrix_total_cells_count() -> None:
     """11 experts × 3 pills = 33 cellules dans la spec — anti-régression."""
     assert len(EXPECTED_MATRIX) == 33
     expected_experts = set(EXPERT_REGISTRY.keys())
-    matrix_experts = {k[0] for k in EXPECTED_MATRIX.keys()}
+    matrix_experts = {k[0] for k in EXPECTED_MATRIX}
     assert matrix_experts == expected_experts
 
 

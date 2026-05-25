@@ -197,8 +197,7 @@ class WeeklyRangeConfig(BaseModel):
         # `start == end` = un seul jour → préférer `weekly` (atomique).
         if self.start_weekday == self.end_weekday:
             raise ValueError(
-                "Pour un seul jour de la semaine, utilisez `weekly` "
-                "au lieu de `weekly_range`."
+                "Pour un seul jour de la semaine, utilisez `weekly` au lieu de `weekly_range`."
             )
         return self
 
@@ -228,8 +227,7 @@ class MonthlyRangeConfig(BaseModel):
             )
         if self.start_day == self.end_day:
             raise ValueError(
-                "Pour un seul jour du mois, utilisez `monthly` "
-                "au lieu de `monthly_range`."
+                "Pour un seul jour du mois, utilisez `monthly` au lieu de `monthly_range`."
             )
         return self
 
@@ -255,9 +253,7 @@ class MultiWeekdayConfig(BaseModel):
     def _validate_weekdays(self) -> MultiWeekdayConfig:
         # Toutes les valeurs dans la borne 0-6.
         if not all(0 <= wd <= 6 for wd in self.weekdays):
-            raise ValueError(
-                "Chaque jour doit être compris entre 0 (lundi) et 6 (dimanche)."
-            )
+            raise ValueError("Chaque jour doit être compris entre 0 (lundi) et 6 (dimanche).")
         # Doublons interdits (avant tri pour message d'erreur explicite).
         if len(set(self.weekdays)) != len(self.weekdays):
             raise ValueError("Doublons interdits dans `weekdays`.")
@@ -300,8 +296,7 @@ class YearlyRangeConfig(BaseModel):
             )
         if self.start_day == self.end_day:
             raise ValueError(
-                "Pour un seul jour de l'année, utilisez `yearly` "
-                "au lieu de `yearly_range`."
+                "Pour un seul jour de l'année, utilisez `yearly` au lieu de `yearly_range`."
             )
         # Le mois est figé : les deux bornes doivent exister dans ce mois.
         _ensure_day_in_month(self.month, self.start_day, field="start_day")

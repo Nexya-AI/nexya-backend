@@ -207,7 +207,7 @@ async def test_cooking_expert_triggers_corpus_builder_hook(monkeypatch) -> None:
         calls.append({"expert_slug": expert_slug, "query": query})
         return (
             "[INSTRUCTION RAG]\n\n"
-            "<<<DOCUMENT EXTRACT id=\"1\">>>\n"
+            '<<<DOCUMENT EXTRACT id="1">>>\n'
             "[Recette] Ndolé Aux Crevettes\n"
             "[Région] Littoral\n"
             "[Ingrédients]\n- 1kg feuilles ndolé\n- crevettes\n"
