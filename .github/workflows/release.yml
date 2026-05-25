@@ -67,9 +67,9 @@ jobs:
           # exact post-release). PROD utilise toujours :vX.Y.Z, jamais
           # :latest (anti-pattern documenté arbitrage 19).
           tags: |
-            ghcr.io/${{ github.repository_owner }}/nexya-backend:${{ github.ref_name }}
-            ghcr.io/${{ github.repository_owner }}/nexya-backend:latest
-            ghcr.io/${{ github.repository_owner }}/nexya-backend:sha-${{ github.sha }}
+            ghcr.io/nexya-ai/nexya-backend:${{ github.ref_name }}
+            ghcr.io/nexya-ai/nexya-backend:latest
+            ghcr.io/nexya-ai/nexya-backend:sha-${{ github.sha }}
           labels: |
             org.opencontainers.image.title=NEXYA Backend
             org.opencontainers.image.version=${{ github.ref_name }}
@@ -103,7 +103,7 @@ jobs:
             ## 📦 Image Docker
 
             ```bash
-            docker pull ghcr.io/${{ github.repository_owner }}/nexya-backend:${{ github.ref_name }}
+            docker pull ghcr.io/nexya-ai/nexya-backend:${{ github.ref_name }}
             ```
 
             **SHA commit** : `${{ github.sha }}`
@@ -118,4 +118,4 @@ jobs:
     steps:
       - name: Log release event
         run: |
-          echo "::notice::release.created tag=${{ github.ref_name }} sha=${{ github.sha }} image=ghcr.io/${{ github.repository_owner }}/nexya-backend:${{ github.ref_name }}"
+          echo "::notice::release.created tag=${{ github.ref_name }} sha=${{ github.sha }} image=ghcr.io/nexya-ai/nexya-backend:${{ github.ref_name }}"
