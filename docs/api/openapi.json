@@ -3905,6 +3905,100 @@
         ]
       }
     },
+    "/metadata/url-preview": {
+      "post": {
+        "tags": [
+          "metadata"
+        ],
+        "summary": "Url Preview",
+        "description": "Fetch Open Graph tags d'une URL avec cache Redis 7j.\n\nRate limit 60/h/user (anti-spam). Cache cross-user (OG tags publics).\nSur URL inaccessible (DNS down, anti-SSRF rejet, timeout, parsing\nimpossible) → 503 `URL_PREVIEW_UNAVAILABLE`.",
+        "operationId": "url_preview_metadata_url_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UrlPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NexyaResponse_UrlPreviewResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/render/mermaid": {
+      "post": {
+        "tags": [
+          "rendering"
+        ],
+        "summary": "Render Mermaid",
+        "description": "Rend un diagramme Mermaid en SVG via Kroki.io avec cache Redis 7j.\n\nRate limit 30/h/user (rendu plus coûteux que url preview).\nSur échec Kroki (down/timeout/5xx) → 503 `MERMAID_RENDER_FAILED`.",
+        "operationId": "render_mermaid_render_mermaid_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MermaidRenderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NexyaResponse_MermaidRenderResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/healthz": {
       "get": {
         "tags": [
@@ -6160,6 +6254,59 @@
         ],
         "title": "MemorySearchResponse"
       },
+      "MermaidRenderRequest": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Source",
+            "description": "Source Mermaid (ex: `graph TD; A-->B; B-->C;`). Cap 10k chars. Tout langage Mermaid supporté : flowchart, sequence, gantt, class, ER, state, mindmap, pie, git, user-journey."
+          }
+        },
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "title": "MermaidRenderRequest",
+        "description": "Requête de rendu d'un diagramme Mermaid.\n\nCap source à 10 000 chars (déjà très généreux — un diagramme dense\nfait ~2-3 KB max). Au-delà, Kroki.io rejette ou rame."
+      },
+      "MermaidRenderResponse": {
+        "properties": {
+          "svg": {
+            "type": "string",
+            "title": "Svg",
+            "description": "SVG complet rendu par Kroki.io. Typiquement < 50 KB. Le frontend l'injecte directement dans `flutter_svg`."
+          },
+          "sha256": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 64,
+            "title": "Sha256",
+            "description": "Hash de la source Mermaid (clé Redis cache). Utile au frontend pour mémoiser localement et éviter de re-fetch le même diagramme."
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Fetched At",
+            "description": "Timestamp UTC du fetch backend (cache debugging)."
+          },
+          "from_cache": {
+            "type": "boolean",
+            "title": "From Cache",
+            "description": "True si le SVG vient du cache Redis (TTL 7j). Le frontend peut afficher un indicateur subtil 'depuis cache' (V2).",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "svg",
+          "sha256",
+          "fetched_at"
+        ],
+        "title": "MermaidRenderResponse",
+        "description": "Réponse de rendu — SVG inline + métadonnées cache."
+      },
       "MessageResponse": {
         "properties": {
           "id": {
@@ -7320,6 +7467,56 @@
         ],
         "title": "NexyaResponse[MemorySearchResponse]"
       },
+      "NexyaResponse_MermaidRenderResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MermaidRenderResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "NexyaResponse[MermaidRenderResponse]"
+      },
       "NexyaResponse_MessagesPage_": {
         "properties": {
           "success": {
@@ -8269,6 +8466,56 @@
           "success"
         ],
         "title": "NexyaResponse[UploadedFileResponse]"
+      },
+      "NexyaResponse_UrlPreviewResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UrlPreviewResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "NexyaResponse[UrlPreviewResponse]"
       },
       "NexyaResponse_UserProfile_": {
         "properties": {
@@ -10720,6 +10967,102 @@
         ],
         "title": "UploadedFileResponse",
         "description": "Item complet renvoyé par `POST /files/upload`."
+      },
+      "UrlPreviewRequest": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2083,
+            "minLength": 1,
+            "format": "uri",
+            "title": "Url",
+            "description": "URL absolue http(s) à prévisualiser. Validé Pydantic + anti-SSRF côté service (rejette IPs privées 10.x/192.168.x/127.x/169.254.x/fe80::/etc.)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "UrlPreviewRequest",
+        "description": "Requête de preview d'une URL.\n\n`url` est strictement validé `HttpUrl` Pydantic (http/https uniquement)\n+ cap 2048 chars (RFC 7230 recommandation pratique). L'anti-SSRF est\nappliqué côté service (résolution DNS + check IP non-privée)."
+      },
+      "UrlPreviewResponse": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "URL cible (échoée pour cohérence)."
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "og:title ou <title>, tronqué à 200 chars, HTML stripped."
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description",
+            "description": "og:description, tronqué à 300 chars, HTML stripped."
+          },
+          "og_image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Og Image Url",
+            "description": "og:image absolue (résolution relative→absolue côté service). Le frontend lazy-load via cached_network_image."
+          },
+          "favicon_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Favicon Url",
+            "description": "Favicon absolue (fallback /favicon.ico si pas de <link rel='icon'>)."
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Fetched At",
+            "description": "Timestamp UTC du fetch backend (utile cache debugging)."
+          },
+          "from_cache": {
+            "type": "boolean",
+            "title": "From Cache",
+            "description": "True si la réponse vient du cache Redis (TTL 7j sur sha256(url)). Le frontend peut afficher un indicateur subtil 'depuis cache' si souhaité (V2).",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "url",
+          "fetched_at"
+        ],
+        "title": "UrlPreviewResponse",
+        "description": "Réponse de preview d'une URL.\n\nTous les champs sauf `url` et `fetched_at` sont optionnels car la page\ncible peut ne pas exposer d'OG tags. Le frontend Flutter affiche les\nchamps disponibles + fallback `url` brute si tout est null."
       },
       "UserProfile": {
         "properties": {
