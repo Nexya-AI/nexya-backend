@@ -498,17 +498,11 @@ def test_multi_weekday_missing_weekdays_returns_none() -> None:
 
 
 def test_multi_weekday_weekday_out_of_bounds_returns_none() -> None:
-    assert (
-        compute_next_run("multi_weekday", {"weekdays": [1, 8], "hour": 9, "minute": 0})
-        is None
-    )
+    assert compute_next_run("multi_weekday", {"weekdays": [1, 8], "hour": 9, "minute": 0}) is None
 
 
 def test_multi_weekday_invalid_hour_returns_none() -> None:
-    assert (
-        compute_next_run("multi_weekday", {"weekdays": [1, 3], "hour": 25, "minute": 0})
-        is None
-    )
+    assert compute_next_run("multi_weekday", {"weekdays": [1, 3], "hour": 25, "minute": 0}) is None
 
 
 # ══════════════════════════════════════════════════════════════
@@ -606,7 +600,4 @@ def test_yearly_range_single_day_returns_none() -> None:
 
 
 def test_yearly_range_invalid_hour_returns_none() -> None:
-    assert (
-        compute_next_run("yearly_range", _yr(6, 15, 20, hour=25), from_dt=_FIXED_NOW)
-        is None
-    )
+    assert compute_next_run("yearly_range", _yr(6, 15, 20, hour=25), from_dt=_FIXED_NOW) is None

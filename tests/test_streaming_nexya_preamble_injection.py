@@ -30,7 +30,6 @@ from app.ai.router import LlmRouter
 from app.ai.streaming import StreamContext, StreamHandler
 from app.config import settings
 
-
 # ══════════════════════════════════════════════════════════════
 # Fixtures
 # ══════════════════════════════════════════════════════════════

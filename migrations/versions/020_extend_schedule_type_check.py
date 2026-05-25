@@ -32,9 +32,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "ALTER TABLE scheduled_tasks DROP CONSTRAINT IF EXISTS ck_tasks_schedule_type"
-    )
+    op.execute("ALTER TABLE scheduled_tasks DROP CONSTRAINT IF EXISTS ck_tasks_schedule_type")
     op.execute(
         "ALTER TABLE scheduled_tasks ADD CONSTRAINT ck_tasks_schedule_type "
         "CHECK (schedule_type IN ('once','interval_minutes','daily','weekly','monthly','yearly'))"
@@ -42,9 +40,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        "ALTER TABLE scheduled_tasks DROP CONSTRAINT IF EXISTS ck_tasks_schedule_type"
-    )
+    op.execute("ALTER TABLE scheduled_tasks DROP CONSTRAINT IF EXISTS ck_tasks_schedule_type")
     op.execute(
         "ALTER TABLE scheduled_tasks ADD CONSTRAINT ck_tasks_schedule_type "
         "CHECK (schedule_type IN ('once','interval_minutes','daily','weekly'))"

@@ -22,7 +22,6 @@ from app.features.chat.title_generator import (
     derive_deterministic_title,
 )
 
-
 # ═══════════════════════════════════════════════════════════════════════
 # Cas terrain Ivan 2026-05-15 (les 3 qui ont déclenché Bug-040)
 # ═══════════════════════════════════════════════════════════════════════
@@ -210,9 +209,7 @@ def test_exact_max_chars_no_ellipsis() -> None:
 
 def test_custom_max_chars() -> None:
     """`max_chars` configurable pour cas spéciaux."""
-    result = derive_deterministic_title(
-        "Bonjour comment ça va aujourd'hui ?", max_chars=10
-    )
+    result = derive_deterministic_title("Bonjour comment ça va aujourd'hui ?", max_chars=10)
     assert len(result) <= 11  # 10 + ellipsis
     assert result.endswith("…")
 

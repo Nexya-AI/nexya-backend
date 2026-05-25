@@ -208,8 +208,19 @@ def test_build_preamble_unknown_expert_id_falls_back_to_general() -> None:
 
 @pytest.mark.parametrize(
     "expert_id",
-    ["general", "computer", "science", "finance", "language", "cooking",
-     "studio", "engineering", "productivity", "medicine", "legal"],
+    [
+        "general",
+        "computer",
+        "science",
+        "finance",
+        "language",
+        "cooking",
+        "studio",
+        "engineering",
+        "productivity",
+        "medicine",
+        "legal",
+    ],
 )
 def test_build_preamble_works_for_each_canonical_slug(expert_id: str) -> None:
     """Les 11 slugs canoniques produisent un preamble non-vide."""

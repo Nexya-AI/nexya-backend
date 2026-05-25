@@ -85,10 +85,12 @@ from app.features.images.watermark import (
 from app.features.library.router import router as library_router
 from app.features.library.service import LibraryService
 from app.features.memory.router import router as memory_router
+from app.features.metadata.router import router as metadata_router
 from app.features.notifications.router import router as notifications_router
 from app.features.planner.router import router as planner_router
 from app.features.projects.router import router as projects_router
 from app.features.rag.router import router as rag_router
+from app.features.rendering.router import router as rendering_router
 from app.features.rgpd.router import router as rgpd_router
 from app.features.suggestions.router import router as suggestions_router
 from app.features.vision.router import router as vision_router
@@ -241,6 +243,10 @@ app.include_router(rgpd_router)
 app.include_router(ai_models_router)
 app.include_router(suggestions_router)
 app.include_router(helpdesk_router)
+# C4.2 (2026-05-24) — URL preview cards
+app.include_router(metadata_router)
+# C4.3 (2026-05-24) — Mermaid diagrams via Kroki.io
+app.include_router(rendering_router)
 
 
 # ══════════════════════════════════════════════════════════════

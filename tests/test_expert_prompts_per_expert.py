@@ -129,25 +129,19 @@ def test_each_prompt_has_persona_section(expert_id: str) -> None:
 @pytest.mark.parametrize("expert_id", _EXPERT_IDS)
 def test_each_prompt_has_methodology_section(expert_id: str) -> None:
     prompt = _ALL_EXPERT_PROMPTS[expert_id]
-    assert "[Méthodologie" in prompt, (
-        f"Expert '{expert_id}' sans section [Méthodologie ...]."
-    )
+    assert "[Méthodologie" in prompt, f"Expert '{expert_id}' sans section [Méthodologie ...]."
 
 
 @pytest.mark.parametrize("expert_id", _EXPERT_IDS)
 def test_each_prompt_has_templates_section(expert_id: str) -> None:
     prompt = _ALL_EXPERT_PROMPTS[expert_id]
-    assert "[Templates" in prompt, (
-        f"Expert '{expert_id}' sans section [Templates de sortie ...]."
-    )
+    assert "[Templates" in prompt, f"Expert '{expert_id}' sans section [Templates de sortie ...]."
 
 
 @pytest.mark.parametrize("expert_id", _EXPERT_IDS)
 def test_each_prompt_has_anti_patterns_section(expert_id: str) -> None:
     prompt = _ALL_EXPERT_PROMPTS[expert_id]
-    assert "[Anti-patterns" in prompt, (
-        f"Expert '{expert_id}' sans section [Anti-patterns ...]."
-    )
+    assert "[Anti-patterns" in prompt, f"Expert '{expert_id}' sans section [Anti-patterns ...]."
 
 
 # ══════════════════════════════════════════════════════════════
@@ -192,9 +186,7 @@ def test_critical_experts_have_few_shot_examples(expert_id: str) -> None:
 )
 def test_conversational_experts_have_multi_language_clause(expert_id: str) -> None:
     prompt = _ALL_EXPERT_PROMPTS[expert_id]
-    assert "Multi-langue dynamique" in prompt, (
-        f"Expert '{expert_id}' sans clause multi-langue."
-    )
+    assert "Multi-langue dynamique" in prompt, f"Expert '{expert_id}' sans clause multi-langue."
 
 
 @pytest.mark.parametrize(
@@ -203,9 +195,7 @@ def test_conversational_experts_have_multi_language_clause(expert_id: str) -> No
 )
 def test_conversational_experts_have_memory_aware_clause(expert_id: str) -> None:
     prompt = _ALL_EXPERT_PROMPTS[expert_id]
-    assert "Mémoire utilisateur" in prompt, (
-        f"Expert '{expert_id}' sans clause memory-aware (D3)."
-    )
+    assert "Mémoire utilisateur" in prompt, f"Expert '{expert_id}' sans clause memory-aware (D3)."
 
 
 @pytest.mark.parametrize(

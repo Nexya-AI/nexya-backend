@@ -578,11 +578,7 @@ class StreamHandler:
         # Si l'override produit un modèle déjà supporté par le provider,
         # on l'applique tel quel. Sinon log warning + on garde le modèle
         # natif (fail-safe : un override invalide ne casse jamais le stream).
-        if (
-            link_index == 0
-            and ctx.pill_model_override
-            and ctx.pill_model_override != model
-        ):
+        if link_index == 0 and ctx.pill_model_override and ctx.pill_model_override != model:
             # Garde-fou : le provider doit supporter le modèle override.
             # Gemini provider supporte gemini-2.5-flash ET gemini-2.5-pro
             # (les 2 seules cibles V1), donc la condition passe toujours
@@ -722,9 +718,7 @@ class StreamHandler:
             (m.content for m in reversed(ctx.user_messages) if m.role == "user"),
             "",
         )
-        _force_round_0 = [
-            bool(ctx.tools) and detect_planning_intent(_last_user_text or "")
-        ]
+        _force_round_0 = [bool(ctx.tools) and detect_planning_intent(_last_user_text or "")]
 
         # [planner-from-chat LOT 1] — Fabrique de stream par round.
         # Réutilisée telle quelle sans tools (1 seul appel direct) et par

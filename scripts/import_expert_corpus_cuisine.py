@@ -340,9 +340,7 @@ class RecipeCanonical(BaseModel):
         valent quand même la peine d'être ingérées dans le corpus RAG.
         """
         if self.category != "astuce" and len(self.ingredients) < 2:
-            raise ValueError(
-                "au moins 2 ingrédients non vides requis (sauf catégorie 'astuce')"
-            )
+            raise ValueError("au moins 2 ingrédients non vides requis (sauf catégorie 'astuce')")
         return self
 
 
@@ -706,7 +704,9 @@ def _extract_real_title_from_body(body: str) -> str | None:
         sentence = m_bon.group(1).strip()
         # Heuristique : capture les 1-3 premiers mots en MAJUSCULES qui
         # ressemblent à un nom de plat (ex: « KWANMKWALA est un plat... »)
-        m_first_word = re.match(r"^([A-ZÉÀÂÎÔÛÇ][\w'\-]{2,30}(?:\s+&?\s+[A-ZÉÀÂÎÔÛÇ][\w'\-]{2,30})?)", sentence)
+        m_first_word = re.match(
+            r"^([A-ZÉÀÂÎÔÛÇ][\w'\-]{2,30}(?:\s+&?\s+[A-ZÉÀÂÎÔÛÇ][\w'\-]{2,30})?)", sentence
+        )
         if m_first_word:
             return m_first_word.group(1).strip()
 
@@ -1066,9 +1066,7 @@ _TRASH_LOWERCASE_START_RE = re.compile(r"^[a-zà-ÿ]")
 # répétition intentionnelle (« Njama Njama », « Kati Kati », « Kelen
 # Kelen », « Pili Pili », « Eru Eru »). Vrai cas pathologique :
 # « SAUCE TOMATE AUX Sauce Tomate Aux » (motif = 3 mots).
-_TRASH_DUPLICATED_TITLE_RE = re.compile(
-    r"^(\S+\s+\S+(?:\s+\S+)*?)\s+\1\s*$", flags=re.IGNORECASE
-)
+_TRASH_DUPLICATED_TITLE_RE = re.compile(r"^(\S+\s+\S+(?:\s+\S+)*?)\s+\1\s*$", flags=re.IGNORECASE)
 
 
 def _is_trash_title(title: str) -> bool:
@@ -1151,7 +1149,16 @@ def _maybe_retitle_truncated(title: str, body: str) -> str:
         # Ligne en MAJUSCULES raisonnable (3-60 chars)
         if line.isupper() and 3 <= len(line) <= 60:
             # Évite de coller un en-tête type INGREDIENTS / PREPARATION
-            if line.upper() in {"INGREDIENTS", "INGRÉDIENTS", "PREPARATION", "PRÉPARATION", "METHODE", "MÉTHODE", "ETAPES", "ÉTAPES"}:
+            if line.upper() in {
+                "INGREDIENTS",
+                "INGRÉDIENTS",
+                "PREPARATION",
+                "PRÉPARATION",
+                "METHODE",
+                "MÉTHODE",
+                "ETAPES",
+                "ÉTAPES",
+            }:
                 return title
             return f"{title} {line.title()}".strip()
         # Ne sonde QUE la première ligne non-vide
@@ -1250,7 +1257,7 @@ def parse_master_file(path: Path, source_book: str) -> ParseResult:
         _old_title = effective_title
         effective_title = _maybe_retitle_truncated(effective_title, body)
         if effective_title != _old_title:
-            _appended = effective_title[len(_old_title):].strip()
+            _appended = effective_title[len(_old_title) :].strip()
             body = _strip_retitled_header_from_body(body, _appended)
 
         # Garde-fou : titre vraiment trop court / vide
@@ -1399,9 +1406,7 @@ def parse_master_file(path: Path, source_book: str) -> ParseResult:
         if recipe.id_slug in seen_slugs:
             existing_idx = seen_slugs[recipe.id_slug]
             existing = result.accepted[existing_idx]
-            existing_size = len(existing.description or "") + sum(
-                len(s) for s in existing.steps
-            )
+            existing_size = len(existing.description or "") + sum(len(s) for s in existing.steps)
             new_size = len(recipe.description or "") + sum(len(s) for s in recipe.steps)
             if new_size > existing_size:
                 # Nouvelle version plus complète → on remplace, on rejette l'ancienne
@@ -1578,9 +1583,7 @@ def _build_rag_content(recipe: RecipeCanonical) -> str:
     category = recipe.category.replace("_", " ").title()
     is_advice = recipe.category == "astuce"
     fallback_desc = (
-        "Astuce de cuisine camerounaise."
-        if is_advice
-        else "Recette traditionnelle camerounaise."
+        "Astuce de cuisine camerounaise." if is_advice else "Recette traditionnelle camerounaise."
     )
     description = recipe.description or fallback_desc
     header_label = "Astuce" if is_advice else "Recette"
@@ -1753,7 +1756,9 @@ def write_validation_report(
         lines.append("")
 
     if len(rejected) > 20:
-        lines.append(f"*... et {len(rejected) - 20} autres rejets, voir `_rejected/` pour le détail.*")
+        lines.append(
+            f"*... et {len(rejected) - 20} autres rejets, voir `_rejected/` pour le détail.*"
+        )
 
     report_path.write_text("\n".join(lines), encoding="utf-8")
     log.info("cuisine.report.written", path=str(report_path))
@@ -1764,9 +1769,7 @@ def write_validation_report(
 # ══════════════════════════════════════════════════════════════
 
 
-async def _embed_with_retry(
-    provider, texts: list[str], *, task_type: str
-) -> list[list[float]]:
+async def _embed_with_retry(provider, texts: list[str], *, task_type: str) -> list[list[float]]:
     """Embed `texts` avec retry exponentiel honorant `retry_after`."""
     backoff = INITIAL_BACKOFF
     last_exc: Exception | None = None
@@ -1887,7 +1890,8 @@ async def _ingest_canonicals(
         recipes=len(recipes),
         chunks_total=len(all_chunks),
         chunks_avg_per_recipe=round(len(all_chunks) / max(1, len(recipes)), 2),
-        multi_chunk_recipes=sum(1 for c in all_chunks if c[2] > 1) // max(1, max((c[2] for c in all_chunks), default=1)),
+        multi_chunk_recipes=sum(1 for c in all_chunks if c[2] > 1)
+        // max(1, max((c[2] for c in all_chunks), default=1)),
     )
 
     # Batch loop sur les CHUNKS (pas sur les recettes)
@@ -1940,21 +1944,17 @@ async def _ingest_canonicals(
             # (~1ms) vs le batch embed (~secondes).
             count_before_row = await db.execute(
                 text(
-                    "SELECT COUNT(*) FROM expert_corpus_chunks "
-                    "WHERE expert_slug = :slug"
+                    "SELECT COUNT(*) FROM expert_corpus_chunks WHERE expert_slug = :slug"
                 ).bindparams(slug=EXPERT_SLUG)
             )
             count_before = int(count_before_row.scalar_one())
             stmt = pg_insert(ExpertCorpusChunk.__table__).values(rows)
-            stmt = stmt.on_conflict_do_nothing(
-                index_elements=["expert_slug", "content_sha256"]
-            )
+            stmt = stmt.on_conflict_do_nothing(index_elements=["expert_slug", "content_sha256"])
             await db.execute(stmt)
             await db.commit()
             count_after_row = await db.execute(
                 text(
-                    "SELECT COUNT(*) FROM expert_corpus_chunks "
-                    "WHERE expert_slug = :slug"
+                    "SELECT COUNT(*) FROM expert_corpus_chunks WHERE expert_slug = :slug"
                 ).bindparams(slug=EXPERT_SLUG)
             )
             count_after = int(count_after_row.scalar_one())

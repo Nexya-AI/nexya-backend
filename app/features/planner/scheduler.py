@@ -210,11 +210,7 @@ def _make_weekly_range_candidate(
     hour = int(config.get("hour", -1))
     minute = int(config.get("minute", -1))
     if not (
-        0 <= start <= 6
-        and 0 <= end <= 6
-        and start != end
-        and 0 <= hour <= 23
-        and 0 <= minute <= 59
+        0 <= start <= 6 and 0 <= end <= 6 and start != end and 0 <= hour <= 23 and 0 <= minute <= 59
     ):
         return None
 
@@ -305,9 +301,7 @@ def _make_monthly_range_candidate(
         # Dernier jour du range passé → bascule mois suivant (fallthrough).
     elif from_dt.day < eff_start:
         # Avant le range ce mois-ci → premier jour du range.
-        return from_dt.replace(
-            day=eff_start, hour=hour, minute=minute, second=0, microsecond=0
-        )
+        return from_dt.replace(day=eff_start, hour=hour, minute=minute, second=0, microsecond=0)
 
     # Range entièrement passé ce mois-ci → premier jour du range le mois suivant.
     next_month = from_dt.month % 12 + 1

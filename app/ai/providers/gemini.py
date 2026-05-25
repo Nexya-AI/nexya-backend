@@ -238,9 +238,7 @@ class GeminiChatProvider(ChatProvider):
                 # sinon il serait forcé d'enchaîner un tool call à l'infini.
                 force_tool = bool(request.extra.get("force_tool_call"))
                 config_kwargs["tool_config"] = {
-                    "function_calling_config": {
-                        "mode": "ANY" if force_tool else "AUTO"
-                    }
+                    "function_calling_config": {"mode": "ANY" if force_tool else "AUTO"}
                 }
 
         client = _get_client()

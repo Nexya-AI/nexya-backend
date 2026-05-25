@@ -135,9 +135,7 @@ class _FakeAsyncContextSession:
 
 
 def _install_ai_mocks(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        chat_router_module, "get_budget_tracker", lambda: _FakeBudgetTracker()
-    )
+    monkeypatch.setattr(chat_router_module, "get_budget_tracker", lambda: _FakeBudgetTracker())
     monkeypatch.setattr(
         chat_router_module, "get_moderation_service", lambda: _FakeModerationService()
     )
@@ -239,9 +237,7 @@ def test_legacy_pill_justo_propagates_flash(
 # ══════════════════════════════════════════════════════════════
 
 
-def test_no_pill_keeps_overrides_none(
-    monkeypatch: pytest.MonkeyPatch, client: TestClient
-) -> None:
+def test_no_pill_keeps_overrides_none(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
     """body sans `model_pill` → ctx overrides à None → comportement A1+A2."""
     _install_ai_mocks(monkeypatch)
     captured = _install_capturing_stream_handler(monkeypatch)
@@ -409,9 +405,7 @@ def test_persisted_pill_propagates_to_stream_context(
         lambda: _FakeAsyncContextSession(conversation=conv),
     )
     monkeypatch.setattr(chat_router_module, "enqueue_title_generation", AsyncMock())
-    monkeypatch.setattr(
-        chat_router_module, "enqueue_memory_extraction", AsyncMock()
-    )
+    monkeypatch.setattr(chat_router_module, "enqueue_memory_extraction", AsyncMock())
 
     response = client.post(
         "/chat/stream",

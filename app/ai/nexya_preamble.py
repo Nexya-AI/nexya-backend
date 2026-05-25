@@ -69,12 +69,8 @@ _SECTION_SEPARATOR: Final[str] = "\n\n"
 
 # Marqueur de troncature lisible par le LLM (FR + EN — on injecte le
 # bon selon la locale au moment de l'appel).
-_TRUNCATION_MARKER_FR: Final[str] = (
-    "\n\n[... préambule tronqué pour respecter la limite de taille]"
-)
-_TRUNCATION_MARKER_EN: Final[str] = (
-    "\n\n[... preamble truncated to respect size limit]"
-)
+_TRUNCATION_MARKER_FR: Final[str] = "\n\n[... préambule tronqué pour respecter la limite de taille]"
+_TRUNCATION_MARKER_EN: Final[str] = "\n\n[... preamble truncated to respect size limit]"
 
 
 Locale = Literal["fr", "en"]

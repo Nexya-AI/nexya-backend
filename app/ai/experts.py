@@ -191,6 +191,7 @@ def resolve_model_for_pill(
         return None, None
     return model_name, pill_config.disable_thinking
 
+
 # ═══════════════════════════════════════════════════════════════════
 # DATACLASS — ExpertConfig
 # ═══════════════════════════════════════════════════════════════════
@@ -358,6 +359,7 @@ def _with_guardrail(
     )
     return prompt + guardrail
 
+
 # Session A2 (2026-05-19) : les 11 system_prompts experts sont désormais
 # définis dans le package `app/ai/expert_prompts/` (un module par expert).
 # `experts.py` se contente d'importer + d'appliquer `_with_guardrail` aux
@@ -372,17 +374,14 @@ _COMPUTER_PROMPT = _with_guardrail(
     COMPUTER_PROMPT,
     domain_label="Informatique",
     domain_description=(
-        "code, debug, architecture logicielle, outils dev (Git, Docker, CI), "
-        "concepts informatiques"
+        "code, debug, architecture logicielle, outils dev (Git, Docker, CI), concepts informatiques"
     ),
 )
 
 _SCIENCE_PROMPT = _with_guardrail(
     SCIENCE_PROMPT,
     domain_label="Sciences & Mathématiques",
-    domain_description=(
-        "maths, physique, chimie, biologie, statistiques, sciences appliquées"
-    ),
+    domain_description=("maths, physique, chimie, biologie, statistiques, sciences appliquées"),
 )
 
 _FINANCE_PROMPT = _with_guardrail(
@@ -398,8 +397,7 @@ _LANGUAGE_PROMPT = _with_guardrail(
     LANGUAGE_PROMPT,
     domain_label="Langues",
     domain_description=(
-        "apprentissage, traduction, correction, pratique de langues "
-        "(internationales et africaines)"
+        "apprentissage, traduction, correction, pratique de langues (internationales et africaines)"
     ),
 )
 

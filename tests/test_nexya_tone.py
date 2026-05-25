@@ -113,9 +113,7 @@ _EN_BANNED_FORMULAS_MENTIONED = [
 @pytest.mark.parametrize("formula", _EN_BANNED_FORMULAS_MENTIONED)
 def test_en_banned_opening_formula_mentioned(formula: str) -> None:
     en = tone_en()
-    assert formula in en, (
-        f"Empty opening formula {formula!r} must be explicitly banned in EN tone."
-    )
+    assert formula in en, f"Empty opening formula {formula!r} must be explicitly banned in EN tone."
 
 
 # ══════════════════════════════════════════════════════════════

@@ -27,9 +27,6 @@ Plus tests d'intégration avec `experts.py` post-refactor : le
 
 from __future__ import annotations
 
-import pytest
-
-from app.ai.experts import EXPERT_REGISTRY, get_expert_config
 from app.ai.expert_prompts import (
     COMPUTER_PROMPT,
     COOKING_PROMPT,
@@ -43,6 +40,7 @@ from app.ai.expert_prompts import (
     SCIENCE_PROMPT,
     STUDIO_PROMPT,
 )
+from app.ai.experts import get_expert_config
 
 # ══════════════════════════════════════════════════════════════
 # MEDICINE — safety-critical MAX

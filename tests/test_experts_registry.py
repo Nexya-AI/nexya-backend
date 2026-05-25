@@ -202,9 +202,7 @@ def test_only_cooking_has_corpus_enabled_post_g2() -> None:
     G4 ingénierie / G6 informatique / G7 sciences resteront désactivés
     jusqu'à leurs sessions d'activation dédiées."""
     expected_enabled = {"cooking"}
-    actual_enabled = {
-        expert_id for expert_id, cfg in EXPERT_REGISTRY.items() if cfg.corpus_enabled
-    }
+    actual_enabled = {expert_id for expert_id, cfg in EXPERT_REGISTRY.items() if cfg.corpus_enabled}
     assert actual_enabled == expected_enabled, (
         f"Mismatch corpus_enabled : attendu {expected_enabled}, obtenu {actual_enabled}"
     )

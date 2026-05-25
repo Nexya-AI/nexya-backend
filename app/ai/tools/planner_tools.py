@@ -111,8 +111,7 @@ _SCHEDULE_CONFIG_SCHEMA = {
             "minimum": 0,
             "maximum": 23,
             "description": (
-                "Heure UTC (0-23). Requis pour tous les types sauf "
-                "'once' et 'interval_minutes'."
+                "Heure UTC (0-23). Requis pour tous les types sauf 'once' et 'interval_minutes'."
             ),
         },
         "minute": {
@@ -120,8 +119,7 @@ _SCHEDULE_CONFIG_SCHEMA = {
             "minimum": 0,
             "maximum": 59,
             "description": (
-                "Minute (0-59). Requise pour tous les types sauf "
-                "'once' et 'interval_minutes'."
+                "Minute (0-59). Requise pour tous les types sauf 'once' et 'interval_minutes'."
             ),
         },
         "weekday": {
@@ -140,10 +138,7 @@ _SCHEDULE_CONFIG_SCHEMA = {
             "type": "integer",
             "minimum": 1,
             "maximum": 12,
-            "description": (
-                "Types 'yearly' et 'yearly_range' : mois "
-                "(1=janvier..12=décembre)."
-            ),
+            "description": ("Types 'yearly' et 'yearly_range' : mois (1=janvier..12=décembre)."),
         },
         "start_weekday": {
             "type": "integer",
@@ -161,9 +156,7 @@ _SCHEDULE_CONFIG_SCHEMA = {
             "type": "integer",
             "minimum": 1,
             "maximum": 31,
-            "description": (
-                "Types 'monthly_range' et 'yearly_range' : premier jour (1-31)."
-            ),
+            "description": ("Types 'monthly_range' et 'yearly_range' : premier jour (1-31)."),
         },
         "end_day": {
             "type": "integer",

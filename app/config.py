@@ -423,6 +423,26 @@ class Settings(BaseSettings):
     # cohabitent pour couper tôt les boucles client buggées.
     rag_query_rate_limit_per_hour: int = Field(default=60, ge=1, le=10_000)
 
+    # ── C4.2 — URL preview cards (Session 2026-05-24) ──────────
+    # Rate limit user-scope sur POST /metadata/url-preview. Calibré
+    # 60/h car la preview est cosmétique (pas critique) et le cache
+    # Redis 7j cross-user absorbe l'essentiel des requêtes répétées.
+    url_preview_rate_limit_per_hour: int = Field(default=60, ge=1, le=1_000)
+    # Kill-switch cache Redis (debug / incident Redis). False = chaque
+    # appel fait un fetch HTTP réel (coûteux mais permet test isolation).
+    url_preview_cache_enabled: bool = True
+
+    # ── C4.3 — Mermaid diagrams via Kroki.io (Session 2026-05-24) ─
+    # Rate limit user-scope sur POST /render/mermaid. Calibré 30/h
+    # car le rendu Mermaid est plus coûteux (httpx vers Kroki) et le
+    # cache Redis 7j absorbe les requêtes identiques.
+    mermaid_render_rate_limit_per_hour: int = Field(default=30, ge=1, le=1_000)
+    # Kill-switch cache Redis (idem URL preview).
+    mermaid_cache_enabled: bool = True
+    # URL Kroki.io. Public + gratuit + self-hosting Docker possible
+    # Phase 14 si Ivan veut sortir de la dépendance externe.
+    kroki_base_url: str = "https://kroki.io"
+
     # ── Paiements ──────────────────────────────────────────────
     cinetpay_api_key: str = ""
     cinetpay_site_id: str = ""

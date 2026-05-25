@@ -22,12 +22,11 @@ from __future__ import annotations
 import pytest
 
 from app.ai.experts import (
-    EXPERT_REGISTRY,
     _DOMAIN_GUARDRAIL_TEMPLATE,
+    EXPERT_REGISTRY,
     _with_guardrail,
     get_expert_config,
 )
-
 
 # ══════════════════════════════════════════════════════════════
 # Helper `_with_guardrail`
@@ -52,22 +51,24 @@ def test_with_guardrail_appends_template_with_substitutions() -> None:
 
 
 def test_with_guardrail_default_suggested_mode_is_general() -> None:
-    out = _with_guardrail(
-        "X", domain_label="Y", domain_description="Z"
-    )
+    out = _with_guardrail("X", domain_label="Y", domain_description="Z")
     assert "Général" in out
 
 
 def test_with_guardrail_template_has_meta_question_tolerance() -> None:
     """Le template doit autoriser les questions méta (« qui es-tu », etc.)."""
-    assert "questions méta" in _DOMAIN_GUARDRAIL_TEMPLATE.lower() or \
-           "qui es-tu" in _DOMAIN_GUARDRAIL_TEMPLATE.lower()
+    assert (
+        "questions méta" in _DOMAIN_GUARDRAIL_TEMPLATE.lower()
+        or "qui es-tu" in _DOMAIN_GUARDRAIL_TEMPLATE.lower()
+    )
 
 
 def test_with_guardrail_template_has_no_fabulation_clause() -> None:
     """Le template doit interdire la fabulation hors-domaine."""
-    assert "fabule" in _DOMAIN_GUARDRAIL_TEMPLATE.lower() or \
-           "ne fabule" in _DOMAIN_GUARDRAIL_TEMPLATE.lower()
+    assert (
+        "fabule" in _DOMAIN_GUARDRAIL_TEMPLATE.lower()
+        or "ne fabule" in _DOMAIN_GUARDRAIL_TEMPLATE.lower()
+    )
 
 
 # ══════════════════════════════════════════════════════════════
@@ -93,8 +94,7 @@ def test_specialized_expert_has_guardrail(expert_id: str) -> None:
     """Tous les 9 experts spécialisés doivent embarquer le garde-fou."""
     cfg = get_expert_config(expert_id)
     assert "Garde-fou de domaine" in cfg.system_prompt, (
-        f"Expert '{expert_id}' n'embarque pas le garde-fou domaine "
-        f"(introduit G2 2026-05-16)."
+        f"Expert '{expert_id}' n'embarque pas le garde-fou domaine (introduit G2 2026-05-16)."
     )
 
 
