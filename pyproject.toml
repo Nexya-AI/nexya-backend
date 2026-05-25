@@ -1,6 +1,6 @@
 [project]
 name = "nexya-backend"
-version = "0.1.0"
+version = "1.0.3"
 description = "NEXYA AI Assistant — Production API (FastAPI + SSE)"
 requires-python = ">=3.12"
 authors = [{ name = "Loth Ivan Ngassa Yimga", email = "ngassayimgal@gmail.com" }]

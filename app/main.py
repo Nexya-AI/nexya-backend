@@ -270,13 +270,22 @@ app.openapi = lambda: customize_openapi(app)
 # ══════════════════════════════════════════════════════════════
 
 
-@app.get("/healthz", response_model=NexyaResponse[dict], tags=["health"])
+@app.api_route(
+    "/healthz",
+    methods=["GET", "HEAD"],
+    response_model=NexyaResponse[dict],
+    tags=["health"],
+)
 async def healthz() -> NexyaResponse[dict]:
     """Liveness probe — le process est vivant et répond.
 
     **Ne fait AUCUN check externe** : si DB/Redis tombent, on retourne
     quand même 200 pour que K8s ne kill pas le pod. K8s doit retirer
     le pod du load balancer via `/ready` (readiness), PAS le redémarrer.
+
+    Accepte GET ET HEAD (UptimeRobot/Pingdom/StatusCake free tiers envoient HEAD
+    pour économiser la bande passante — sans support HEAD, ils marquent DOWN
+    à tort sur 405). Starlette retire le body automatiquement sur HEAD.
     """
     return NexyaResponse(
         success=True,
@@ -284,9 +293,11 @@ async def healthz() -> NexyaResponse[dict]:
     )
 
 
-@app.get("/ready", tags=["health"])
+@app.api_route("/ready", methods=["GET", "HEAD"], tags=["health"])
 async def ready() -> JSONResponse:
     """Readiness probe étendue (O1 volet B) — version + latence + queue arq.
+
+    Accepte GET ET HEAD (compat monitoring tools free tiers).
 
     Retourne :
     - `status` : `ok` si DB+Redis up, `degraded` sinon (HTTP 503)
@@ -334,9 +345,11 @@ async def ready() -> JSONResponse:
     )
 
 
-@app.get("/version", tags=["health"])
+@app.api_route("/version", methods=["GET", "HEAD"], tags=["health"])
 async def version() -> NexyaResponse[dict]:
     """Version publique de l'API (sans secret).
+
+    Accepte GET ET HEAD (compat monitoring tools).
 
     Endpoint léger (< 5 ms, pas de DB) que le Flutter peut afficher
     dans Settings (« version backend 0.4.2 »). Aucun token requis.
@@ -365,7 +378,8 @@ async def version() -> NexyaResponse[dict]:
 
 # Alias pour compat — legacy /health pointait vers un check dégradé.
 # On le redirige sur /ready (comportement le plus attendu d'un /health).
-@app.get("/health", include_in_schema=False)
+# Accepte GET et HEAD (compat monitoring tools).
+@app.api_route("/health", methods=["GET", "HEAD"], include_in_schema=False)
 async def health_alias() -> JSONResponse:
     return await ready()
 

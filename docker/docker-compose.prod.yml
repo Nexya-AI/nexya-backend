@@ -101,6 +101,13 @@ services:
     volumes:
       - ../secrets:/app/secrets:ro
       - nexya_logs:/app/logs
+    # Le worker n'a PAS de port HTTP — il ne sert que des jobs Redis. Le
+    # HEALTHCHECK hérité du Dockerfile (`curl /healthz`) le marque UNHEALTHY
+    # à tort. On désactive : `restart: unless-stopped` gère le restart auto si
+    # le PID 1 (arq) crash. Le monitoring queue arq vit via Prometheus
+    # (`nexya_arq_jobs_total` + dashboard K2) et `/ready` (`arq.queue_depth`).
+    healthcheck:
+      disable: true
     depends_on:
       postgres:
         condition: service_healthy

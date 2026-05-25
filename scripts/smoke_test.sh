@@ -68,13 +68,31 @@ if [[ -n "${PROMETHEUS_SCRAPE_TOKEN:-}" ]]; then
     exit 1
   fi
 else
-  log "  (PROMETHEUS_SCRAPE_TOKEN absent — skip token check)"
-  curl -fsS "$BASE_URL/metrics" > /dev/null || \
-    echo "  warning: /metrics retourne 401/403 (attendu si token requis)"
+  # Pas de token côté script : on vérifie que /metrics est BIEN PROTÉGÉ
+  # (retourne 401/403). Un 200 sans token = fuite KPI métier en prod,
+  # CRITICAL fail. Un 5xx = crash, fail. Le 401 attendu confirme la
+  # protection token K1 active.
+  metrics_status=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/metrics")
+  if [[ "$metrics_status" == "401" || "$metrics_status" == "403" ]]; then
+    log "  /metrics protégé (HTTP $metrics_status) — sécurité OK"
+  elif [[ "$metrics_status" == "200" ]]; then
+    echo "ERROR CRITIQUE: /metrics répond 200 sans token — fuite KPI possible !" >&2
+    exit 1
+  else
+    echo "ERROR: /metrics retourne $metrics_status (attendu 401/403)" >&2
+    exit 1
+  fi
 fi
 
-log "4. GET /observability/status"
-curl -fsS "$BASE_URL/observability/status" > /dev/null
+log "4. GET /observability/status (auth token requis)"
+# Même politique que /metrics : token requis en prod, 401 attendu sans token.
+obs_status=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/observability/status")
+if [[ "$obs_status" == "401" || "$obs_status" == "403" || "$obs_status" == "200" ]]; then
+  log "  /observability/status accessible (HTTP $obs_status)"
+else
+  echo "ERROR: /observability/status retourne $obs_status (attendu 200/401/403)" >&2
+  exit 1
+fi
 
 # ─────────────────────────────────────────────────────────────
 # Checks bout-en-bout (staging uniquement, tranche 7)

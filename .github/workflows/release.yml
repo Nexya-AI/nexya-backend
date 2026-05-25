@@ -62,6 +62,12 @@ jobs:
           context: .
           file: docker/Dockerfile
           push: true
+          # APP_VERSION + APP_COMMIT_SHA propagés au runtime via ENV
+          # Dockerfile pour que `/version` retourne le vrai tag git
+          # (sinon `_from_env_vars()` fallback `unknown` → cosmetic bug).
+          build-args: |
+            APP_VERSION=${{ github.ref_name }}
+            APP_COMMIT_SHA=${{ github.sha }}
           # 3 tags : version semver explicite, latest (canal stable),
           # sha pour traçabilité (debug d'un déploiement à un commit
           # exact post-release). PROD utilise toujours :vX.Y.Z, jamais
