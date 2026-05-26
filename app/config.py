@@ -888,11 +888,17 @@ class Settings(BaseSettings):
     # (≈ 10 % du cap LLM 30k tokens, overhead ~$0.0002/req Flash). Permet
     # d'injecter intégralement tone (10 commandements) + identité fondateur
     # 4 paliers + sécurité brand + description produit 11 experts +
-    # routing guidance. La troncature éventuelle impacte les sections
-    # en queue (15 features), préservant tone + brand + routing.
+    # routing guidance + safety. La troncature éventuelle impacte les
+    # sections en queue (15 features EXTENDED), préservant tone +
+    # identity CORE + routing + safety.
     # Min 500 (sous lequel le preamble n'a pas le minimum vital),
-    # max 16000 (overhead permanent significatif au-delà).
-    nexya_preamble_max_chars: int = Field(default=12000, ge=500, le=16000)
+    # défaut 25000 = CORE (~16000 chars) + EXTENDED (~9000 chars
+    # additionnels sur marketing intent) confortablement.
+    # Max 32000 (overhead permanent significatif au-delà, équivaut
+    # à ~8000 tokens prompt fixe).
+    # Bumped 2026-05-26 : 12000 → 25000 pour accomoder safety section
+    # + tone nuance #2/#7 + identity_core enrichie post-Two-Tier.
+    nexya_preamble_max_chars: int = Field(default=25000, ge=500, le=32000)
 
     # Locale par défaut quand le caller ne précise rien. 'fr' aligné
     # ADN Africa-first francophone NEXYA. 'en' pour des contextes
