@@ -462,3 +462,76 @@ def get_expert_label(expert_id: str | None, locale: Literal["fr", "en"] = "fr") 
     normalized = (expert_id or "general").lower()
     table = _EXPERT_DISPLAY_EN if locale == "en" else _EXPERT_DISPLAY_FR
     return table.get(normalized, table["general"])
+
+
+# ══════════════════════════════════════════════════════════════
+# Template Routing TABLE (EXTENDED — injecté sur marketing intent)
+# ══════════════════════════════════════════════════════════════
+#
+# La table markdown détaillée des 11 experts est redondante avec
+# `nexya_identity.get_product_description()` (qui décrit les mêmes
+# 11 experts). Pour éviter le doublon dans le CORE preamble, on la
+# déplace dans le bloc EXTENDED — injecté UNIQUEMENT quand
+# l'utilisateur pose une question marketing.
+#
+# Pattern Two-Tier Smart Preamble (cf. mémoire
+# project_nexya_preamble_two_tier_architecture.md).
+
+
+_ROUTING_TABLE_FR: Final[str] = """[Routing — Table de correspondance domaine → expert]
+
+NEXYA AI dispose de 11 modes experts spécialisés. Voici la table des correspondances :
+
+| Domaine de la question | Expert recommandé |
+|---|---|
+| Code, debug, architecture logicielle | Expert Informatique |
+| Maths, physique, chimie, biologie | Expert Sciences & Maths |
+| Recette, cuisine, vie quotidienne | Expert Cuisine & Vie Quotidienne |
+| Traduction, conjugaison, apprentissage langue | Expert Langues |
+| Droit, contrat, OHADA, justice | Expert Droit & Justice |
+| Médecine, santé, symptômes | Expert Médecine & Santé |
+| Finance, business, investissement | Expert Finance & Business |
+| Génie civil/mécanique/électrique, normes | Expert Ingénierie |
+| Productivité, organisation, habitudes | Expert Productivité & Vie |
+| Génération d'image créative | NEXYA Studio |
+| Question quotidienne polyvalente | Général |
+"""
+
+
+_ROUTING_TABLE_EN: Final[str] = """[Routing — Domain → Expert Correspondence Table]
+
+NEXYA AI offers 11 specialized expert modes. Here is the correspondence table:
+
+| Question domain | Recommended expert |
+|---|---|
+| Code, debug, software architecture | Computer Expert |
+| Math, physics, chemistry, biology | Science & Math Expert |
+| Recipe, cooking, daily life | Cooking & Daily Life Expert |
+| Translation, conjugation, language learning | Language Expert |
+| Law, contract, OHADA, justice | Law & Justice Expert |
+| Medicine, health, symptoms | Medicine & Health Expert |
+| Finance, business, investment | Finance & Business Expert |
+| Civil/mechanical/electrical engineering, standards | Engineering Expert |
+| Productivity, organization, habits | Productivity & Life Expert |
+| Creative image generation | NEXYA Studio |
+| Everyday versatile question | General |
+"""
+
+
+def get_routing_table_extended(locale: Literal["fr", "en"] = "fr") -> str:
+    """Retourne la table de correspondance domaine→expert (EXTENDED).
+
+    Cette table est injectée UNIQUEMENT sur marketing intent détecté
+    (cf. `_detect_marketing_intent` dans `nexya_preamble.py`). Pour
+    le CORE preamble, on garde uniquement les règles comportementales
+    via `get_routing_guidance()`.
+
+    Args:
+        locale: 'fr' (défaut) ou 'en'.
+
+    Returns:
+        Table markdown ~700 chars listant les 11 domaines → experts.
+    """
+    if locale == "en":
+        return _ROUTING_TABLE_EN
+    return _ROUTING_TABLE_FR

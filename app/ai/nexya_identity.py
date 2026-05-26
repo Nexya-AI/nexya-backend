@@ -464,6 +464,97 @@ _NEXYA_IDENTITY_EN_FULL: Final[str] = (
 
 
 # ══════════════════════════════════════════════════════════════
+# Section 6 — Capability Teaser (NOUVEAU 2026-05-26)
+# ══════════════════════════════════════════════════════════════
+#
+# Bloc condensé injecté dans le CORE preamble (toujours présent).
+# Permet au LLM de connaître son arsenal en permanence pour mentions
+# naturelles dans le flow conversationnel, sans déballer le catalogue
+# complet (15 features détaillées) à chaque requête.
+#
+# Le teaser pointe explicitement vers le bloc EXTENDED (15 features
+# complètes) qui sera injecté UNIQUEMENT si l'utilisateur pose une
+# question marketing (« qu'est-ce que tu sais faire ? »).
+#
+# Pattern Two-Tier Smart Preamble (cf. mémoire
+# project_nexya_preamble_two_tier_architecture.md).
+
+_NEXYA_CAPABILITY_TEASER_FR: Final[str] = """[Capacités principales de NEXYA — résumé]
+
+Tu disposes en interne d'un arsenal riche que tu peux mobiliser naturellement quand le contexte de la conversation s'y prête :
+
+— **Mémoire IA personnelle** (pgvector) — tu retiens les faits durables de l'utilisateur.
+— **11 modes experts spécialisés** — Général, Informatique, Sciences, Cuisine, Langues, Droit, Médecine, Finance, Ingénierie, Productivité, Studio image.
+— **Planificateur IA** — création de rappels et jobs récurrents via tools natifs.
+— **Multimodal** — analyse d'images, transcription voix (Whisper), synthèse vocale 6 voix branded.
+— **RAG documents** — recherche sourcée dans les PDF/DOCX utilisateur.
+— **Africa-first** — 107 recettes camerounaises propriétaires, FCFA, Mobile Money, OHADA, langues africaines.
+— **Production-grade** — JWT RS256, mode offline gracieux 2G/3G, conformité RGPD + AI Act 2024/1689.
+
+Si l'utilisateur t'interroge sur tes capacités précises (« qu'est-ce que tu sais faire ? », « tes features ? », « tu es différente de ChatGPT ? »), déballe les détails avec fierté et structure scannable depuis ta liste complète de 15 features magnifiques (instructions détaillées injectées séparément dans ce cas).
+"""
+
+
+_NEXYA_CAPABILITY_TEASER_EN: Final[str] = """[NEXYA Main Capabilities — Summary]
+
+You possess internally a rich arsenal you can mobilize naturally when the conversation context lends itself:
+
+— **Personal AI Memory** (pgvector) — you remember the user's durable facts.
+— **11 specialized expert modes** — General, Computer, Sciences, Cooking, Languages, Law, Medicine, Finance, Engineering, Productivity, Studio image.
+— **Smart AI Scheduler** — create reminders and recurring jobs via native tools.
+— **Multimodal** — image analysis, voice transcription (Whisper), voice synthesis with 6 branded voices.
+— **RAG documents** — sourced search in the user's PDF/DOCX.
+— **Africa-first** — 107 proprietary Cameroonian recipes, FCFA, Mobile Money, OHADA, African languages.
+— **Production-grade** — JWT RS256 authentication, graceful 2G/3G offline mode, EU GDPR + AI Act 2024/1689 compliance.
+
+If the user asks about your specific capabilities (« what can you do? », « your features? », « how are you different from ChatGPT? »), unpack the details with pride and scannable structure from your complete list of 15 magnificent features (detailed instructions injected separately in that case).
+"""
+
+
+# ══════════════════════════════════════════════════════════════
+# Section 7 — Identity CORE + EXTENDED (Two-Tier 2026-05-26)
+# ══════════════════════════════════════════════════════════════
+#
+# CORE = founder + brand_security + capability_teaser
+#   → toujours injecté (anti-prompt-injection critique + LLM connaît
+#     son arsenal en permanence pour mentions naturelles)
+#
+# EXTENDED = product_description + magnificent_features
+#   → injecté UNIQUEMENT si l'utilisateur pose une question marketing
+#     (détectée par `_detect_marketing_intent` dans `nexya_preamble.py`)
+#
+# Discipline : `get_identity()` (legacy) retourne TOUJOURS le bloc
+# complet (rétrocompat 100% avec les callers pré-2026-05-26).
+
+_NEXYA_IDENTITY_FR_CORE: Final[str] = (
+    _NEXYA_FOUNDER_STORY_FR
+    + "\n\n"
+    + _NEXYA_BRAND_SECURITY_FR
+    + "\n\n"
+    + _NEXYA_CAPABILITY_TEASER_FR
+)
+
+
+_NEXYA_IDENTITY_EN_CORE: Final[str] = (
+    _NEXYA_FOUNDER_STORY_EN
+    + "\n\n"
+    + _NEXYA_BRAND_SECURITY_EN
+    + "\n\n"
+    + _NEXYA_CAPABILITY_TEASER_EN
+)
+
+
+_NEXYA_IDENTITY_FR_EXTENDED: Final[str] = (
+    _NEXYA_PRODUCT_DESCRIPTION_FR + "\n\n" + _NEXYA_MAGNIFICENT_FEATURES_FR
+)
+
+
+_NEXYA_IDENTITY_EN_EXTENDED: Final[str] = (
+    _NEXYA_PRODUCT_DESCRIPTION_EN + "\n\n" + _NEXYA_MAGNIFICENT_FEATURES_EN
+)
+
+
+# ══════════════════════════════════════════════════════════════
 # API publique
 # ══════════════════════════════════════════════════════════════
 
@@ -514,3 +605,71 @@ def get_magnificent_features(locale: Locale = "fr") -> str:
     if locale == "en":
         return _NEXYA_MAGNIFICENT_FEATURES_EN
     return _NEXYA_MAGNIFICENT_FEATURES_FR
+
+
+# ══════════════════════════════════════════════════════════════
+# API publique — Two-Tier Smart Preamble (2026-05-26)
+# ══════════════════════════════════════════════════════════════
+
+
+def get_capability_teaser(locale: Locale = "fr") -> str:
+    """Retourne le Capability Teaser NEXYA (résumé condensé pour CORE).
+
+    Ce bloc est injecté à chaque requête dans le CORE preamble pour que
+    le LLM connaisse son arsenal en permanence. Permet des mentions
+    naturelles dans le flow sans déballer le catalogue complet des 15
+    features. Pointe explicitement vers le bloc EXTENDED qui sera
+    injecté conditionnellement (cf. `_detect_marketing_intent` dans
+    `nexya_preamble.py`).
+
+    Args:
+        locale: 'fr' (défaut, Africa-first) ou 'en'.
+
+    Returns:
+        Bloc teaser ~600 chars (~150 tokens), prêt à concaténer.
+    """
+    if locale == "en":
+        return _NEXYA_CAPABILITY_TEASER_EN
+    return _NEXYA_CAPABILITY_TEASER_FR
+
+
+def get_identity_core(locale: Locale = "fr") -> str:
+    """Retourne le bloc identité CORE (toujours injecté).
+
+    Composition (ordre figé) :
+        1. Founder Story (4 paliers + 6 règles dont anti-superlatifs)
+        2. Brand Security (esquive divulgation provider)
+        3. Capability Teaser (résumé condensé arsenal)
+
+    Args:
+        locale: 'fr' (défaut) ou 'en'.
+
+    Returns:
+        Bloc identité CORE ~4000 chars, à injecter à chaque requête.
+        Ne contient PAS product_description ni magnificent_features
+        (réservés au bloc EXTENDED via `get_identity_extended`).
+    """
+    if locale == "en":
+        return _NEXYA_IDENTITY_EN_CORE
+    return _NEXYA_IDENTITY_FR_CORE
+
+
+def get_identity_extended(locale: Locale = "fr") -> str:
+    """Retourne le bloc identité EXTENDED (injecté seulement sur
+    marketing intent détecté).
+
+    Composition (ordre figé) :
+        1. Product Description (11 experts détaillés)
+        2. Magnificent Features (15 features magnifiques)
+
+    Args:
+        locale: 'fr' (défaut) ou 'en'.
+
+    Returns:
+        Bloc identité EXTENDED ~6500 chars, à injecter UNIQUEMENT si
+        l'utilisateur pose une question marketing (cf. _detect_marketing_intent
+        dans `nexya_preamble.py`).
+    """
+    if locale == "en":
+        return _NEXYA_IDENTITY_EN_EXTENDED
+    return _NEXYA_IDENTITY_FR_EXTENDED
