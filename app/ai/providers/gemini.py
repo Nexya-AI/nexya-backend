@@ -16,7 +16,7 @@ import asyncio
 import base64
 import json
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import structlog
 
@@ -489,6 +489,75 @@ def _map_finish_reason(raw: Any) -> FinishReason:
 # ═══════════════════════════════════════════════════════════════════
 
 
+# ═══════════════════════════════════════════════════════════════════
+# CLEAN-UP JSON SCHEMA pour Gemini AI Studio
+# ═══════════════════════════════════════════════════════════════════
+#
+# Bug v1.0.7 fix (2026-05-26) : Gemini AI Studio (mode api_key) refuse
+# strictement les champs JSON Schema standards mais hors de son allowlist
+# officielle — notamment `additionalProperties` (que Pydantic injecte
+# automatiquement avec `False` quand `extra="forbid"`), causant un 400
+# `Invalid JSON payload received. Unknown name "additional_properties"
+# at 'tools[0].function_declarations[0].parameters': Cannot find field.`
+#
+# Vertex AI tolérait ce champ silencieusement, mais AI Studio est strict
+# (le SDK convertit camelCase → snake_case avant envoi, d'où le nom
+# "additional_properties" dans l'erreur).
+#
+# Solution senior : allowlist explicite des champs supportés par Gemini
+# AI Studio (source : https://ai.google.dev/api/caching#Schema). Plus safe
+# qu'un denylist : si Google ajoute un nouveau champ qu'on veut utiliser,
+# on l'ajoute à la liste explicitement (pattern future-proof).
+#
+# Applique récursivement sur tous les niveaux du schéma (properties,
+# items, etc.) car `additionalProperties` peut apparaître à n'importe
+# quelle profondeur d'imbrication.
+
+_GEMINI_SCHEMA_ALLOWED_FIELDS: Final = frozenset(
+    {
+        "type",
+        "format",
+        "description",
+        "nullable",
+        "enum",
+        "maxItems",
+        "minItems",
+        "maxLength",
+        "minLength",
+        "minimum",
+        "maximum",
+        "properties",
+        "required",
+        "items",
+        "example",
+        "default",
+        # Pattern et title sont safe en AI Studio (observés OK 2026-05-26)
+        "pattern",
+        "title",
+        # anyOf est supporté par Gemini AI Studio à partir d'avril 2024
+        "anyOf",
+    }
+)
+
+
+def _clean_schema_for_gemini(value: Any) -> Any:
+    """Filtre récursivement les champs JSON Schema non supportés par Gemini AI Studio.
+
+    Strippe notamment `additionalProperties` qui cause un 400 Bad Request
+    en mode api_key (alors qu'il était toléré en mode Vertex AI).
+    """
+    if isinstance(value, dict):
+        cleaned: dict[str, Any] = {}
+        for k, v in value.items():
+            if k not in _GEMINI_SCHEMA_ALLOWED_FIELDS:
+                continue
+            cleaned[k] = _clean_schema_for_gemini(v)
+        return cleaned
+    if isinstance(value, list):
+        return [_clean_schema_for_gemini(item) for item in value]
+    return value
+
+
 def _to_gemini_tools(
     tools: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -504,6 +573,12 @@ def _to_gemini_tools(
     On retourne UN SEUL tool set qui groupe toutes les `function_declarations`
     — c'est le pattern recommandé par Google quand on n'utilise que du
     function calling (pas de `retrieval` ni `code_execution` mélangés).
+
+    Bug v1.0.7 fix (2026-05-26) : on passe `parameters` à travers
+    `_clean_schema_for_gemini()` qui retire `additionalProperties` et
+    autres champs hors allowlist Gemini AI Studio. Sans ce nettoyage,
+    AI Studio retourne 400 et `/chat/stream` finit en LLM_UNAVAILABLE
+    en 200ms (silencieusement côté UX).
     """
     declarations: list[dict[str, Any]] = []
     for raw in tools:
@@ -518,11 +593,9 @@ def _to_gemini_tools(
         decl: dict[str, Any] = {"name": name}
         if "description" in fn:
             decl["description"] = fn["description"]
-        # `parameters` JSON Schema. Gemini supporte le subset standard
-        # (STRING/NUMBER/INTEGER/BOOLEAN/ARRAY/OBJECT) — un type non
-        # supporté lèvera côté SDK, qu'on remonte via `_map_sdk_exception`.
+        # `parameters` JSON Schema nettoyé pour compat AI Studio.
         if "parameters" in fn and fn["parameters"]:
-            decl["parameters"] = fn["parameters"]
+            decl["parameters"] = _clean_schema_for_gemini(fn["parameters"])
         declarations.append(decl)
 
     if not declarations:
