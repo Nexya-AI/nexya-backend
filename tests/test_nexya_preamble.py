@@ -498,8 +498,7 @@ def test_build_preamble_extended_significantly_larger_than_core(
     # + 15 features + table routing).
     diff = len(with_extended) - len(core_only)
     assert diff >= 3000, (
-        f"Différence taille CORE vs EXTENDED trop faible : {diff} chars "
-        f"(attendu >= 3000)"
+        f"Différence taille CORE vs EXTENDED trop faible : {diff} chars (attendu >= 3000)"
     )
 
 

@@ -75,7 +75,6 @@ from typing import Final, Literal
 import structlog
 
 from app.ai.nexya_identity import (
-    get_identity,
     get_identity_core,
     get_identity_extended,
 )
