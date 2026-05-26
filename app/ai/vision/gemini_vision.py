@@ -57,7 +57,15 @@ _client: object | None = None
 
 
 def _get_client():
-    """Retourne un `google.genai.Client` singleton process-wide."""
+    """Retourne un `google.genai.Client` singleton process-wide.
+
+    Bug v1.0.4 fix (2026-05-26) : respecte `settings.gemini_use_vertex`.
+    Avant ce fix, `vertexai=True` était hardcodé et causait un
+    `DefaultCredentialsError` en prod sans ADC GCP, menant à un hang ~70s
+    sur `/vision/analyze` (mêmes symptômes que `/chat/stream`, retry chain
+    qui expire silencieusement). Pattern aligné `embeddings/gemini_embeddings.py`
+    qui faisait déjà le branching correct.
+    """
     global _client
     if _client is not None:
         return _client
@@ -72,16 +80,25 @@ def _get_client():
 
     from google import genai  # noqa: PLC0415
 
-    _client = genai.Client(
-        vertexai=True,
-        project=settings.gcp_project_id,
-        location=settings.gcp_location,
-    )
-    log.info(
-        "vision.gemini.client_initialized",
-        project=settings.gcp_project_id,
-        location=settings.gcp_location,
-    )
+    if settings.gemini_use_vertex:
+        _client = genai.Client(
+            vertexai=True,
+            project=settings.gcp_project_id,
+            location=settings.gcp_location,
+        )
+        log.info(
+            "vision.gemini.client_initialized",
+            mode="vertex",
+            project=settings.gcp_project_id,
+            location=settings.gcp_location,
+        )
+    else:
+        _client = genai.Client(api_key=settings.gemini_api_key)
+        log.info(
+            "vision.gemini.client_initialized",
+            mode="api_key",
+            api_key_prefix=settings.gemini_api_key[:8] if settings.gemini_api_key else "<empty>",
+        )
     return _client
 
 

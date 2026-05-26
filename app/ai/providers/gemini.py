@@ -62,21 +62,45 @@ _client: Client | None = None
 
 
 def _get_client() -> Client:
-    """Retourne le client Vertex AI partagé, créé à la première demande."""
+    """Retourne le client Gemini partagé, créé à la première demande.
+
+    Bug v1.0.4 fix (2026-05-26) : respecte `settings.gemini_use_vertex` au
+    lieu d'hardcoder `vertexai=True`. Sans ce respect, le SDK essayait de
+    charger les Application Default Credentials Google Cloud sur une prod
+    qui n'en a pas (`GEMINI_USE_VERTEX=false`, mode API key standard),
+    causant un `DefaultCredentialsError` → retry chain 3x × 3 providers
+    → hang ~70s sur `/chat/stream`. Cause du bug `chat.stream.turn_finalized
+    status=failed error_code=null total_tokens=null` documenté memory
+    `project_nexya_bug_chat_stream_v1_0_4.md`.
+
+    - `gemini_use_vertex=True` → Vertex AI (ADC via gcloud auth ou JSON key).
+    - `gemini_use_vertex=False` → AI Studio (clé API simple).
+    """
     global _client
     if _client is None:
         from google import genai  # import local — dépendance lourde
 
-        _client = genai.Client(
-            vertexai=True,
-            project=settings.gcp_project_id,
-            location=settings.gcp_location,
-        )
-        log.info(
-            "ai.provider.gemini.client_initialized",
-            project=settings.gcp_project_id,
-            location=settings.gcp_location,
-        )
+        if settings.gemini_use_vertex:
+            _client = genai.Client(
+                vertexai=True,
+                project=settings.gcp_project_id,
+                location=settings.gcp_location,
+            )
+            log.info(
+                "ai.provider.gemini.client_initialized",
+                mode="vertex",
+                project=settings.gcp_project_id,
+                location=settings.gcp_location,
+            )
+        else:
+            _client = genai.Client(api_key=settings.gemini_api_key)
+            log.info(
+                "ai.provider.gemini.client_initialized",
+                mode="api_key",
+                api_key_prefix=settings.gemini_api_key[:8]
+                if settings.gemini_api_key
+                else "<empty>",
+            )
     return _client
 
 
