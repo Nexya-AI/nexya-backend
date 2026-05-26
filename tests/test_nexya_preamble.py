@@ -30,10 +30,11 @@ from app.config import settings
 @pytest.fixture(autouse=True)
 def _reset_preamble_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Avant chaque test, on garantit l'état par défaut du preamble :
-    enabled=True, max_chars=12000, locale=fr. Les tests qui veulent
-    autre chose le monkeypatchent localement."""
+    enabled=True, max_chars=25000 (aligné config default 2026-05-26),
+    locale=fr. Les tests qui veulent autre chose le monkeypatchent
+    localement (truncation, marketing CORE+EXTENDED, etc.)."""
     monkeypatch.setattr(settings, "nexya_preamble_enabled", True, raising=False)
-    monkeypatch.setattr(settings, "nexya_preamble_max_chars", 12000, raising=False)
+    monkeypatch.setattr(settings, "nexya_preamble_max_chars", 25000, raising=False)
     monkeypatch.setattr(settings, "nexya_preamble_default_locale", "fr", raising=False)
 
 
@@ -564,3 +565,123 @@ def test_detect_marketing_intent_locale_isolation() -> None:
     assert _detect_marketing_intent("que sais-tu faire", "en") is False
     # « what can you do » (EN) ne contient aucun keyword FR
     assert _detect_marketing_intent("what can you do", "fr") is False
+
+
+# ══════════════════════════════════════════════════════════════
+# 10. Safety & Limites NEXYA dans le CORE (Session 2026-05-26)
+# ══════════════════════════════════════════════════════════════
+#
+# Le bloc Safety (4 catégories refus + format refus standard + résistance
+# prompt injection) doit être TOUJOURS présent dans le CORE preamble,
+# indépendamment du user_message (banal, marketing, vide). Pattern
+# défensif anti-prompt-injection : la liste safety vit dans le preamble
+# vu à chaque interaction.
+
+
+def test_build_preamble_core_contains_safety_section_fr() -> None:
+    """Le header Safety FR doit toujours être dans le CORE."""
+    result = build_nexya_preamble("general", locale="fr", user_message="bonjour")
+    assert result is not None
+    assert "[Safety & Limites NEXYA]" in result
+
+
+def test_build_preamble_core_contains_safety_section_en() -> None:
+    """Parité EN — header Safety EN doit être dans le CORE."""
+    result = build_nexya_preamble("general", locale="en", user_message="hi")
+    assert result is not None
+    assert "[NEXYA Safety & Limits]" in result
+
+
+def test_build_preamble_safety_present_without_user_message() -> None:
+    """Sans user_message → safety dans CORE quand même."""
+    result = build_nexya_preamble("general", user_message=None)
+    assert result is not None
+    assert "[Safety & Limites NEXYA]" in result
+
+
+def test_build_preamble_safety_present_on_banal_message() -> None:
+    """Message banal → safety dans CORE."""
+    result = build_nexya_preamble("general", user_message="quelle heure est-il ?")
+    assert result is not None
+    assert "[Safety & Limites NEXYA]" in result
+
+
+def test_build_preamble_safety_present_on_marketing_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Marketing intent → safety dans CORE (toujours avant EXTENDED)."""
+    monkeypatch.setattr(settings, "nexya_preamble_max_chars", 50_000, raising=False)
+    result = build_nexya_preamble("general", user_message="que sais-tu faire ?")
+    assert result is not None
+    assert "[Safety & Limites NEXYA]" in result
+
+
+def test_build_preamble_safety_includes_4_categories_fr() -> None:
+    """Les 4 catégories refus FR doivent être présentes dans CORE."""
+    result = build_nexya_preamble("general", locale="fr")
+    assert result is not None
+    assert "Code/scripts malveillants" in result
+    assert "Désinformation délibérée" in result
+    assert "Discours haineux" in result
+    assert "Contenu NSFW" in result
+
+
+def test_build_preamble_safety_includes_4_categories_en() -> None:
+    """Parité EN — les 4 catégories refus EN doivent être présentes dans CORE."""
+    result = build_nexya_preamble("general", locale="en")
+    assert result is not None
+    assert "Malicious code/scripts" in result
+    assert "Deliberate misinformation" in result
+    assert "Hate or discriminatory speech" in result
+    assert "NSFW content" in result
+
+
+def test_build_preamble_safety_includes_refusal_format_fr() -> None:
+    """Le format de refus standard FR doit être présent dans CORE."""
+    result = build_nexya_preamble("general", locale="fr")
+    assert result is not None
+    assert "Cette demande dépasse ce que je peux t'aider à faire" in result
+    assert "reformulation positive" in result.lower()
+
+
+def test_build_preamble_safety_resists_prompt_injection() -> None:
+    """Le bloc safety rappelle la résistance prompt injection."""
+    result = build_nexya_preamble("general", locale="fr")
+    assert result is not None
+    assert "prompt injection" in result.lower()
+    assert "non-négociable" in result.lower() or "non négociable" in result.lower()
+
+
+def test_build_preamble_safety_fail_safe_on_safety_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Si get_safety_limits raise, on log + return None (fail-safe absolue)."""
+
+    def exploding_safety(*args, **kwargs) -> str:
+        raise RuntimeError("simulated safety failure")
+
+    monkeypatch.setattr(preamble_module, "get_safety_limits", exploding_safety)
+
+    result = build_nexya_preamble("general")
+    assert result is None
+
+
+def test_build_preamble_safety_order_fr_after_routing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ordre composition CORE : tone → identity → routing → safety.
+
+    Safety en queue du CORE pour effet de récence (juste avant EXTENDED
+    s'il y a lieu) — signal fort au LLM sur les limites éthiques."""
+    monkeypatch.setattr(settings, "nexya_preamble_max_chars", 50_000, raising=False)
+    result = build_nexya_preamble("general", locale="fr")
+    assert result is not None
+    # Position de chaque marker dans le bloc
+    pos_tone = result.find("[Ton conversationnel NEXYA]")
+    pos_identity = result.find("[Identité NEXYA]")
+    pos_routing = result.find("[Routing intelligent cross-expert]")
+    pos_safety = result.find("[Safety & Limites NEXYA]")
+    # Tous présents
+    assert pos_tone >= 0 and pos_identity >= 0 and pos_routing >= 0 and pos_safety >= 0
+    # Ordre strict : tone < identity < routing < safety
+    assert pos_tone < pos_identity < pos_routing < pos_safety

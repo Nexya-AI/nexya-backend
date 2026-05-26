@@ -21,6 +21,7 @@ from app.ai.nexya_routing import (
     detect_query_intent,
     get_expert_label,
     get_routing_guidance,
+    get_routing_table_extended,
     suggest_redirect,
 )
 
@@ -225,13 +226,46 @@ def test_get_routing_guidance_en_includes_current_expert_label() -> None:
     assert "Cooking & Daily Life Expert" in guidance
 
 
-def test_get_routing_guidance_fr_contains_redirection_table() -> None:
-    """La table de correspondance domaine → expert doit apparaître."""
+def test_get_routing_guidance_fr_mentions_other_experts_briefly() -> None:
+    """Le bloc routing CORE doit lister les 11 modes experts brièvement (sans table).
+
+    Note 2026-05-26 — Two-Tier : la table markdown détaillée a été déplacée
+    dans EXTENDED via `get_routing_table_extended()`. Le bloc CORE garde
+    seulement la liste compacte + les 5 règles comportementales pour
+    économiser ~600 chars sur les 95 % des requêtes non-marketing."""
     guidance = get_routing_guidance("general", "fr")
+    # Liste compacte (anti-régression : on garde la mention des 11 modes)
+    assert "11 modes experts" in guidance
+    # « Expert Informatique » reste mentionné via l'exemple dans la règle #2
+    # (« je te recommande de basculer sur l'**Expert Informatique** »)
     assert "Expert Informatique" in guidance
-    assert "Expert Sciences" in guidance
-    assert "NEXYA Studio" in guidance
-    assert "Expert Médecine" in guidance
+
+
+def test_get_routing_guidance_fr_does_not_contain_full_markdown_table() -> None:
+    """Anti-régression : la table markdown complète ne doit PAS être dans CORE.
+
+    Garde-fou pour empêcher un futur refactor de remettre la table dans
+    le bloc routing CORE (duplication avec EXTENDED, gaspillage de tokens
+    sur les 95 % des requêtes non-marketing)."""
+    guidance = get_routing_guidance("general", "fr")
+    # Le header markdown spécifique à la table EXTENDED ne doit PAS être ici
+    assert "[Routing — Table de correspondance" not in guidance
+    # Les séparateurs markdown de table |---|---| ne doivent pas non plus
+    # apparaître côté CORE (preuve absolue qu'on n'a pas de table inline)
+    assert "|---|---|" not in guidance
+
+
+def test_get_routing_guidance_fr_rule_1_reformulated_depth_calibrated() -> None:
+    """Anti-régression : règle #1 FR exige « profondeur que la question mérite »
+    avec calibrage explicite 2-4 phrases / 5-8 phrases.
+
+    Note 2026-05-26 — Reformulation alignée avec tone #7 (profondeur calibrée
+    selon la complexité, pas selon une règle absolue). L'ancienne formulation
+    « 2-4 phrases maximum » a été supprimée car contradictoire avec tone #7."""
+    guidance = get_routing_guidance("computer", "fr")
+    assert "profondeur que la question mérite" in guidance
+    assert "2-4 phrases" in guidance
+    assert "5-8" in guidance
 
 
 def test_get_routing_guidance_fr_forbids_redirect_to_general() -> None:
@@ -275,3 +309,97 @@ def test_get_expert_label_none_returns_general() -> None:
 
 def test_get_expert_label_unknown_returns_general() -> None:
     assert get_expert_label("foo", "fr") == "Général"
+
+
+# ══════════════════════════════════════════════════════════════
+# 9. get_routing_guidance EN — règle #1 reformulée + pas de table
+# ══════════════════════════════════════════════════════════════
+
+
+def test_get_routing_guidance_en_rule_1_reformulated_depth_calibrated() -> None:
+    """Anti-régression : règle #1 EN exige « depth the question deserves »
+    avec calibrage explicite 2-4 sentences / 5-8 sentences.
+
+    Note 2026-05-26 — Parité EN de la reformulation FR alignée tone #7."""
+    guidance = get_routing_guidance("computer", "en")
+    assert "depth the question deserves" in guidance
+    assert "2-4 sentences" in guidance
+    assert "5-8" in guidance
+
+
+def test_get_routing_guidance_en_does_not_contain_full_markdown_table() -> None:
+    """Parité EN : la table markdown complète ne doit PAS être dans CORE."""
+    guidance = get_routing_guidance("general", "en")
+    assert "[Routing — Domain → Expert Correspondence Table]" not in guidance
+    assert "|---|---|" not in guidance
+
+
+def test_get_routing_guidance_en_mentions_11_modes_briefly() -> None:
+    """Parité EN : liste compacte des 11 modes experts."""
+    guidance = get_routing_guidance("general", "en")
+    assert "11 specialized expert modes" in guidance
+    # Computer Expert mentionné via exemple règle #2
+    assert "Computer Expert" in guidance
+
+
+# ══════════════════════════════════════════════════════════════
+# 10. get_routing_table_extended — table EXTENDED (marketing intent)
+# ══════════════════════════════════════════════════════════════
+
+
+def test_get_routing_table_extended_fr_contains_all_11_experts() -> None:
+    """La table EXTENDED FR doit lister les 11 experts canoniques."""
+    table = get_routing_table_extended("fr")
+    assert "[Routing — Table de correspondance domaine → expert]" in table
+    assert "Expert Informatique" in table
+    assert "Expert Sciences & Maths" in table
+    assert "Expert Cuisine" in table
+    assert "Expert Langues" in table
+    assert "Expert Droit" in table
+    assert "Expert Médecine" in table
+    assert "Expert Finance" in table
+    assert "Expert Ingénierie" in table
+    assert "Expert Productivité" in table
+    assert "NEXYA Studio" in table
+    assert "Général" in table
+
+
+def test_get_routing_table_extended_en_contains_all_11_experts() -> None:
+    """Parité EN : table EXTENDED EN doit lister les 11 experts."""
+    table = get_routing_table_extended("en")
+    assert "[Routing — Domain → Expert Correspondence Table]" in table
+    assert "Computer Expert" in table
+    assert "Science & Math Expert" in table
+    assert "Cooking & Daily Life Expert" in table
+    assert "Language Expert" in table
+    assert "Law & Justice Expert" in table
+    assert "Medicine & Health Expert" in table
+    assert "Finance & Business Expert" in table
+    assert "Engineering Expert" in table
+    assert "Productivity & Life Expert" in table
+    assert "NEXYA Studio" in table
+    assert "General" in table
+
+
+def test_get_routing_table_extended_default_fr() -> None:
+    """Défaut sans locale → FR (Africa-first)."""
+    assert get_routing_table_extended() == get_routing_table_extended("fr")
+
+
+def test_get_routing_table_extended_fr_en_different() -> None:
+    """Sanity : FR ≠ EN."""
+    assert get_routing_table_extended("fr") != get_routing_table_extended("en")
+
+
+def test_get_routing_table_extended_idempotent() -> None:
+    """2 appels identiques → string byte-pour-byte identique."""
+    assert get_routing_table_extended("fr") == get_routing_table_extended("fr")
+    assert get_routing_table_extended("en") == get_routing_table_extended("en")
+
+
+def test_get_routing_table_extended_contains_markdown_table_separator() -> None:
+    """La table EXTENDED contient bien le séparateur markdown |---|---|."""
+    table_fr = get_routing_table_extended("fr")
+    table_en = get_routing_table_extended("en")
+    assert "|---|---|" in table_fr
+    assert "|---|---|" in table_en

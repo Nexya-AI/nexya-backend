@@ -8,8 +8,9 @@ unique pour l'identité + ton + routing de NEXYA AI.
 Pattern Two-Tier Smart Preamble (2026-05-26) :
 
     [CORE]      tone + identity_core (founder + brand + capability_teaser)
-                + routing_guidance + safety (à venir Commit C)
-                → TOUJOURS injecté, ~3500 tokens
+                + routing_guidance (5 règles comportementales)
+                + safety_limits (4 catégories refus + format refus standard)
+                → TOUJOURS injecté, ~3500-4000 tokens
     [EXTENDED]  identity_extended (product description + 15 features)
                 + routing_table (correspondance domaine→expert)
                 → INJECTÉ UNIQUEMENT si l'utilisateur pose une question
@@ -82,6 +83,7 @@ from app.ai.nexya_routing import (
     get_routing_guidance,
     get_routing_table_extended,
 )
+from app.ai.nexya_safety import get_safety_limits
 from app.ai.nexya_tone import get_tone
 from app.config import settings
 
@@ -244,28 +246,32 @@ def build_nexya_preamble(
 
     Pattern Two-Tier Smart Preamble (2026-05-26) :
 
-    **CORE** (toujours injecté, ~3500 tokens) :
+    **CORE** (toujours injecté, ~3500-4000 tokens) :
         1. Ton conversationnel (`nexya_tone.get_tone(locale)`)
         2. Identity CORE — founder story + brand security + capability
            teaser (`nexya_identity.get_identity_core(locale)`)
         3. Routing guidance — règles comportementales
            (`nexya_routing.get_routing_guidance(expert_id, locale)`)
+        4. Safety & Limites — 4 catégories refus + format refus standard
+           (`nexya_safety.get_safety_limits(locale)`)
 
     **EXTENDED** (injecté SEULEMENT si `_detect_marketing_intent(user_message,
     locale)` retourne True — ~3000 tokens additionnels) :
-        4. Identity EXTENDED — product description complète + 15
+        5. Identity EXTENDED — product description complète + 15
            magnificent features (`nexya_identity.get_identity_extended(locale)`)
-        5. Routing TABLE — correspondance domaine→expert détaillée
+        6. Routing TABLE — correspondance domaine→expert détaillée
            (`nexya_routing.get_routing_table_extended(locale)`)
 
     Ordre des composants : tone → identity_core → routing_rules →
-    (identity_extended → routing_table si marketing intent).
+    safety_limits → (identity_extended → routing_table si marketing intent).
     Le tone vient en TÊTE pour cadrer le comportement (10 commandements).
     Identity CORE en 2ᵉ (founder + brand + capability teaser) car
     critique pour identité et sécurité brand. Routing rules en 3ᵉ pour
-    les comportements cross-expert. Les blocs EXTENDED arrivent en
-    queue car ils peuvent partir en troncature sans casser l'essence
-    NEXYA si on dépasse le cap chars.
+    les comportements cross-expert. Safety en 4ᵉ (queue du CORE) pour
+    effet de récence — signal fort sur les limites éthiques juste avant
+    le contenu EXTENDED ou la concat finale (`_stream_link`). Les blocs
+    EXTENDED arrivent ensuite, en queue car ils peuvent partir en
+    troncature sans casser l'essence NEXYA si on dépasse le cap chars.
 
     Pipeline :
         1. Short-circuit si `settings.nexya_preamble_enabled=False` → None.
@@ -303,14 +309,21 @@ def build_nexya_preamble(
         # ── CORE PREAMBLE — toujours injecté ────────────────────
         # tone → identity_core (founder + brand + capability_teaser)
         # → routing_rules (règles comportementales transverses)
+        # → safety_limits (4 catégories refus + format refus standard)
         tone_block = get_tone(effective_locale)
         identity_core_block = get_identity_core(effective_locale)
+        safety_block = get_safety_limits(effective_locale)
 
         parts: list[str] = [tone_block, identity_core_block]
 
         if include_routing:
             routing_rules_block = get_routing_guidance(expert_id, effective_locale)
             parts.append(routing_rules_block)
+
+        # Safety en queue du CORE pour effet de récence (juste avant
+        # EXTENDED s'il y a lieu, sinon en dernier) — signal fort au LLM
+        # sur les limites éthiques. Plus pratique pour anti-prompt-injection.
+        parts.append(safety_block)
 
         # ── EXTENDED PREAMBLE — injecté si marketing intent ─────
         # Le LLM reçoit la description produit complète + les 15

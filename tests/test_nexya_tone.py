@@ -20,14 +20,19 @@ from app.ai.nexya_tone import get_tone, tone_en, tone_fr
 
 # Marqueurs numérotés explicites — si on retire ou renumérote un
 # commandement, le test casse immédiatement.
+# Mise à jour 2026-05-26 :
+# - #2 reformulé « Pas de bruit social vide » (interdit feedback social
+#   creux MAIS autorise invitations chaleureuses à l'action).
+# - #7 reformulé « Profondeur calibrée selon la complexité » (cohérent
+#   avec le routing #1 sur les questions hors-domaine).
 _FR_TEN_COMMANDMENT_MARKERS = [
     "1. **Tutoiement systématique.**",
-    "2. **Aucune formule d'ouverture creuse.**",
+    "2. **Pas de bruit social vide.**",
     "3. **Anti-sycophancy stricte.**",
     "4. **Structure scannable.**",
     "5. **Jargon décortiqué.**",
     "6. **Africa-first contextuel, JAMAIS exclusif.**",
-    "7. **Brièveté calibrée selon la complexité.**",
+    "7. **Profondeur calibrée selon la complexité, pas selon une règle absolue.**",
     "8. **Exemples concrets systématiques.**",
     "9. **Transparence absolue sur tes limites.**",
     "10. **Chaleur professionnelle.**",
@@ -54,12 +59,12 @@ def test_fr_exactly_ten_commandments_present() -> None:
 
 _EN_TEN_COMMANDMENT_MARKERS = [
     "1. **Informal address by default.**",
-    "2. **No empty opening formulas.**",
+    "2. **No empty social noise.**",
     "3. **Strict anti-sycophancy.**",
     "4. **Scannable structure.**",
     "5. **Decoded jargon.**",
     "6. **Africa-first contextual, NEVER exclusive.**",
-    "7. **Brevity calibrated to complexity.**",
+    "7. **Depth calibrated to complexity, not to an absolute rule.**",
     "8. **Systematic concrete examples.**",
     "9. **Absolute transparency about your limits.**",
     "10. **Professional warmth.**",
@@ -114,6 +119,63 @@ _EN_BANNED_FORMULAS_MENTIONED = [
 def test_en_banned_opening_formula_mentioned(formula: str) -> None:
     en = tone_en()
     assert formula in en, f"Empty opening formula {formula!r} must be explicitly banned in EN tone."
+
+
+# ══════════════════════════════════════════════════════════════
+# 3.bis Nuance tone #2 — autorise invitations à l'action (2026-05-26)
+# ══════════════════════════════════════════════════════════════
+#
+# Décision Ivan 2026-05-26 : le tone #2 interdit les formules creuses
+# (« Bien sûr ! ») mais AUTORISE explicitement les invitations
+# chaleureuses à l'action (« Comment puis-je t'aider aujourd'hui ? »).
+# Distinction : feedback social vide RÉAGIT au user en sycophancy,
+# invitation à l'action OUVRE la conversation utilement.
+
+
+_FR_AUTHORIZED_ACTION_INVITATIONS = [
+    "Comment puis-je t'aider",
+    "En quoi puis-je t'être utile",
+]
+
+
+@pytest.mark.parametrize("invitation", _FR_AUTHORIZED_ACTION_INVITATIONS)
+def test_fr_tone_authorizes_action_invitation(invitation: str) -> None:
+    """Le ton FR doit explicitement autoriser les invitations chaleureuses à l'action."""
+    fr = tone_fr()
+    assert invitation in fr, (
+        f"L'invitation à l'action {invitation!r} doit être explicitement "
+        "autorisée dans le tone #2 FR (instruction au LLM)."
+    )
+
+
+def test_fr_tone_distinguishes_feedback_vs_invitation() -> None:
+    """Le tone #2 FR doit documenter la distinction entre :
+    - feedback social vide (banni)
+    - invitation à l'action (autorisée)"""
+    fr = tone_fr()
+    # Marqueurs sémantiques attendus dans la nuance
+    assert "réagit" in fr.lower() or "RÉAGIT" in fr
+    assert "ouvre" in fr.lower() or "OUVRE" in fr
+
+
+_EN_AUTHORIZED_ACTION_INVITATIONS = [
+    "How can I help you today",
+    "What can I do for you",
+]
+
+
+@pytest.mark.parametrize("invitation", _EN_AUTHORIZED_ACTION_INVITATIONS)
+def test_en_tone_authorizes_action_invitation(invitation: str) -> None:
+    """Parité EN : invitations chaleureuses à l'action autorisées."""
+    en = tone_en()
+    assert invitation in en
+
+
+def test_en_tone_distinguishes_feedback_vs_invitation() -> None:
+    """Parité EN : distinction feedback vide vs invitation action."""
+    en = tone_en()
+    assert "reacts" in en.lower() or "REACTS" in en
+    assert "opens" in en.lower() or "OPENS" in en
 
 
 # ══════════════════════════════════════════════════════════════
@@ -206,13 +268,19 @@ def test_get_tone_unknown_locale_falls_back_to_fr() -> None:
 
 
 def test_fr_tone_size_under_budget() -> None:
-    """Le ton FR doit tenir sous 3500 chars (cap raisonnable, laisse place
-    à identity + routing dans le preamble 4000 chars cap)."""
-    assert len(tone_fr()) < 3500
+    """Le ton FR doit tenir sous 4500 chars.
+
+    Note 2026-05-26 (Two-Tier) — cap relevé de 3500 → 4500 chars suite
+    à la nuance #2 (autorisation invitation action) et #7 (profondeur
+    calibrée), enrichissements validés Ivan. Le preamble cap global
+    25000 chars laisse largement la place à tone + identity + routing
+    + safety."""
+    assert len(tone_fr()) < 4500
 
 
 def test_en_tone_size_under_budget() -> None:
-    assert len(tone_en()) < 3500
+    """Parité EN : tone EN ≤ 4500 chars (post-Two-Tier 2026-05-26)."""
+    assert len(tone_en()) < 4500
 
 
 def test_fr_and_en_tone_idempotent() -> None:
