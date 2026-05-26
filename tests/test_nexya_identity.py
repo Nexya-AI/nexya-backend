@@ -1,12 +1,19 @@
 """
-Tests Session A1 — `app/ai/nexya_identity.py`.
+Tests Session A1 + enrichissement 2026-05-26 — `app/ai/nexya_identity.py`.
 
 Garantit que :
-- Les 4 paliers progressifs du fondateur sont présents (palier 1 base,
-  palier 2 Nexyalabs+Loth Ivan, palier 3 bio enrichie, palier 4 mission).
+- Les 4 paliers progressifs du fondateur sont présents (palier 1 base
+  avec nom Loth Ivan visible + invitation à l'action chaleureuse,
+  palier 2 profil hybride teaser, palier 3 bio 3-axes IA/Full-Stack/
+  Design avec Python+R+Power BI+Flutter+Adobe, palier 4 mission sans
+  mention « francophone »).
+- **Règle 5** — cohérence dans la même conversation (pas de re-déballage
+  de la bio à chaque mention du fondateur).
+- **Règle 6** — réponse anti-superlatifs sur le fondateur (« génie »,
+  « visionnaire », etc.) via procédure 3-temps (biais épistémique →
+  faits objectifs → renvoi au jugement utilisateur).
 - Anti-hallucination biographique stricte (aucune info inventée comme
-  « le plus grand ingénieur africain », pas d'âge inventé, pas
-  d'université imaginée).
+  Stanford/MIT/Harvard, pas d'âge, pas de diplôme spécifique).
 - Pas d'exposition de coordonnées personnelles fondateur (email, phone).
 - Sécurité brand technique : esquive divulgation modèle/provider.
 - 11 modes experts mentionnés (6 actifs + 5 coming soon).
@@ -62,14 +69,25 @@ def test_en_founder_4_tiers_present(marker: str) -> None:
 # 2. Anti-hallucination biographique — STRICT
 # ══════════════════════════════════════════════════════════════
 #
-# Validation Ivan 2026-05-19 : « tu redige une bio enrichie de ma
-# personne uniquement avec des infos vraies, donc absolument rien sur
-# moi qui ne soit pas une réalité ». Faits autorisés UNIQUEMENT :
+# Validation Ivan 2026-05-19 + enrichissement 2026-05-26 : « tu rédiges
+# une bio enrichie de ma personne uniquement avec des infos vraies,
+# donc absolument rien sur moi qui ne soit pas une réalité ». Faits
+# autorisés UNIQUEMENT :
 #   - nom complet : Loth Ivan Ngassa Yimga
-#   - profession : développeur Flutter
+#   - profil hybride 3-axes :
+#       * IA & Big Data (Python, R, Power BI, architectures IA)
+#       * Full-Stack & Mobile (UML, ingénierie logicielle, Flutter)
+#       * Design Graphique & UI/UX (Photoshop, Illustrator, Adobe XD)
 #   - pays : Cameroun / camerounais
 #   - rôle : fondateur Nexyalabs
 #   - création : NEXYA AI
+#
+# Note 2026-05-26 — les superlatifs « génie », « visionnaire »,
+# « le plus grand », etc. APPARAISSENT désormais dans la règle 6
+# comme exemples de mots-clés à désamorcer (procédure 3-temps).
+# Ils sont donc PRÉSENTS dans le bloc mais en tant que liste
+# d'hyperboles à refuser, jamais comme affirmation positive. Les
+# tests anti-hallucination ne les interdisent plus.
 
 
 def test_fr_founder_mentions_loth_ivan_ngassa_yimga() -> None:
@@ -100,23 +118,21 @@ def test_en_founder_mentions_cameroon() -> None:
 
 
 def test_fr_founder_mentions_flutter() -> None:
+    """Flutter doit apparaître dans le palier 3 (axe Full-Stack & Mobile)."""
     story = get_founder_story("fr")
     assert "Flutter" in story
 
 
-# ─── HALLUCINATIONS INTERDITES (test négatif) ────────────────
+# ─── HALLUCINATIONS INTERDITES (test négatif strict) ─────────
 
 
 _FR_FORBIDDEN_HALLUCINATIONS = [
-    "le plus grand",  # superlatif ego-flattant
-    "génie",  # qualificatif inventé
-    "visionnaire",  # qualificatif inventé
     "Stanford",  # université inventée
     "MIT",  # université inventée
     "Harvard",
     "diplôme",  # parcours inventé
     "milliardaire",
-    "fortune",
+    "fortune personnelle",  # spec : pas d'invention richesse
     "milliards",
 ]
 
@@ -124,11 +140,261 @@ _FR_FORBIDDEN_HALLUCINATIONS = [
 @pytest.mark.parametrize("hallucination", _FR_FORBIDDEN_HALLUCINATIONS)
 def test_fr_founder_no_hallucinated_facts(hallucination: str) -> None:
     """Anti-hallucination biographique : ces termes sont interdits dans
-    la bio fondateur car non documentés dans les mémoires Ivan."""
+    la bio fondateur car non documentés dans les mémoires Ivan.
+
+    Note : « génie », « visionnaire », « le plus grand » sont autorisés
+    car ils apparaissent en règle 6 comme exemples de mots-clés à
+    désamorcer (procédure 3-temps). Voir docstring du module."""
     story = get_founder_story("fr")
     assert hallucination.lower() not in story.lower(), (
         f"Terme hallucination potentielle détecté : {hallucination!r}"
     )
+
+
+# ══════════════════════════════════════════════════════════════
+# 2.bis Palier 1 — nom fondateur visible + invitation chaleureuse
+# ══════════════════════════════════════════════════════════════
+#
+# Décision Ivan 2026-05-26 : le nom Loth Ivan Ngassa Yimga apparaît
+# dès le palier 1 au lancement (signal de différenciation Africa-first).
+# Sera retiré du palier 1 après traction (cf. mémoire
+# project_nexya_brand_palier1_founder_visibility.md). Le palier 1
+# autorise EXPLICITEMENT « Comment puis-je t'être utile aujourd'hui ? »
+# (nuance tone #2 : invitation à l'action ≠ formule creuse).
+
+
+def test_fr_palier_1_contains_founder_name() -> None:
+    """Palier 1 doit mentionner Loth Ivan Ngassa Yimga (décision marketing 2026-05-26)."""
+    story = get_founder_story("fr")
+    # Le palier 1 contient l'instruction de réponse avec le nom du fondateur.
+    palier_1_start = story.index("**Palier 1")
+    palier_2_start = story.index("**Palier 2")
+    palier_1_block = story[palier_1_start:palier_2_start]
+    assert "Loth Ivan Ngassa Yimga" in palier_1_block
+
+
+def test_en_tier_1_contains_founder_name() -> None:
+    """Tier 1 EN doit mentionner Loth Ivan Ngassa Yimga (parité stricte)."""
+    story = get_founder_story("en")
+    tier_1_start = story.index("**Tier 1")
+    tier_2_start = story.index("**Tier 2")
+    tier_1_block = story[tier_1_start:tier_2_start]
+    assert "Loth Ivan Ngassa Yimga" in tier_1_block
+
+
+def test_fr_palier_1_authorizes_action_invitation() -> None:
+    """Palier 1 autorise « Comment puis-je t'être utile » ou équivalent."""
+    story = get_founder_story("fr")
+    palier_1_start = story.index("**Palier 1")
+    palier_2_start = story.index("**Palier 2")
+    palier_1_block = story[palier_1_start:palier_2_start]
+    # Le palier 1 doit décrire une invitation chaleureuse à l'action
+    has_invitation = any(
+        marker in palier_1_block
+        for marker in [
+            "Comment puis-je t'être utile",
+            "En quoi puis-je t'aider",
+            "invitation",
+        ]
+    )
+    assert has_invitation, "Palier 1 doit autoriser une invitation à l'action chaleureuse"
+
+
+# ══════════════════════════════════════════════════════════════
+# 2.ter Palier 3 — bio 3-axes IA / Full-Stack / Design
+# ══════════════════════════════════════════════════════════════
+#
+# Mise à jour 2026-05-26 : palier 3 enrichi avec profil hybride
+# 3-axes au lieu de la mention simple « dev Flutter ». Les 3 axes
+# doivent tous être présents avec leurs technologies clés.
+
+
+_FR_PALIER_3_AXIS_MARKERS = [
+    "Intelligence Artificielle & Big Data",
+    "Développement Full-Stack & Mobile",
+    "Design Graphique & UI/UX",
+]
+
+
+@pytest.mark.parametrize("axis", _FR_PALIER_3_AXIS_MARKERS)
+def test_fr_palier_3_includes_3_axes(axis: str) -> None:
+    """Les 3 axes du profil hybride doivent être présents au palier 3."""
+    story = get_founder_story("fr")
+    assert axis in story, f"Axe profil hybride manquant : {axis!r}"
+
+
+_FR_PALIER_3_TECH_KEYWORDS = [
+    "Python",
+    "Power BI",
+    "Flutter",
+    "Photoshop",
+    "Illustrator",
+    "Adobe XD",
+]
+
+
+@pytest.mark.parametrize("tech", _FR_PALIER_3_TECH_KEYWORDS)
+def test_fr_palier_3_includes_tech_stack(tech: str) -> None:
+    """Les technologies clés du profil hybride doivent être présentes."""
+    story = get_founder_story("fr")
+    assert tech in story, f"Technologie clé manquante au palier 3 : {tech!r}"
+
+
+def test_fr_palier_3_includes_r_language() -> None:
+    """R (langage de data science) doit être présent — utilise pattern
+    avec mot-frontière pour éviter le faux match sur 'R' isolé partout."""
+    story = get_founder_story("fr")
+    # « Python et R » est la formulation canonique
+    assert "Python et R" in story or "R pour" in story, (
+        "Le langage R doit être mentionné dans l'axe IA & Big Data"
+    )
+
+
+_EN_TIER_3_AXIS_MARKERS = [
+    "Artificial Intelligence & Big Data",
+    "Full-Stack & Mobile Development",
+    "Graphic Design & UI/UX",
+]
+
+
+@pytest.mark.parametrize("axis", _EN_TIER_3_AXIS_MARKERS)
+def test_en_tier_3_includes_3_axes(axis: str) -> None:
+    """Parité stricte : les 3 axes du profil hybride doivent être en EN."""
+    story = get_founder_story("en")
+    assert axis in story, f"Axis missing in EN tier 3: {axis!r}"
+
+
+@pytest.mark.parametrize("tech", _FR_PALIER_3_TECH_KEYWORDS)
+def test_en_tier_3_includes_tech_stack(tech: str) -> None:
+    """Parité stricte : technologies clés en EN aussi."""
+    story = get_founder_story("en")
+    assert tech in story, f"Tech keyword missing in EN tier 3: {tech!r}"
+
+
+def test_fr_palier_4_no_francophone_keyword() -> None:
+    """Palier 4 mise à jour 2026-05-26 : pas de « francophone »
+    (Africa-first sans restriction linguistique)."""
+    story = get_founder_story("fr")
+    palier_4_start = story.index("**Palier 4")
+    # Trouve la fin du palier 4 (avant la section "Règles absolues")
+    rules_start = story.index("**Règles absolues")
+    palier_4_block = story[palier_4_start:rules_start]
+    assert "francophone" not in palier_4_block.lower(), (
+        "Palier 4 ne doit plus contenir « francophone » (décision 2026-05-26)"
+    )
+
+
+def test_en_tier_4_no_francophone_keyword() -> None:
+    """Parité stricte : tier 4 EN sans 'francophone'."""
+    story = get_founder_story("en")
+    tier_4_start = story.index("**Tier 4")
+    rules_start = story.index("**Absolute rules")
+    tier_4_block = story[tier_4_start:rules_start]
+    assert "francophone" not in tier_4_block.lower()
+
+
+# ══════════════════════════════════════════════════════════════
+# 2.quater Règle 5 — cohérence dans la même conversation
+# ══════════════════════════════════════════════════════════════
+
+
+def test_fr_rule_5_session_consistency_present() -> None:
+    """Règle 5 doit être présente : pas de re-déballage de la bio
+    à chaque mention du fondateur dans la même session."""
+    story = get_founder_story("fr")
+    # Marqueur explicite
+    assert "Cohérence dans la même conversation" in story
+    # Logique sémantique attendue
+    assert "re-déballe" in story or "JAMAIS deux fois" in story
+
+
+def test_en_rule_5_session_consistency_present() -> None:
+    """Parité EN : règle 5 doit être présente."""
+    story = get_founder_story("en")
+    assert "Consistency within the same conversation" in story
+    assert "do NOT unpack" in story.lower() or "never recite" in story.lower()
+
+
+# ══════════════════════════════════════════════════════════════
+# 2.quinquies Règle 6 — réponse aux superlatifs sur le fondateur
+# ══════════════════════════════════════════════════════════════
+
+
+_FR_RULE_6_SUPERLATIVE_KEYWORDS = [
+    "génie",
+    "visionnaire",
+    "le plus grand",
+    "légende",
+    "prodige",
+]
+
+
+@pytest.mark.parametrize("keyword", _FR_RULE_6_SUPERLATIVE_KEYWORDS)
+def test_fr_rule_6_lists_superlative_triggers(keyword: str) -> None:
+    """Règle 6 doit lister les mots-clés superlatifs qui déclenchent
+    la procédure de désamorçage 3-temps."""
+    story = get_founder_story("fr")
+    assert keyword.lower() in story.lower(), (
+        f"Mot-clé superlatif manquant dans règle 6 : {keyword!r}"
+    )
+
+
+def test_fr_rule_6_describes_3_step_procedure() -> None:
+    """La règle 6 doit documenter la procédure 3-temps."""
+    story = get_founder_story("fr")
+    # Marqueurs de la procédure 3-temps
+    assert "biais épistémique" in story
+    assert "faits objectifs" in story
+    assert "renvoie le jugement" in story.lower() or "Renvoie le jugement" in story
+
+
+def test_fr_rule_6_includes_example_reply() -> None:
+    """La règle 6 doit fournir un exemple de réponse complet."""
+    story = get_founder_story("fr")
+    # L'exemple type inclut ces phrases canoniques
+    assert "Honnêtement" in story
+    assert "juge et partie" in story
+    assert "postérité" in story
+
+
+_EN_RULE_6_SUPERLATIVE_KEYWORDS = [
+    "genius",
+    "visionary",
+    "the greatest",
+    "legend",
+    "prodigy",
+]
+
+
+@pytest.mark.parametrize("keyword", _EN_RULE_6_SUPERLATIVE_KEYWORDS)
+def test_en_rule_6_lists_superlative_triggers(keyword: str) -> None:
+    """Parité EN : règle 6 doit lister les triggers superlatifs."""
+    story = get_founder_story("en")
+    assert keyword.lower() in story.lower(), (
+        f"Superlative trigger missing in EN rule 6: {keyword!r}"
+    )
+
+
+def test_en_rule_6_describes_3_step_procedure() -> None:
+    story = get_founder_story("en")
+    assert "epistemic bias" in story.lower()
+    assert "objective facts" in story.lower()
+    assert "return the judgment" in story.lower()
+
+
+def test_en_rule_6_includes_example_reply() -> None:
+    story = get_founder_story("en")
+    assert "Honestly" in story
+    assert "judge and party" in story
+    assert "posterity" in story.lower()
+
+
+def test_fr_rule_6_forbids_validating_and_denying() -> None:
+    """La règle 6 doit interdire à la fois valider ET nier frontalement."""
+    story = get_founder_story("fr")
+    # Marqueurs des deux interdictions
+    assert "JAMAIS le superlatif" in story or "ne valides JAMAIS" in story.lower()
+    assert "JAMAIS frontalement" in story or "ne nies JAMAIS" in story.lower()
 
 
 # ─── PROTECTION VIE PRIVÉE (email, phone) ──────────────────
