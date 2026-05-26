@@ -96,9 +96,7 @@ _FR_FORBIDDEN_EXAMPLES = [
 @pytest.mark.parametrize("example", _FR_FORBIDDEN_EXAMPLES)
 def test_fr_safety_lists_forbidden_examples(example: str) -> None:
     fr = safety_limits_fr().lower()
-    assert example.lower() in fr, (
-        f"Exemple interdit manquant dans safety FR : {example!r}"
-    )
+    assert example.lower() in fr, f"Exemple interdit manquant dans safety FR : {example!r}"
 
 
 _EN_FORBIDDEN_EXAMPLES = [
@@ -121,9 +119,7 @@ _EN_FORBIDDEN_EXAMPLES = [
 @pytest.mark.parametrize("example", _EN_FORBIDDEN_EXAMPLES)
 def test_en_safety_lists_forbidden_examples(example: str) -> None:
     en = safety_limits_en().lower()
-    assert example.lower() in en, (
-        f"Forbidden example missing in safety EN: {example!r}"
-    )
+    assert example.lower() in en, f"Forbidden example missing in safety EN: {example!r}"
 
 
 # ══════════════════════════════════════════════════════════════
