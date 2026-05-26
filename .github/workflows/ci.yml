@@ -51,10 +51,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: ${{ env.UV_VERSION }}
+      - name: Setup uv (bypass action, install via pip — incident GH Actions 2026-05-26)
+        run: pip install "uv==${{ env.UV_VERSION }}"
 
       - name: Install dev deps
         run: uv pip install --system -e ".[dev]"
@@ -79,10 +77,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: ${{ env.UV_VERSION }}
+      - name: Setup uv (bypass action, install via pip — incident GH Actions 2026-05-26)
+        run: pip install "uv==${{ env.UV_VERSION }}"
 
       - name: Install deps
         run: uv pip install --system -e ".[dev]"
@@ -108,10 +104,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: ${{ env.UV_VERSION }}
+      - name: Setup uv (bypass action, install via pip — incident GH Actions 2026-05-26)
+        run: pip install "uv==${{ env.UV_VERSION }}"
 
       - name: Install deps
         run: uv pip install --system -e ".[dev]"
@@ -187,10 +181,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: ${{ env.UV_VERSION }}
+      - name: Setup uv (bypass action, install via pip — incident GH Actions 2026-05-26)
+        run: pip install "uv==${{ env.UV_VERSION }}"
 
       - name: Install deps
         run: uv pip install --system -e ".[dev]"
@@ -295,10 +287,8 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          version: ${{ env.UV_VERSION }}
+      - name: Setup uv (bypass action, install via pip — incident GH Actions 2026-05-26)
+        run: pip install "uv==${{ env.UV_VERSION }}"
 
       - name: Install deps
         run: uv pip install --system -e ".[dev]"
