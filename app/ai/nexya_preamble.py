@@ -1,14 +1,29 @@
 """
-NEXYA — Préambule système assemblé (Session A1, 2026-05-19).
+NEXYA — Préambule système assemblé (Session A1, 2026-05-19 + Two-Tier 2026-05-26).
 
 Module qui compose le préambule canonique injecté EN TÊTE du system
 prompt LLM via `app/ai/streaming.py::_stream_link`. Source de vérité
 unique pour l'identité + ton + routing de NEXYA AI.
 
+Pattern Two-Tier Smart Preamble (2026-05-26) :
+
+    [CORE]      tone + identity_core (founder + brand + capability_teaser)
+                + routing_guidance + safety (à venir Commit C)
+                → TOUJOURS injecté, ~3500 tokens
+    [EXTENDED]  identity_extended (product description + 15 features)
+                + routing_table (correspondance domaine→expert)
+                → INJECTÉ UNIQUEMENT si l'utilisateur pose une question
+                  marketing (« qu'est-ce que tu sais faire ? »), ~3000 tokens
+                  additionnels
+
+Le déclencheur EXTENDED est `_detect_marketing_intent(user_message, locale)`
+qui scanne le dernier message user pour ~30 mots-clés FR + ~25 mots-clés EN
+(« tes capacités », « what can you do », « vs chatgpt », etc.).
+
 Ordre de concaténation final dans `_stream_link` (le preamble vient
 EN PREMIER, avant tout autre contexte) :
 
-    [nexya_preamble]            <-- CE MODULE (Session A1)
+    [nexya_preamble]            <-- CE MODULE
     [memory_context]            <-- D3 : qui est l'utilisateur
     [expert_corpus_context]     <-- G1 : corpus spécialisé (cooking RAG)
     [rag_block]                 <-- I1 : documents utilisateur
@@ -33,7 +48,7 @@ Discipline non-négociable :
    de faux positifs, le ton génère des réponses étranges, etc.).
 
 3. **Cap chars strict** — `settings.nexya_preamble_max_chars` (défaut
-   4000). Au-delà, troncature lisible LLM avec marqueur explicite. Cap
+   12000). Au-delà, troncature lisible LLM avec marqueur explicite. Cap
    garantit que le token estimator B2 (cap 30k tokens prompt) ne sera
    jamais débordé par un preamble qui aurait gonflé silencieusement.
 
@@ -42,9 +57,14 @@ Discipline non-négociable :
    dans `_stream_link`. Ce module produit le bloc preamble prêt-à-coller,
    il ne fait pas la composition transverse.
 
-5. **Idempotence stricte** — deux appels avec mêmes arguments retournent
-   exactement le même string byte-à-byte. Aucun timestamp, aucun random,
-   aucun appel I/O. Permet le caching B2 efficace.
+5. **Idempotence stricte** — deux appels avec mêmes arguments (incluant
+   `user_message`) retournent exactement le même string byte-à-byte.
+   Aucun timestamp, aucun random, aucun appel I/O.
+
+6. **Marketing detection déterministe** — `_detect_marketing_intent`
+   utilise un matching keyword case-insensitive simple (regex non
+   nécessaire). 0 appel LLM, 0 latence ajoutée. Cf. mémoire
+   `project_nexya_preamble_two_tier_architecture.md`.
 """
 
 from __future__ import annotations
@@ -53,8 +73,15 @@ from typing import Final, Literal
 
 import structlog
 
-from app.ai.nexya_identity import get_identity
-from app.ai.nexya_routing import get_routing_guidance
+from app.ai.nexya_identity import (
+    get_identity,
+    get_identity_core,
+    get_identity_extended,
+)
+from app.ai.nexya_routing import (
+    get_routing_guidance,
+    get_routing_table_extended,
+)
 from app.ai.nexya_tone import get_tone
 from app.config import settings
 
@@ -77,6 +104,131 @@ Locale = Literal["fr", "en"]
 
 
 # ══════════════════════════════════════════════════════════════
+# Marketing Intent Detection (Two-Tier 2026-05-26)
+# ══════════════════════════════════════════════════════════════
+#
+# Liste de keywords qui déclenchent l'injection du bloc EXTENDED
+# (product description + 15 features + routing table) en plus du
+# CORE preamble (tone + identity_core + routing_rules + safety).
+#
+# Discipline :
+# - Keywords case-insensitive (matching `.lower()` simple, pas de regex)
+# - Conservateur : on préfère ne PAS déclencher l'EXTENDED (CORE seul)
+#   sur une question ambiguë plutôt que sur-injecter
+# - Pas de match sur substring fragile : on vise des phrases-clés
+#   distinctives (« que sais-tu faire ? » et pas juste « sais »)
+# - Liste exhaustive des formulations courantes FR + EN pour V1
+# - V2 possible : embeddings similarity contre archetype queries
+#   pour robustesse aux paraphrases inattendues
+
+_MARKETING_KEYWORDS_FR: Final[tuple[str, ...]] = (
+    # « Que sais-tu / peux-tu faire ? » et variantes
+    "que sais-tu faire",
+    "que peux-tu faire",
+    "qu'est-ce que tu sais faire",
+    "qu'est-ce que tu peux faire",
+    "qu'est-ce que tu propose",
+    "qu'est-ce que tu offre",
+    "tu fais quoi",
+    "tu sers à quoi",
+    "à quoi tu sers",
+    "ce que tu fais",
+    "ce que tu offres",
+    "raconte ce que tu fais",
+    # « Tes capacités / features / fonctionnalités / experts »
+    "tes capacités",
+    "tes fonctionnalités",
+    "tes features",
+    "tes experts",
+    "tes services",
+    "tes outils",
+    "ton arsenal",
+    "tes points forts",
+    # Comparaisons / différenciation
+    "tu es différente",
+    "ce qui te rend différente",
+    "qu'est-ce qui te distingue",
+    "tu es meilleure",
+    "quoi de spécial",
+    "vs chatgpt",
+    "vs claude",
+    "vs gemini",
+    "pourquoi nexya",
+    "pourquoi t'utiliser",
+    "quel est ton intérêt",
+    # Présentation / identité produit (large)
+    "présente-toi",
+    "qu'est-ce que nexya",
+    "que peut nexya",
+)
+
+
+_MARKETING_KEYWORDS_EN: Final[tuple[str, ...]] = (
+    # « What can you do » et variantes
+    "what can you do",
+    "what do you do",
+    "what are you good at",
+    "what do you offer",
+    "what's your purpose",
+    "what is nexya",
+    "what does nexya do",
+    # « Your capabilities / features / experts »
+    "your capabilities",
+    "your features",
+    "your functions",
+    "your experts",
+    "your tools",
+    "your services",
+    "your strengths",
+    # Comparaisons / différenciation
+    "how are you different",
+    "different from",
+    "better than",
+    "vs chatgpt",
+    "vs claude",
+    "vs gemini",
+    "why nexya",
+    "why use you",
+    "what's special",
+    "what makes you unique",
+    # Présentation
+    "tell me about yourself",
+    "describe yourself",
+)
+
+
+def _detect_marketing_intent(user_message: str | None, locale: Locale) -> bool:
+    """Détecte si le message utilisateur est une question marketing/produit.
+
+    Retourne True si AU MOINS UN keyword (selon la locale) est présent
+    dans le message (case-insensitive substring match). Sinon False.
+
+    Args:
+        user_message: dernier message utilisateur. None ou vide → False.
+        locale: 'fr' (matche `_MARKETING_KEYWORDS_FR`) ou 'en'
+            (matche `_MARKETING_KEYWORDS_EN`).
+
+    Returns:
+        True si marketing intent détecté → caller injecte EXTENDED.
+        False sinon → CORE seul.
+
+    Note:
+        Détection conservatrice : on préfère un faux négatif (pas
+        injecter EXTENDED sur une question ambiguë, le LLM utilisera
+        le Capability Teaser du CORE pour donner un teaser) plutôt
+        qu'un faux positif (gâchis tokens sur une vraie question
+        métier où l'EXTENDED n'apporte rien).
+    """
+    if not user_message:
+        return False
+    text = user_message.strip().lower()
+    if not text:
+        return False
+    keywords = _MARKETING_KEYWORDS_EN if locale == "en" else _MARKETING_KEYWORDS_FR
+    return any(kw in text for kw in keywords)
+
+
+# ══════════════════════════════════════════════════════════════
 # API publique
 # ══════════════════════════════════════════════════════════════
 
@@ -86,32 +238,45 @@ def build_nexya_preamble(
     *,
     locale: Locale | None = None,
     include_routing: bool = True,
+    user_message: str | None = None,
 ) -> str | None:
     """Retourne le préambule NEXYA prêt à injecter dans le system prompt.
 
-    Composition (dans l'ordre) :
-        1. Ton conversationnel (`nexya_tone.get_tone(locale)`)
-        2. Routing guidance avec l'expert actif
-           (`nexya_routing.get_routing_guidance(expert_id, locale)`)
-        3. Identité fondateur + sécurité brand + produit + features
-           (`nexya_identity.get_identity(locale)`)
+    Pattern Two-Tier Smart Preamble (2026-05-26) :
 
-    Ordre figé Session A1 (2026-05-19) : tone et routing sont les
-    sections les plus compactes (~5500 chars cumulés) et toujours
-    critiques (tone = comportement, routing = aiguillage cross-expert).
-    Identity est la section la plus volumineuse (~10500 chars) et
-    place les sections moins critiques (product description + 15
-    features) en queue — c'est là que la troncature mord si overflow,
-    préservant le tone + le routing + l'identité fondateur + sécurité
-    brand qui restent intacts.
+    **CORE** (toujours injecté, ~3500 tokens) :
+        1. Ton conversationnel (`nexya_tone.get_tone(locale)`)
+        2. Identity CORE — founder story + brand security + capability
+           teaser (`nexya_identity.get_identity_core(locale)`)
+        3. Routing guidance — règles comportementales
+           (`nexya_routing.get_routing_guidance(expert_id, locale)`)
+
+    **EXTENDED** (injecté SEULEMENT si `_detect_marketing_intent(user_message,
+    locale)` retourne True — ~3000 tokens additionnels) :
+        4. Identity EXTENDED — product description complète + 15
+           magnificent features (`nexya_identity.get_identity_extended(locale)`)
+        5. Routing TABLE — correspondance domaine→expert détaillée
+           (`nexya_routing.get_routing_table_extended(locale)`)
+
+    Ordre des composants : tone → identity_core → routing_rules →
+    (identity_extended → routing_table si marketing intent).
+    Le tone vient en TÊTE pour cadrer le comportement (10 commandements).
+    Identity CORE en 2ᵉ (founder + brand + capability teaser) car
+    critique pour identité et sécurité brand. Routing rules en 3ᵉ pour
+    les comportements cross-expert. Les blocs EXTENDED arrivent en
+    queue car ils peuvent partir en troncature sans casser l'essence
+    NEXYA si on dépasse le cap chars.
 
     Pipeline :
         1. Short-circuit si `settings.nexya_preamble_enabled=False` → None.
         2. Résolution locale (paramètre > settings.nexya_preamble_default_locale > 'fr').
-        3. Assemblage des 3 sections séparées par `\\n\\n`.
-        4. Cap chars : si total > `settings.nexya_preamble_max_chars`,
+        3. Build CORE : tone + identity_core + routing_rules.
+        4. Si `user_message` ET `_detect_marketing_intent` True :
+           ajout identity_extended + routing_table.
+        5. Assemblage final séparés par `\\n\\n`.
+        6. Cap chars : si total > `settings.nexya_preamble_max_chars`,
            troncature au dernier `\\n` qui tient dans le budget + marqueur.
-        5. Fail-safe absolue : toute exception → log warning + return None.
+        7. Fail-safe absolue : toute exception → log warning + return None.
 
     Args:
         expert_id: slug de l'expert actif (general, computer, cooking, …).
@@ -120,10 +285,14 @@ def build_nexya_preamble(
             Locale invalide → 'fr' fallback.
         include_routing: si False, omet la section routing guidance
             (utile pour des tests qui veulent isoler tone + identity).
+        user_message: dernier message utilisateur. Si fourni ET marketing
+            intent détecté, on injecte le bloc EXTENDED. Sinon, CORE seul.
+            None ou vide → CORE seul (comportement par défaut safe).
 
     Returns:
-        Le bloc preamble assemblé (1500-4000 chars typique), ou `None`
-        si le kill-switch est off OU si une erreur interne survient.
+        Le bloc preamble assemblé (CORE seul ~3500 chars typique, ou
+        CORE+EXTENDED ~6500 chars typique), ou `None` si le kill-switch
+        est off OU si une erreur interne survient.
     """
     try:
         if not settings.nexya_preamble_enabled:
@@ -131,23 +300,30 @@ def build_nexya_preamble(
 
         effective_locale: Locale = _resolve_locale(locale)
 
-        # Composition des 3 sections — ordre figé tone → routing → identity.
-        # Le routing vient en 2ᵉ position (et non en queue comme une version
-        # antérieure) pour garantir qu'il ne soit JAMAIS tronqué — c'est la
-        # valeur ajoutée critique de Session A1 (aiguillage cross-expert
-        # intelligent). Identity en queue car ses sections terminales
-        # (product description + 15 features) sont les moins critiques et
-        # peuvent partir en troncature sans casser l'essence NEXYA.
+        # ── CORE PREAMBLE — toujours injecté ────────────────────
+        # tone → identity_core (founder + brand + capability_teaser)
+        # → routing_rules (règles comportementales transverses)
         tone_block = get_tone(effective_locale)
-        identity_block = get_identity(effective_locale)
+        identity_core_block = get_identity_core(effective_locale)
 
-        parts: list[str] = [tone_block]
+        parts: list[str] = [tone_block, identity_core_block]
 
         if include_routing:
-            routing_block = get_routing_guidance(expert_id, effective_locale)
-            parts.append(routing_block)
+            routing_rules_block = get_routing_guidance(expert_id, effective_locale)
+            parts.append(routing_rules_block)
 
-        parts.append(identity_block)
+        # ── EXTENDED PREAMBLE — injecté si marketing intent ─────
+        # Le LLM reçoit la description produit complète + les 15
+        # features magnifiques + la table de correspondance routing.
+        # Permet de déballer la richesse marketing avec fierté
+        # uniquement quand l'utilisateur l'a demandé.
+        if _detect_marketing_intent(user_message, effective_locale):
+            identity_extended_block = get_identity_extended(effective_locale)
+            parts.append(identity_extended_block)
+
+            if include_routing:
+                routing_table_block = get_routing_table_extended(effective_locale)
+                parts.append(routing_table_block)
 
         assembled = _SECTION_SEPARATOR.join(p for p in parts if p)
 
@@ -163,6 +339,7 @@ def build_nexya_preamble(
             "nexya.preamble.build_failed",
             expert_id=str(expert_id) if expert_id else None,
             locale=str(locale) if locale else None,
+            user_message_present=bool(user_message),
             error=str(exc),
             error_type=type(exc).__name__,
         )

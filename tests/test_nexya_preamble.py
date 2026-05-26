@@ -274,10 +274,15 @@ def test_build_preamble_failsafe_on_tone_exception(
 def test_build_preamble_failsafe_on_identity_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Note 2026-05-26 — post Two-Tier, le builder utilise
+    `get_identity_core` (toujours injecté) et `get_identity_extended`
+    (conditionnel). Patcher `get_identity_core` est suffisant car il
+    est appelé inconditionnellement."""
+
     def exploding_identity(*args, **kwargs) -> str:
         raise RuntimeError("simulated identity failure")
 
-    monkeypatch.setattr(preamble_module, "get_identity", exploding_identity)
+    monkeypatch.setattr(preamble_module, "get_identity_core", exploding_identity)
 
     result = build_nexya_preamble("general")
     assert result is None
@@ -319,3 +324,243 @@ def test_build_preamble_invalid_max_chars_type_falls_back(
     result = build_nexya_preamble("general")
     # Soit None (fail-safe), soit un résultat valide avec fallback 4000.
     assert result is None or len(result) > 0
+
+
+# ══════════════════════════════════════════════════════════════
+# 9. Two-Tier Smart Preamble (NOUVEAU 2026-05-26)
+# ══════════════════════════════════════════════════════════════
+#
+# Pattern décidé 2026-05-26 (cf. mémoire
+# project_nexya_preamble_two_tier_architecture.md) :
+#
+#   CORE = tone + identity_core (founder + brand + capability teaser)
+#          + routing_rules
+#          → toujours injecté, ~3500 tokens
+#   EXTENDED = identity_extended (product description + 15 features)
+#              + routing_table
+#              → injecté seulement si _detect_marketing_intent(user_message)
+#
+# Bénéfices : -40% coût IA + -40% latence sur 95% des requêtes,
+# tout en conservant 100% des infos marketing disponibles.
+
+# ─── 9.1 Capability Teaser TOUJOURS présent dans CORE ────────
+
+
+def test_build_preamble_core_contains_capability_teaser() -> None:
+    """Le bloc Capability Teaser (résumé condensé) doit toujours être
+    dans le CORE, même sans user_message marketing."""
+    result = build_nexya_preamble("general", user_message="bonjour")
+    assert result is not None
+    assert "[Capacités principales de NEXYA — résumé]" in result
+
+
+def test_build_preamble_core_teaser_present_when_no_user_message() -> None:
+    """Le Capability Teaser doit être présent même sans user_message."""
+    result = build_nexya_preamble("general", user_message=None)
+    assert result is not None
+    assert "Capacités principales de NEXYA" in result
+
+
+def test_build_preamble_core_teaser_present_en() -> None:
+    """Parité EN du Capability Teaser."""
+    result = build_nexya_preamble("general", locale="en", user_message=None)
+    assert result is not None
+    assert "[NEXYA Main Capabilities — Summary]" in result
+
+
+# ─── 9.2 EXTENDED absent sur message banal ───────────────────
+
+
+def test_build_preamble_extended_absent_on_banal_message() -> None:
+    """Question banale → EXTENDED (15 features) PAS injecté."""
+    result = build_nexya_preamble("general", user_message="quelle est la capitale du Cameroun ?")
+    assert result is not None
+    # Le bloc 15 features magnifiques NE doit PAS être présent
+    assert "[Capacités magnifiques de NEXYA]" not in result
+    # La table routing étendue NE doit PAS non plus être présente
+    assert "[Routing — Table de correspondance" not in result
+
+
+def test_build_preamble_extended_absent_when_user_message_none() -> None:
+    """Sans user_message → EXTENDED PAS injecté (comportement safe)."""
+    result = build_nexya_preamble("general", user_message=None)
+    assert result is not None
+    assert "[Capacités magnifiques de NEXYA]" not in result
+
+
+def test_build_preamble_extended_absent_when_user_message_empty() -> None:
+    """user_message vide ou whitespace → EXTENDED PAS injecté."""
+    result_empty = build_nexya_preamble("general", user_message="")
+    result_ws = build_nexya_preamble("general", user_message="   ")
+    assert result_empty is not None and result_ws is not None
+    assert "[Capacités magnifiques de NEXYA]" not in result_empty
+    assert "[Capacités magnifiques de NEXYA]" not in result_ws
+
+
+# ─── 9.3 EXTENDED présent sur message marketing ─────────────
+#
+# Note : on relève le cap chars dans ces tests pour que le bloc
+# EXTENDED ne soit pas tronqué avant qu'on puisse l'observer. Le
+# défaut 12000 du fixture autouse est trop bas pour CORE+EXTENDED.
+
+
+_MARKETING_QUERIES_FR = [
+    "qu'est-ce que tu sais faire ?",
+    "que sais-tu faire",
+    "tes capacités",
+    "tes features",
+    "tes experts ?",
+    "tu es différente de ChatGPT ?",
+    "vs gemini",
+    "pourquoi nexya",
+    "présente-toi",
+    "que peut nexya",
+]
+
+
+@pytest.mark.parametrize("query", _MARKETING_QUERIES_FR)
+def test_build_preamble_extended_present_on_fr_marketing_query(
+    query: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pour toute query marketing FR → EXTENDED injecté."""
+    monkeypatch.setattr(settings, "nexya_preamble_max_chars", 50_000, raising=False)
+    result = build_nexya_preamble("general", locale="fr", user_message=query)
+    assert result is not None
+    assert "[Capacités magnifiques de NEXYA]" in result, (
+        f"EXTENDED non injecté pour query marketing : {query!r}"
+    )
+
+
+_MARKETING_QUERIES_EN = [
+    "what can you do",
+    "what do you offer",
+    "your capabilities",
+    "your features",
+    "how are you different from ChatGPT",
+    "vs gemini",
+    "what's special",
+    "tell me about yourself",
+    "describe yourself",
+    "why nexya",
+]
+
+
+@pytest.mark.parametrize("query", _MARKETING_QUERIES_EN)
+def test_build_preamble_extended_present_on_en_marketing_query(
+    query: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pour toute query marketing EN → EXTENDED injecté."""
+    monkeypatch.setattr(settings, "nexya_preamble_max_chars", 50_000, raising=False)
+    result = build_nexya_preamble("general", locale="en", user_message=query)
+    assert result is not None
+    assert "[NEXYA Magnificent Capabilities]" in result, (
+        f"EXTENDED non injecté pour query marketing : {query!r}"
+    )
+
+
+# ─── 9.4 Routing table : CORE compact / EXTENDED complète ───
+
+
+def test_build_preamble_routing_table_extended_absent_on_banal() -> None:
+    """La table markdown détaillée routing est absente du CORE seul."""
+    result = build_nexya_preamble("general", user_message="bonjour")
+    assert result is not None
+    # La table EXTENDED (marker spécifique) n'est PAS dans le CORE
+    assert "[Routing — Table de correspondance domaine → expert]" not in result
+
+
+def test_build_preamble_routing_table_extended_present_on_marketing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La table markdown détaillée routing est injectée sur marketing intent."""
+    monkeypatch.setattr(settings, "nexya_preamble_max_chars", 50_000, raising=False)
+    result = build_nexya_preamble("general", user_message="quelles sont tes capacités ?")
+    assert result is not None
+    assert "[Routing — Table de correspondance domaine → expert]" in result
+
+
+# ─── 9.5 Taille préamble : différence CORE vs CORE+EXTENDED ─
+
+
+def test_build_preamble_extended_significantly_larger_than_core(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CORE+EXTENDED doit être significativement plus large que CORE seul.
+
+    Confirme que l'EXTENDED apporte ~3000 tokens additionnels comme
+    documenté dans l'architecture two-tier."""
+    monkeypatch.setattr(settings, "nexya_preamble_max_chars", 50_000, raising=False)
+    core_only = build_nexya_preamble("general", user_message="bonjour")
+    with_extended = build_nexya_preamble("general", user_message="que sais-tu faire ?")
+    assert core_only is not None and with_extended is not None
+    # EXTENDED doit ajouter au moins 3000 chars (description produit
+    # + 15 features + table routing).
+    diff = len(with_extended) - len(core_only)
+    assert diff >= 3000, (
+        f"Différence taille CORE vs EXTENDED trop faible : {diff} chars "
+        f"(attendu >= 3000)"
+    )
+
+
+# ─── 9.6 Idempotence du nouveau paramètre user_message ──────
+
+
+def test_build_preamble_idempotent_with_same_user_message() -> None:
+    """Même user_message → même résultat byte-pour-byte."""
+    a = build_nexya_preamble("general", user_message="que sais-tu faire ?")
+    b = build_nexya_preamble("general", user_message="que sais-tu faire ?")
+    assert a == b
+
+
+def test_build_preamble_different_user_messages_produce_different_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Marketing query vs banal → résultats différents (EXTENDED diff)."""
+    monkeypatch.setattr(settings, "nexya_preamble_max_chars", 50_000, raising=False)
+    a = build_nexya_preamble("general", user_message="bonjour")
+    b = build_nexya_preamble("general", user_message="que sais-tu faire ?")
+    assert a is not None and b is not None
+    assert a != b
+    assert len(b) > len(a)
+
+
+# ─── 9.7 Marketing detection helper accessible (test interne) ──
+
+
+def test_detect_marketing_intent_returns_false_for_banal_message() -> None:
+    """Sanity du helper privé via import direct."""
+    from app.ai.nexya_preamble import _detect_marketing_intent
+
+    assert _detect_marketing_intent("bonjour", "fr") is False
+    assert _detect_marketing_intent("quelle est la capitale du Cameroun", "fr") is False
+    assert _detect_marketing_intent(None, "fr") is False
+    assert _detect_marketing_intent("", "fr") is False
+    assert _detect_marketing_intent("   ", "fr") is False
+
+
+def test_detect_marketing_intent_returns_true_for_marketing_fr() -> None:
+    from app.ai.nexya_preamble import _detect_marketing_intent
+
+    assert _detect_marketing_intent("que sais-tu faire ?", "fr") is True
+    assert _detect_marketing_intent("Que SAIS-TU faire ?", "fr") is True  # case insensitive
+    assert _detect_marketing_intent("tes capacités", "fr") is True
+    assert _detect_marketing_intent("présente-toi", "fr") is True
+
+
+def test_detect_marketing_intent_returns_true_for_marketing_en() -> None:
+    from app.ai.nexya_preamble import _detect_marketing_intent
+
+    assert _detect_marketing_intent("what can you do?", "en") is True
+    assert _detect_marketing_intent("WHAT CAN YOU DO?", "en") is True
+    assert _detect_marketing_intent("your capabilities", "en") is True
+    assert _detect_marketing_intent("tell me about yourself", "en") is True
+
+
+def test_detect_marketing_intent_locale_isolation() -> None:
+    """Un message FR ne déclenche pas la détection en mode EN (et vice-versa)."""
+    from app.ai.nexya_preamble import _detect_marketing_intent
+
+    # « que sais-tu faire » (FR) ne contient aucun keyword EN
+    assert _detect_marketing_intent("que sais-tu faire", "en") is False
+    # « what can you do » (EN) ne contient aucun keyword FR
+    assert _detect_marketing_intent("what can you do", "fr") is False

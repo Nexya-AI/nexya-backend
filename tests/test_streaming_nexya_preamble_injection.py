@@ -272,3 +272,89 @@ async def test_expert_system_prompt_still_present_after_preamble() -> None:
     # `[Persona — Assistant Général NEXYA AI]` et les 4 tools Planner.
     assert "[Persona" in sp or "Persona" in sp
     assert "create_task" in sp  # un des 4 tools Planner du general expert
+
+
+# ══════════════════════════════════════════════════════════════
+# 8. Two-Tier Smart Preamble (NOUVEAU 2026-05-26)
+# ══════════════════════════════════════════════════════════════
+#
+# Le `_stream_link` doit maintenant extraire le dernier message user
+# et le passer à `build_nexya_preamble` via le paramètre `user_message`.
+# Si l'utilisateur pose une question marketing, le bloc EXTENDED
+# (15 features + routing table) est injecté en plus du CORE.
+
+
+@pytest.mark.asyncio
+async def test_preamble_extended_absent_on_banal_question(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Question banale → EXTENDED (15 features détaillées) PAS injecté."""
+    # Cap chars élevé pour ne pas tronquer
+    monkeypatch.setattr(settings, "nexya_preamble_max_chars", 50_000, raising=False)
+    handler, provider = _build_handler()
+    ctx = StreamContext(
+        expert_id="general",
+        user_messages=[ChatMessage(role="user", content="quelle est la capitale du Cameroun ?")],
+        user_id="u1",
+        trace_id="t1",
+    )
+    sp = await _capture_system_prompt(handler, provider, ctx)
+    assert sp is not None
+    # Le bloc EXTENDED (15 features magnifiques détaillées) NE doit PAS
+    # être injecté pour une question banale.
+    assert "[Capacités magnifiques de NEXYA]" not in sp
+    # Mais le Capability Teaser (CORE) DOIT être présent.
+    assert "[Capacités principales de NEXYA — résumé]" in sp
+
+
+@pytest.mark.asyncio
+async def test_preamble_extended_present_on_marketing_question(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Question marketing → EXTENDED (15 features détaillées) injecté."""
+    monkeypatch.setattr(settings, "nexya_preamble_max_chars", 50_000, raising=False)
+    handler, provider = _build_handler()
+    ctx = StreamContext(
+        expert_id="general",
+        user_messages=[ChatMessage(role="user", content="qu'est-ce que tu sais faire ?")],
+        user_id="u1",
+        trace_id="t1",
+    )
+    sp = await _capture_system_prompt(handler, provider, ctx)
+    assert sp is not None
+    # Sur question marketing → EXTENDED présent
+    assert "[Capacités magnifiques de NEXYA]" in sp
+    # Routing table détaillée aussi
+    assert "[Routing — Table de correspondance" in sp
+    # Et le teaser CORE reste présent en plus
+    assert "[Capacités principales de NEXYA — résumé]" in sp
+
+
+@pytest.mark.asyncio
+async def test_preamble_two_tier_size_difference_observable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Système prompt avec marketing question ≥ 3000 chars de plus
+    qu'avec question banale (confirmation observable du two-tier)."""
+    monkeypatch.setattr(settings, "nexya_preamble_max_chars", 50_000, raising=False)
+    handler1, provider1 = _build_handler()
+    handler2, provider2 = _build_handler()
+    ctx_banal = StreamContext(
+        expert_id="general",
+        user_messages=[ChatMessage(role="user", content="hello")],
+        user_id="u1",
+        trace_id="t1",
+    )
+    ctx_marketing = StreamContext(
+        expert_id="general",
+        user_messages=[ChatMessage(role="user", content="que sais-tu faire ?")],
+        user_id="u1",
+        trace_id="t1",
+    )
+    sp_banal = await _capture_system_prompt(handler1, provider1, ctx_banal)
+    sp_marketing = await _capture_system_prompt(handler2, provider2, ctx_marketing)
+    assert sp_banal is not None and sp_marketing is not None
+    # EXTENDED doit ajouter au moins 3000 chars (cf. test équivalent
+    # dans test_nexya_preamble.py — confirmation transversale via le
+    # vrai pipeline streaming).
+    assert len(sp_marketing) - len(sp_banal) >= 3000

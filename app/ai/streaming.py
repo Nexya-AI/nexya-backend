@@ -659,7 +659,21 @@ class StreamHandler:
             framed, instruction = ctx.rag_context
             rag_block = f"{framed}\n\n{instruction}"
 
-        nexya_preamble = build_nexya_preamble(config.expert_id)
+        # Two-Tier Smart Preamble (2026-05-26) — on extrait le dernier
+        # message user pour permettre à `build_nexya_preamble` de détecter
+        # un marketing intent et d'injecter le bloc EXTENDED (product
+        # description + 15 features + routing table) si nécessaire.
+        # La variable est aussi réutilisée plus bas pour le planner intent
+        # detection (`_force_round_0`) — économie de calcul.
+        _last_user_text = next(
+            (m.content for m in reversed(ctx.user_messages) if m.role == "user"),
+            "",
+        )
+
+        nexya_preamble = build_nexya_preamble(
+            config.expert_id,
+            user_message=_last_user_text or None,
+        )
 
         # [planner-from-chat LOT 2] — Blocs contextuels recalculés à chaque
         # requête (≠ prompts experts statiques) :
@@ -714,10 +728,9 @@ class StreamHandler:
         # suivants de l'orchestrateur restent en `AUTO`, sinon le LLM serait
         # contraint d'enchaîner un tool call à l'infini au lieu de produire
         # sa réponse texte de confirmation.
-        _last_user_text = next(
-            (m.content for m in reversed(ctx.user_messages) if m.role == "user"),
-            "",
-        )
+        # Note 2026-05-26 : `_last_user_text` est calculé en amont du
+        # `build_nexya_preamble` (voir Two-Tier Smart Preamble) — on
+        # réutilise la même variable ici pour économiser le calcul.
         _force_round_0 = [bool(ctx.tools) and detect_planning_intent(_last_user_text or "")]
 
         # [planner-from-chat LOT 1] — Fabrique de stream par round.
