@@ -126,10 +126,28 @@ def _map_sdk_exception(exc: Exception, *, model: str) -> ProviderError:
 
     On inspecte le status code si présent. Sinon on retombe sur un code
     neutre (`ProviderUnavailableError`) — mieux vaut un fallback que crasher.
+
+    Bug v1.0.9 fix (2026-05-29) : log STRUCTURÉ du message d'erreur Gemini complet
+    en `error` level pour exposer le diagnostic exact (avant ce fix, seul le
+    `error_type=ProviderInvalidRequestError` était visible dans les logs côté
+    NEXYA, le message Google original était perdu). Filet pour futurs bugs
+    « LLM_UNAVAILABLE silencieux ».
     """
     # google.genai lève des APIError avec attribut `code` (status HTTP)
     status_code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
     message = str(exc) or exc.__class__.__name__
+
+    # Logging defensif (cap 2000 chars pour eviter explosion logs sur stack
+    # trace verbeuse). `details` peut contenir le payload Google complet selon
+    # version SDK. On expose tout ce qu'on peut pour debug futur.
+    log.error(
+        "ai.provider.gemini.sdk_exception",
+        status_code=status_code,
+        error_class=exc.__class__.__name__,
+        error_message=message[:2000],
+        model=model,
+        details=str(getattr(exc, "details", ""))[:1000] or None,
+    )
 
     if status_code == 401 or status_code == 403:
         return ProviderAuthError(message, provider="gemini", model=model)
@@ -540,18 +558,80 @@ _GEMINI_SCHEMA_ALLOWED_FIELDS: Final = frozenset(
 )
 
 
+# Bug v1.0.9 fix (2026-05-29) : Gemini AI Studio rejette les valeurs de `format`
+# hors de son allowlist officielle. Selon https://ai.google.dev/api/caching#Schema,
+# seules ces valeurs de `format` sont acceptees :
+#   - pour type=string : `date-time`, `enum`
+#   - pour type=number/integer : `float`, `double`, `int32`, `int64`
+# Tout autre format (`uuid`, `email`, `uri`, `byte`, `binary`, `password`,
+# `ipv4`, `ipv6`, `hostname`, `date`, `time`, etc.) cause un 400 BAD_REQUEST
+# silencieux. Le bug terrain Ivan 2026-05-29 venait de `format: uuid` dans
+# planner_tools._UPDATE_TASK_SCHEMA + _PAUSE_TASK_SCHEMA, fix livre dans
+# planner_tools.py et defense en profondeur ici (futur-proof si quelqu'un
+# re-ajoute un format invalide).
+_GEMINI_ALLOWED_FORMATS: Final = frozenset(
+    {
+        "date-time",
+        "enum",
+        "float",
+        "double",
+        "int32",
+        "int64",
+    }
+)
+
+
+# Conteneurs JSON Schema dont les VALEURS sont elles-memes des sous-schemas
+# nommes par des cles user-defined (pas des champs de meta-schema). Le filtre
+# `_GEMINI_SCHEMA_ALLOWED_FIELDS` ne doit PAS s'appliquer aux cles de ces
+# dicts (sinon on dropperait tous les noms de fields utilisateur, ex: task_id,
+# email, etc.) — on descend juste recursivement dans les VALEURS.
+#
+# Bug critique v1.0.7 (2026-05-26) : la version precedente filtrait les cles
+# de `properties` en pensant que c'etaient des champs JSON Schema, vidant
+# ainsi TOUTES les properties des tools envoyes a Gemini → schema invalide
+# → 400 BAD_REQUEST silencieux → LLM_UNAVAILABLE persistant en prod malgre
+# le « fix » additionalProperties. Le bug terrain Ivan 2026-05-29 venait
+# de la, pas seulement de `format: uuid`.
+_GEMINI_PROPERTY_CONTAINERS: Final = frozenset(
+    {
+        "properties",
+        "patternProperties",
+        "definitions",
+        "$defs",
+    }
+)
+
+
 def _clean_schema_for_gemini(value: Any) -> Any:
     """Filtre récursivement les champs JSON Schema non supportés par Gemini AI Studio.
 
-    Strippe notamment `additionalProperties` qui cause un 400 Bad Request
-    en mode api_key (alors qu'il était toléré en mode Vertex AI).
+    Strippe :
+    - `additionalProperties` qui cause un 400 Bad Request en mode api_key
+      (alors qu'il était toléré en mode Vertex AI).
+    - Les valeurs de `format` hors allowlist (`uuid`, `email`, `uri`, etc.)
+      qui causent aussi un 400 BAD_REQUEST silencieux côté AI Studio.
+
+    Le filtrage NE s'applique PAS aux clés des dicts `properties`/`$defs`
+    (qui sont des noms de fields user-defined). On descend récursivement
+    dans les VALEURS uniquement de ces conteneurs.
     """
     if isinstance(value, dict):
         cleaned: dict[str, Any] = {}
         for k, v in value.items():
             if k not in _GEMINI_SCHEMA_ALLOWED_FIELDS:
                 continue
-            cleaned[k] = _clean_schema_for_gemini(v)
+            # Defense en profondeur : strip les `format` non supportes par Gemini.
+            # `_GEMINI_ALLOWED_FORMATS` est l'allowlist officielle Google AI Studio.
+            if k == "format" and isinstance(v, str) and v not in _GEMINI_ALLOWED_FORMATS:
+                continue
+            # Conteneurs de sous-schemas (properties, $defs, etc.) : on ne filtre
+            # PAS les cles (qui sont des noms de fields user-defined). On descend
+            # recursivement dans les VALEURS uniquement. Bug v1.0.7 critique fix.
+            if k in _GEMINI_PROPERTY_CONTAINERS and isinstance(v, dict):
+                cleaned[k] = {pk: _clean_schema_for_gemini(pv) for pk, pv in v.items()}
+            else:
+                cleaned[k] = _clean_schema_for_gemini(v)
         return cleaned
     if isinstance(value, list):
         return [_clean_schema_for_gemini(item) for item in value]
