@@ -4005,7 +4005,27 @@
           "health"
         ],
         "summary": "Healthz",
-        "description": "Liveness probe — le process est vivant et répond.\n\n**Ne fait AUCUN check externe** : si DB/Redis tombent, on retourne\nquand même 200 pour que K8s ne kill pas le pod. K8s doit retirer\nle pod du load balancer via `/ready` (readiness), PAS le redémarrer.",
+        "description": "Liveness probe — le process est vivant et répond.\n\n**Ne fait AUCUN check externe** : si DB/Redis tombent, on retourne\nquand même 200 pour que K8s ne kill pas le pod. K8s doit retirer\nle pod du load balancer via `/ready` (readiness), PAS le redémarrer.\n\nAccepte GET ET HEAD (UptimeRobot/Pingdom/StatusCake free tiers envoient HEAD\npour économiser la bande passante — sans support HEAD, ils marquent DOWN\nà tort sur 405). Starlette retire le body automatiquement sur HEAD.",
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NexyaResponse_dict_"
+                }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Healthz",
+        "description": "Liveness probe — le process est vivant et répond.\n\n**Ne fait AUCUN check externe** : si DB/Redis tombent, on retourne\nquand même 200 pour que K8s ne kill pas le pod. K8s doit retirer\nle pod du load balancer via `/ready` (readiness), PAS le redémarrer.\n\nAccepte GET ET HEAD (UptimeRobot/Pingdom/StatusCake free tiers envoient HEAD\npour économiser la bande passante — sans support HEAD, ils marquent DOWN\nà tort sur 405). Starlette retire le body automatiquement sur HEAD.",
         "operationId": "healthz_healthz_get",
         "responses": {
           "200": {
@@ -4027,7 +4047,25 @@
           "health"
         ],
         "summary": "Ready",
-        "description": "Readiness probe étendue (O1 volet B) — version + latence + queue arq.\n\nRetourne :\n- `status` : `ok` si DB+Redis up, `degraded` sinon (HTTP 503)\n- `version` : commit_sha[:8] + tag git + dirty flag + source détection\n- `db.latency_ms` + `db.last_migration` (Alembic version_num)\n- `redis.latency_ms`\n- `arq.queue_depth` (best-effort `ZCARD arq:queue`)\n- `uptime_seconds` (depuis lifespan startup)\n\nK8s lit le status_code (200/503) ; le body sert au debug ops.\nBackward-compat : `data.db` et `data.redis` toujours présents\n(avec un sub-champ `status` au lieu d'une string plate, mais le\nfield racine `success` reste le signal binaire pour les anciens\nclients).",
+        "description": "Readiness probe étendue (O1 volet B) — version + latence + queue arq.\n\nAccepte GET ET HEAD (compat monitoring tools free tiers).\n\nRetourne :\n- `status` : `ok` si DB+Redis up, `degraded` sinon (HTTP 503)\n- `version` : commit_sha[:8] + tag git + dirty flag + source détection\n- `db.latency_ms` + `db.last_migration` (Alembic version_num)\n- `redis.latency_ms`\n- `arq.queue_depth` (best-effort `ZCARD arq:queue`)\n- `uptime_seconds` (depuis lifespan startup)\n\nK8s lit le status_code (200/503) ; le body sert au debug ops.\nBackward-compat : `data.db` et `data.redis` toujours présents\n(avec un sub-champ `status` au lieu d'une string plate, mais le\nfield racine `success` reste le signal binaire pour les anciens\nclients).",
+        "operationId": "ready_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Ready",
+        "description": "Readiness probe étendue (O1 volet B) — version + latence + queue arq.\n\nAccepte GET ET HEAD (compat monitoring tools free tiers).\n\nRetourne :\n- `status` : `ok` si DB+Redis up, `degraded` sinon (HTTP 503)\n- `version` : commit_sha[:8] + tag git + dirty flag + source détection\n- `db.latency_ms` + `db.last_migration` (Alembic version_num)\n- `redis.latency_ms`\n- `arq.queue_depth` (best-effort `ZCARD arq:queue`)\n- `uptime_seconds` (depuis lifespan startup)\n\nK8s lit le status_code (200/503) ; le body sert au debug ops.\nBackward-compat : `data.db` et `data.redis` toujours présents\n(avec un sub-champ `status` au lieu d'une string plate, mais le\nfield racine `success` reste le signal binaire pour les anciens\nclients).",
         "operationId": "ready_ready_get",
         "responses": {
           "200": {
@@ -4047,7 +4085,27 @@
           "health"
         ],
         "summary": "Version",
-        "description": "Version publique de l'API (sans secret).\n\nEndpoint léger (< 5 ms, pas de DB) que le Flutter peut afficher\ndans Settings (« version backend 0.4.2 »). Aucun token requis.\n\nRetourne :\n- `version` : tag git ou commit_sha[:8] (`unknown` en fallback)\n- `commit_sha` : SHA git complet 40 chars\n- `tag` : tag git si exact match HEAD, sinon null\n- `dirty` : booléen — l'arbre courant a-t-il des modifs non committées\n- `env` : `development` / `staging` / `production`\n- `source` : d'où vient la version (`git` / `git_head_file` / `env` / `unknown`)",
+        "description": "Version publique de l'API (sans secret).\n\nAccepte GET ET HEAD (compat monitoring tools).\n\nEndpoint léger (< 5 ms, pas de DB) que le Flutter peut afficher\ndans Settings (« version backend 0.4.2 »). Aucun token requis.\n\nRetourne :\n- `version` : tag git ou commit_sha[:8] (`unknown` en fallback)\n- `commit_sha` : SHA git complet 40 chars\n- `tag` : tag git si exact match HEAD, sinon null\n- `dirty` : booléen — l'arbre courant a-t-il des modifs non committées\n- `env` : `development` / `staging` / `production`\n- `source` : d'où vient la version (`git` / `git_head_file` / `env` / `unknown`)",
+        "operationId": "version_version_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NexyaResponse_dict_"
+                }
+              }
+            }
+          }
+        }
+      },
+      "head": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Version",
+        "description": "Version publique de l'API (sans secret).\n\nAccepte GET ET HEAD (compat monitoring tools).\n\nEndpoint léger (< 5 ms, pas de DB) que le Flutter peut afficher\ndans Settings (« version backend 0.4.2 »). Aucun token requis.\n\nRetourne :\n- `version` : tag git ou commit_sha[:8] (`unknown` en fallback)\n- `commit_sha` : SHA git complet 40 chars\n- `tag` : tag git si exact match HEAD, sinon null\n- `dirty` : booléen — l'arbre courant a-t-il des modifs non committées\n- `env` : `development` / `staging` / `production`\n- `source` : d'où vient la version (`git` / `git_head_file` / `env` / `unknown`)",
         "operationId": "version_version_get",
         "responses": {
           "200": {
