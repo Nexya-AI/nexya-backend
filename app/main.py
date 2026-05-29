@@ -270,11 +270,11 @@ app.openapi = lambda: customize_openapi(app)
 # ══════════════════════════════════════════════════════════════
 
 
-@app.api_route(
+@app.get(
     "/healthz",
-    methods=["GET", "HEAD"],
     response_model=NexyaResponse[dict],
     tags=["health"],
+    operation_id="healthz_get",
 )
 async def healthz() -> NexyaResponse[dict]:
     """Liveness probe — le process est vivant et répond.
@@ -293,7 +293,17 @@ async def healthz() -> NexyaResponse[dict]:
     )
 
 
-@app.api_route("/ready", methods=["GET", "HEAD"], tags=["health"])
+# Variant HEAD pour outils de monitoring free-tier (UptimeRobot/Pingdom/StatusCake).
+# Exclu du schema OpenAPI pour eviter la duplication d'operation_id qui causait
+# un drift non-deterministe de openapi.json entre Linux et Windows (bug DD exports
+# freshness, fix structurel definitif 2026-05-29). La route reste fonctionnelle —
+# Starlette retire le body automatiquement sur HEAD.
+@app.head("/healthz", include_in_schema=False, tags=["health"])
+async def healthz_head() -> NexyaResponse[dict]:
+    return await healthz()
+
+
+@app.get("/ready", tags=["health"], operation_id="ready_get")
 async def ready() -> JSONResponse:
     """Readiness probe étendue (O1 volet B) — version + latence + queue arq.
 
@@ -345,7 +355,13 @@ async def ready() -> JSONResponse:
     )
 
 
-@app.api_route("/version", methods=["GET", "HEAD"], tags=["health"])
+# Variant HEAD pour outils de monitoring free-tier (cf. healthz_head ci-dessus).
+@app.head("/ready", include_in_schema=False, tags=["health"])
+async def ready_head() -> JSONResponse:
+    return await ready()
+
+
+@app.get("/version", tags=["health"], operation_id="version_get")
 async def version() -> NexyaResponse[dict]:
     """Version publique de l'API (sans secret).
 
