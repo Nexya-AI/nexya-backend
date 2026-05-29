@@ -227,7 +227,9 @@ _LIST_TASKS_SCHEMA: dict[str, Any] = {
 _UPDATE_TASK_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "task_id": {"type": "string"},  # UUID — valide cote Python via _parse_uuid (format=uuid pas supporte par Gemini AI Studio, cause 400 BAD_REQUEST silencieux)
+        "task_id": {
+            "type": "string"
+        },  # UUID — valide cote Python via _parse_uuid (format=uuid pas supporte par Gemini AI Studio, cause 400 BAD_REQUEST silencieux)
         "title": {"type": "string", "minLength": 1, "maxLength": 200},
         "prompt": {"type": "string", "minLength": 1, "maxLength": 4000},
         "schedule": _SCHEDULE_CONFIG_SCHEMA,
@@ -240,7 +242,9 @@ _UPDATE_TASK_SCHEMA: dict[str, Any] = {
 _PAUSE_TASK_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "task_id": {"type": "string"},  # UUID — valide cote Python via _parse_uuid (format=uuid pas supporte par Gemini AI Studio, cause 400 BAD_REQUEST silencieux)
+        "task_id": {
+            "type": "string"
+        },  # UUID — valide cote Python via _parse_uuid (format=uuid pas supporte par Gemini AI Studio, cause 400 BAD_REQUEST silencieux)
     },
     "required": ["task_id"],
     "additionalProperties": False,
