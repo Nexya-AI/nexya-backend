@@ -16,7 +16,7 @@ dependencies = [
     "alembic>=1.14,<2",               # Migrations
 
     # ── Cache / sessions ───────────────────────────────────────
-    "redis>=5.2,<6",                   # Redis async (aioredis unifié)
+    "redis>=5.2,<8",                   # Redis async (aioredis unifié)
 
     # ── Configuration ──────────────────────────────────────────
     "pydantic-settings>=2.6,<3",
