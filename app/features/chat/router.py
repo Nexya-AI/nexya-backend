@@ -94,6 +94,7 @@ from app.features.chat.service import ConversationService, ReportService
 from app.features.experts.context_builder import build_expert_corpus_context
 from app.features.memory.context_builder import build_memory_context
 from app.features.planner.models import ScheduledTask
+from app.features.rich_content import detect_rich_content
 from app.shared.schemas import NexyaResponse
 from workers.chat_tasks import enqueue_title_generation
 from workers.memory_tasks import (
@@ -927,6 +928,7 @@ async def chat_stream(
             metrics=metrics,
             assistant_message_id=placeholder.id,
             conversation_id=conversation.id,
+            user_message=body.message,
         ),
         media_type="text/event-stream",
         headers=response_headers,
@@ -1019,6 +1021,7 @@ async def _persisted_stream(
     metrics: StreamMetrics,
     assistant_message_id: uuid.UUID,
     conversation_id: uuid.UUID,
+    user_message: str,
 ) -> AsyncIterator[str]:
     """Enveloppe persistance autour du générateur SSE du StreamHandler.
 
@@ -1053,6 +1056,7 @@ async def _persisted_stream(
                 conversation_id=conversation_id,
                 outcome=outcome,
                 metrics=metrics,
+                user_message=user_message,
             )
         )
 
@@ -1063,6 +1067,7 @@ async def _finalize_in_fresh_session(
     conversation_id: uuid.UUID,
     outcome: StreamOutcome,
     metrics: StreamMetrics,
+    user_message: str,
 ) -> None:
     """Ouvre une session DB indépendante et finalise le placeholder.
 
@@ -1085,7 +1090,29 @@ async def _finalize_in_fresh_session(
     # stream, persisté dans `messages.metadata_json` pour que la carte de
     # tâche du chat survive à la réouverture de la conversation. `None`
     # quand aucun tool n'a tourné (cas nominal du chat texte).
-    metadata_json = {"tool_calls": outcome.tool_results} if outcome.tool_results else None
+    metadata_json: dict | None = (
+        {"tool_calls": outcome.tool_results} if outcome.tool_results else None
+    )
+
+    # C4.4 — détection automatique d'un brouillon email/WhatsApp dans la
+    # réponse assistante finale. Fail-safe absolu : exception du détecteur
+    # → log warning + skip, la finalisation chat continue sans
+    # `rich_content`. Pas de carte vs faux positif → trade-off conservateur.
+    if status_final == "completed" and content:
+        try:
+            rich = detect_rich_content(user_message, content)
+        except Exception as exc:  # noqa: BLE001
+            rich = None
+            log.warning(
+                "chat.stream.rich_content_detection_failed",
+                assistant_message_id=str(assistant_message_id),
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+        if rich is not None:
+            if metadata_json is None:
+                metadata_json = {}
+            metadata_json["rich_content"] = rich
 
     should_enqueue_title = False
     should_enqueue_memory_extraction = False
