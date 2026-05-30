@@ -216,13 +216,18 @@ class TestSafeUrlFetcher:
     def test_data_uri_is_delegated_to_weasyprint(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """data: URIs sont délégués au default_url_fetcher WeasyPrint."""
-        # On ne mocke pas le default_url_fetcher : on vérifie juste que
-        # le branchement ne lève pas d'exception pour data:
+        """data: URIs sont délégués au default_url_fetcher WeasyPrint.
+
+        Skip si WeasyPrint runtime KO (binaires cairo/pango manquants
+        côté Windows dev). En CI Linux + prod Linux, ces deps sont
+        installées via apt et le test passe.
+        """
+        # `ImportError` ne suffit pas — WeasyPrint lève `OSError` au
+        # module init si libgobject-2.0-0 / cairo manquent (Windows).
         try:
             from weasyprint import default_url_fetcher  # noqa: F401
-        except ImportError:
-            pytest.skip("weasyprint pas installé")
+        except (ImportError, OSError) as exc:
+            pytest.skip(f"weasyprint runtime indisponible : {exc}")
 
         # Mini data URI valide (1px PNG transparent)
         data_uri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
