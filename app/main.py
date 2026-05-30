@@ -82,6 +82,7 @@ from app.features.images.watermark import (
     WATERMARK_VERSION,
     apply_nexya_watermark,
 )
+from app.features.document_generator.router import router as document_generator_router
 from app.features.library.router import router as library_router
 from app.features.library.service import LibraryService
 from app.features.memory.router import router as memory_router
@@ -250,6 +251,8 @@ app.include_router(metadata_router)
 app.include_router(rendering_router)
 # C4.6 (2026-05-30) — Code Projects build-zip (multi-fichiers → .zip MinIO)
 app.include_router(code_projects_router)
+# C4.7a (2026-05-30) — Document Generator PDF (WeasyPrint + Jinja2)
+app.include_router(document_generator_router)
 
 
 # ══════════════════════════════════════════════════════════════

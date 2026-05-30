@@ -463,6 +463,42 @@ class Settings(BaseSettings):
     # Phase 14 si Ivan veut sortir de la dépendance externe.
     kroki_base_url: str = "https://kroki.io"
 
+    # ── C4.7a — Document Generator PDF (Session 2026-05-30) ────
+    # Génération PDF premium via WeasyPrint (templates school/minimal).
+    # Pipeline : message conversation → markdown-it → Jinja2 → WeasyPrint
+    # → pikepdf compress → MinIO upload → presigned URL TTL 30 min.
+
+    # Cap timeout subprocess WeasyPrint (anti CPU exhaust / PDF infini).
+    # 30s couvre largement les documents legitimes (5-15s typique pour
+    # 10-50 pages). Au-delà, on suspecte un problème : layout pathologique,
+    # OOM container, dépendances cairo/pango cassées.
+    documents_generator_render_timeout_seconds: float = Field(default=30.0, ge=5.0, le=120.0)
+
+    # Cap pages dur (tronque post-render via pikepdf si dépassé).
+    # 50 pages = couvre 99% des usages personnels. Au-delà, le user devrait
+    # scinder son document.
+    documents_generator_max_pages: int = Field(default=50, ge=1, le=500)
+
+    # Cap source markdown chars (anti CPU exhaust pré-render).
+    # 200 000 chars ≈ 50-70 pages PDF worst-case (formule pessimiste 3 chars
+    # par token). Calibré pour matcher max_pages cap.
+    documents_generator_max_source_chars: int = Field(default=200_000, ge=1_000, le=1_000_000)
+
+    # Rate limits user-scoped (Free vs Pro asymétrique).
+    # WeasyPrint render = ~5s CPU + ~100 MB RAM peak. Free 60/h = 1/min
+    # moyenne, Pro 100/h = ~1.7/min. Soutenable sur un worker dédié.
+    documents_generator_rate_limit_free_per_hour: int = Field(default=60, ge=1, le=1_000)
+    documents_generator_rate_limit_pro_per_hour: int = Field(default=100, ge=1, le=10_000)
+
+    # TTL presigned URL MinIO pour le download. 30 min couvre un partage
+    # rapide (email, WhatsApp). Au-delà, l'user re-génère ou re-fetch via
+    # GET /library/{id} qui régénère une nouvelle URL.
+    documents_generator_presigned_ttl_seconds: int = Field(default=1800, ge=60, le=86_400)
+
+    # Kill-switch global (incident WeasyPrint, dépendance cairo cassée).
+    # False → endpoint retourne 503 immédiat sans tenter le render.
+    documents_generator_enabled: bool = True
+
     # ── Paiements ──────────────────────────────────────────────
     cinetpay_api_key: str = ""
     cinetpay_site_id: str = ""

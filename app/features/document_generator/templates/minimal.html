@@ -1,0 +1,44 @@
+{% extends "_base.html" %}
+
+{#
+  Template `minimal` C4.7a.
+  Page blanche minimaliste, titre H1 + body markdown sans entête.
+  Idéal pour notes, mémos, exports généraux.
+#}
+
+{% block extra_css %}
+    @page {
+        size: A4 portrait;
+        margin: 2.5cm 2cm;
+
+        {% if options.page_numbers %}
+        @bottom-right {
+            content: counter(page);
+            font-size: 9pt;
+            color: #aaa;
+        }
+        {% endif %}
+    }
+
+    .minimal-title {
+        font-size: 26pt;
+        font-weight: 700;
+        margin: 0 0 0.3em 0;
+        color: #1a1a1a;
+    }
+
+    .minimal-date {
+        font-size: 10pt;
+        color: #888;
+        margin-bottom: 1.8em;
+    }
+{% endblock %}
+
+{% block header %}
+    {% if title %}
+    <header>
+        <h1 class="minimal-title">{{ title | e }}</h1>
+        <div class="minimal-date">{{ options.date_iso | default(today_iso) | e }}</div>
+    </header>
+    {% endif %}
+{% endblock %}

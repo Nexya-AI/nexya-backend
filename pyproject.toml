@@ -31,8 +31,24 @@ dependencies = [
     # ── HTTP client async (Brevo email, futurs webhooks) ──────
     "httpx>=0.27,<1",
 
-    # ── Templating (emails transactionnels) ───────────────────
+    # ── Templating (emails transactionnels + PDF generation C4.7a) ────
     "jinja2>=3.1,<4",
+
+    # ── Markdown → HTML (C4.7a PDF source + futur DOCX C4.7b) ──
+    # markdown-it-py est safe par défaut sur raw HTML inline si on disable
+    # `html: false` dans MarkdownIt options (anti-XSS strict côté template).
+    "markdown-it-py>=3.0,<4",
+
+    # ── PDF generation (C4.7a — WeasyPrint pipeline) ───────────
+    # weasyprint = HTML/CSS → PDF natif via cairo/pango système. Cap
+    # 30s timeout côté service. Dépendances système (Docker prod) :
+    #   apt install libcairo2 libpango-1.0-0 libpangocairo-1.0-0
+    #               libgdk-pixbuf2.0-0 libffi-dev
+    # Alpine : apk add cairo cairo-dev pango-dev gdk-pixbuf-dev libffi-dev
+    "weasyprint>=62.3,<64",
+    # pikepdf = manipulation post-render (compression streams + metadata
+    # + cap pages). Évite ré-écriture brutale via PyPDF2 obsolète.
+    "pikepdf>=9.0,<10",
 
     # ── Logging ────────────────────────────────────────────────
     "structlog>=24.1,<25",
