@@ -108,11 +108,11 @@ class LibraryItem(Base, UUIDMixin):
 
     __table_args__ = (
         CheckConstraint(
-            "type IN ('image', 'video', 'gif', 'audio', 'document', 'text')",
+            "type IN ('image', 'video', 'gif', 'audio', 'document', 'text', 'code')",
             name="ck_library_items_type",
         ),
         CheckConstraint(
-            "file_type IS NULL OR file_type IN ('pdf', 'docx', 'xlsx', 'pptx', 'other')",
+            "file_type IS NULL OR file_type IN ('pdf', 'docx', 'xlsx', 'pptx', 'other', 'zip')",
             name="ck_library_items_file_type",
         ),
         CheckConstraint(

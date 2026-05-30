@@ -87,6 +87,7 @@ from app.features.library.service import LibraryService
 from app.features.memory.router import router as memory_router
 from app.features.metadata.router import router as metadata_router
 from app.features.notifications.router import router as notifications_router
+from app.features.code_projects.router import router as code_projects_router
 from app.features.planner.router import router as planner_router
 from app.features.projects.router import router as projects_router
 from app.features.rag.router import router as rag_router
@@ -247,6 +248,8 @@ app.include_router(helpdesk_router)
 app.include_router(metadata_router)
 # C4.3 (2026-05-24) — Mermaid diagrams via Kroki.io
 app.include_router(rendering_router)
+# C4.6 (2026-05-30) — Code Projects build-zip (multi-fichiers → .zip MinIO)
+app.include_router(code_projects_router)
 
 
 # ══════════════════════════════════════════════════════════════

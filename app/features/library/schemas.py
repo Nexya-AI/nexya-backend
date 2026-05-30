@@ -38,8 +38,10 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # Types communs — miroirs des CHECK SQL
 # ══════════════════════════════════════════════════════════════
 
-LibraryItemType = Literal["image", "video", "gif", "audio", "document", "text"]
-LibraryFileType = Literal["pdf", "docx", "xlsx", "pptx", "other"]
+LibraryItemType = Literal[
+    "image", "video", "gif", "audio", "document", "text", "code"
+]
+LibraryFileType = Literal["pdf", "docx", "xlsx", "pptx", "other", "zip"]
 LibrarySource = Literal["generated", "uploaded", "imported", "shared"]
 
 
@@ -163,12 +165,36 @@ class LibraryItemCreate(BaseModel):
 
     @model_validator(mode="after")
     def check_type_consistency(self) -> LibraryItemCreate:
-        # 1. file_type obligatoire pour type='document', interdit ailleurs.
+        # 1. file_type sémantique selon le type :
+        #    - 'document' : file_type OBLIGATOIRE (pdf/docx/xlsx/pptx/other).
+        #    - 'code' (C4.6) : file_type OPTIONNEL — NULL pour single
+        #      code file (.py/.dart/etc.) OU 'zip' pour projet
+        #      multi-fichiers sauvegardé via NxCodeProjectCard.
+        #    - autres types (image/video/gif/audio/text) : file_type
+        #      INTERDIT (non applicable).
         if self.type == "document":
             if self.file_type is None:
                 raise ValueError("Le champ file_type est obligatoire pour type='document'.")
+            if self.file_type == "zip":
+                raise ValueError(
+                    "file_type='zip' est réservé à type='code' (projet "
+                    "multi-fichiers), pas type='document'."
+                )
+        elif self.type == "code":
+            # file_type optionnel (None = single code file, 'zip' = projet).
+            # Si défini, doit être 'zip' (les autres file_type pdf/docx/etc.
+            # n'ont pas de sens pour du code).
+            if self.file_type is not None and self.file_type != "zip":
+                raise ValueError(
+                    f"Pour type='code', file_type doit être None (single code "
+                    f"file) ou 'zip' (projet multi-fichiers). Reçu : "
+                    f"'{self.file_type}'."
+                )
         elif self.file_type is not None:
-            raise ValueError("Le champ file_type n'est autorisé que pour type='document'.")
+            raise ValueError(
+                "Le champ file_type n'est autorisé que pour type='document' "
+                "ou type='code'."
+            )
 
         # 2. mime_type doit correspondre au type déclaré.
         expected_prefix = _expected_mime_prefix(self.type)
