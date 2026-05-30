@@ -423,6 +423,26 @@ class Settings(BaseSettings):
     # cohabitent pour couper tôt les boucles client buggées.
     rag_query_rate_limit_per_hour: int = Field(default=60, ge=1, le=10_000)
 
+    # ── C4.6 — Code Projects build-zip (Session 2026-05-30) ────
+    # Cap dur taille .zip généré Africa-first — au-delà friction
+    # partage WhatsApp/Email + risque mémoire RAM backend (zip
+    # construit en BytesIO avant upload MinIO). 50 MB couvre 99 %
+    # des projets code raisonnables (~50 fichiers × 1MB texte zippé).
+    code_projects_max_zip_size_mb: int = Field(default=50, ge=1, le=500)
+    # Cap nombre de fichiers dans un projet — aligné Pydantic
+    # `CodeProjectDraftData.files` max_length=50. Africa-first
+    # anti-jank tree view Flutter + anti explosion .zip.
+    code_projects_max_files: int = Field(default=50, ge=2, le=200)
+    # Presigned URL TTL côté MinIO. 24h car le user peut télécharger
+    # plus tard (cas typique : ouvrir un email avec lien plus tard).
+    code_projects_zip_presigned_ttl_seconds: int = Field(
+        default=24 * 3600, ge=60, le=7 * 24 * 3600
+    )
+    # Rate limit user-scope sur POST /code-projects/build-zip.
+    # 10/jour suffisant pour un dev intensif (1 projet généré toutes
+    # les ~2h de session active). Au-delà = script abusif.
+    code_projects_rate_limit_per_day: int = Field(default=10, ge=1, le=100)
+
     # ── C4.2 — URL preview cards (Session 2026-05-24) ──────────
     # Rate limit user-scope sur POST /metadata/url-preview. Calibré
     # 60/h car la preview est cosmétique (pas critique) et le cache
