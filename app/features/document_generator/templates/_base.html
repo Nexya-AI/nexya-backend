@@ -103,6 +103,21 @@
         }
 
         {% block extra_css %}{% endblock %}
+
+        {# C4.7d — Watermark NEXYA bottom-right via @page background-image.
+           Injecté en data URL base64 par template_loader::render_document_html
+           uniquement si apply_watermark=True ET asset PNG dispo.
+           Skip silencieux fail-safe si watermark_data_url=None (kill-switch
+           OFF, remove_watermark=True user Pro, ou asset corrompu). #}
+        {% if watermark_data_url %}
+        @page {
+            background-image: url('{{ watermark_data_url }}');
+            background-position: bottom right;
+            background-repeat: no-repeat;
+            background-size: 70px auto;
+            background-origin: padding-box;
+        }
+        {% endif %}
     </style>
 </head>
 <body>

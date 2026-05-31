@@ -152,6 +152,14 @@ class DocumentGenerateRequest(BaseModel):
             "filename PDF). Défaut = dérivé du contenu via title_generator."
         ),
     )
+    remove_watermark: bool = Field(
+        default=False,
+        description=(
+            "Retirer le watermark NEXYA (logo bleu bottom-right PDF + footer "
+            "DOCX). **Pro only** — Free qui tente `True` → 403 PLAN_REQUIRED. "
+            "Pattern aligné `/image/generate` E4. C4.7d."
+        ),
+    )
 
 
 # ── Response ─────────────────────────────────────────────────────────
@@ -204,4 +212,50 @@ class DocumentGenerateResponse(BaseModel):
     generated_at: datetime = Field(
         ...,
         description="ISO datetime UTC de fin de rendu PDF.",
+    )
+
+    # ── C4.7d : Watermark + C2PA enrichissement ────────────────
+    watermark_applied: bool = Field(
+        default=False,
+        description=(
+            "True si le watermark NEXYA visuel a été appliqué (logo PDF "
+            "bottom-right ou footer DOCX). False si remove_watermark=True, "
+            "kill-switch off, ou fail-safe sur erreur Pillow/WeasyPrint."
+        ),
+    )
+    watermark_version: str | None = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "Version du watermark appliqué (ex: `v1-doc-pdf-docx-2026-05`). "
+            "Null si applied=False. Permet de tracer l'historique sans "
+            "casser les anciens documents si on change de logo plus tard."
+        ),
+    )
+    c2pa_applied: bool = Field(
+        default=False,
+        description=(
+            "True si le manifest C2PA signé cryptographiquement a été "
+            "embarqué dans les métadonnées du document (PDF uniquement V1, "
+            "DOCX différé V2 — c2pa-rs ne supporte pas OOXML natif). "
+            "Conformité AI Act UE août 2026."
+        ),
+    )
+    c2pa_manifest_id: str | None = Field(
+        default=None,
+        max_length=128,
+        description=(
+            "Identifiant du manifest C2PA embarqué. Null si applied=False. "
+            "Utile pour audit + vérification cross-tool via Content Credentials "
+            "Adobe https://contentcredentials.org/verify."
+        ),
+    )
+    c2pa_skip_reason: str | None = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "Raison du skip C2PA si applied=False (informatif audit). "
+            "Valeurs : `unsupported_format_docx`, `disabled_by_killswitch`, "
+            "`sign_error`, `c2pa_lib_unavailable`. Null si applied=True."
+        ),
     )

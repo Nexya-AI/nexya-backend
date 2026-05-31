@@ -414,7 +414,9 @@ class TestGenerateDocxFormat:
         )
         assert lib_call["provider"] == "python-docx"
         assert lib_call["metadata_json"]["format"] == "docx"
-        assert lib_call["metadata_json"]["generator_version"] == "c47b-v1"
+        # [C4.7d 2026-05-31] generator_version bumpé c47b-v1 → c47d-v1
+        # (cohérent — watermark + C2PA enrichissent toute la metadata)
+        assert lib_call["metadata_json"]["generator_version"] == "c47d-v1"
 
         # Response : filename .docx, pages, truncated
         assert result.filename.endswith(".docx")
@@ -553,3 +555,157 @@ class TestGenerateErrors:
 
         with pytest.raises(ResourceNotFoundException):
             await DocumentGeneratorService.generate(_make_fake_user(), body, fake_db)
+
+
+# ──────────────────────────────────────────────────────────────────
+# C4.7d — Watermark + C2PA pipeline (Gate Pro + métadonnées)
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestC47dWatermarkC2PAPipeline:
+    """C4.7d — Gate Pro 403, métadonnées Library enrichies, C2PA PDF."""
+
+    @pytest.mark.asyncio
+    async def test_remove_watermark_free_user_raises_403_plan_required(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """C4.7d — Free user qui tente remove_watermark=True → 403
+        PLAN_REQUIRED AVANT render (économie WeasyPrint+pikepdf)."""
+        from app.core.errors.exceptions import PlanRequiredException
+
+        # Pas besoin de mock DB ni renderer — l'exception lève AVANT
+        # le 1er SELECT message_content (gate Pro pre-flight).
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+            remove_watermark=True,
+        )
+
+        with pytest.raises(PlanRequiredException) as exc_info:
+            await DocumentGeneratorService.generate(
+                _make_fake_user(is_pro=False),
+                body,
+                MagicMock(),  # db jamais consommée
+            )
+        # PlanRequiredException porte le code PLAN_REQUIRED + feature
+        assert exc_info.value.code == "PLAN_REQUIRED"
+
+    @pytest.mark.asyncio
+    async def test_remove_watermark_pro_user_no_watermark_applied_metadata_traced(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """C4.7d — Pro + remove_watermark=true → watermark_applied=False
+        + metadata.no_watermark_was_requested=True (pour wallet V2)."""
+        fake_message = _make_fake_message("# Test\n\nContenu.")
+        fake_result = MagicMock()
+        fake_result.scalar_one_or_none = MagicMock(return_value=fake_message)
+        fake_db = MagicMock()
+        fake_db.execute = AsyncMock(return_value=fake_result)
+
+        captures = _install_fake_pipeline(monkeypatch)
+
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+            remove_watermark=True,
+        )
+        result = await DocumentGeneratorService.generate(
+            _make_fake_user(is_pro=True), body, fake_db
+        )
+
+        assert result.watermark_applied is False
+        assert result.watermark_version is None
+        # Metadata Library trace l'intent user pour facturation V2
+        lib_meta = captures["library_calls"][0]["metadata_json"]
+        assert lib_meta["has_watermark"] is False
+        assert lib_meta["no_watermark_was_requested"] is True
+
+    @pytest.mark.asyncio
+    async def test_watermark_default_pro_user_applied_plus_c2pa_pdf(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """C4.7d — Pro + remove_watermark=False (défaut) + format=pdf →
+        watermark_applied=True + c2pa_applied=True (MockManifestProvider)."""
+        fake_message = _make_fake_message("# Test\n\nContenu.")
+        fake_result = MagicMock()
+        fake_result.scalar_one_or_none = MagicMock(return_value=fake_message)
+        fake_db = MagicMock()
+        fake_db.execute = AsyncMock(return_value=fake_result)
+
+        captures = _install_fake_pipeline(monkeypatch)
+
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+            format="pdf",
+            template="minimal",
+        )
+        result = await DocumentGeneratorService.generate(
+            _make_fake_user(is_pro=True), body, fake_db
+        )
+
+        # Watermark appliqué (asset PNG disponible, kill-switch ON par défaut)
+        assert result.watermark_applied is True
+        assert result.watermark_version is not None
+        assert result.watermark_version.startswith("v")
+        # C2PA appliqué via MockManifestProvider (factory mock-first auto
+        # car clés X.509 vides par défaut en CI)
+        assert result.c2pa_applied is True
+        assert result.c2pa_manifest_id is not None
+        assert result.c2pa_manifest_id.startswith("mock-c2pa-")
+        assert result.c2pa_skip_reason is None
+        # Metadata Library complète
+        lib_meta = captures["library_calls"][0]["metadata_json"]
+        assert lib_meta["has_watermark"] is True
+        assert lib_meta["has_c2pa"] is True
+        assert lib_meta["c2pa_manifest_id"] == result.c2pa_manifest_id
+
+    @pytest.mark.asyncio
+    async def test_watermark_default_docx_no_c2pa_v1(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """C4.7d — DOCX → watermark possiblement appliqué + c2pa_applied=False
+        + c2pa_skip_reason='unsupported_format_docx' (V1, c2pa-rs ne
+        supporte pas OOXML natif)."""
+        fake_message = _make_fake_message("# Test\n\nContenu.")
+        fake_result = MagicMock()
+        fake_result.scalar_one_or_none = MagicMock(return_value=fake_message)
+        fake_db = MagicMock()
+        fake_db.execute = AsyncMock(return_value=fake_result)
+
+        captures = _install_fake_pipeline(monkeypatch)
+        # Override DOCX renderer mock pour cohérence (le helper de base
+        # est PDF-only). On force apply_watermark=True propagé.
+        from app.features.document_generator import (
+            docx_renderer as docx_module,
+        )
+
+        async def fake_docx(*args, **kwargs):
+            return docx_module.RenderedDocx(
+                docx_bytes=b"PK fake docx",
+                pages=1,
+                truncated=False,
+                size_bytes=12,
+                watermark_applied=kwargs.get("apply_watermark", False),
+            )
+
+        monkeypatch.setattr(docx_module, "render_markdown_to_docx", fake_docx)
+
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+            format="docx",
+            template="minimal",
+        )
+        result = await DocumentGeneratorService.generate(
+            _make_fake_user(is_pro=True), body, fake_db
+        )
+
+        # C2PA SKIP pour DOCX V1
+        assert result.c2pa_applied is False
+        assert result.c2pa_skip_reason == "unsupported_format_docx"
+        assert result.c2pa_manifest_id is None
+        # Metadata Library trace le skip explicite
+        lib_meta = captures["library_calls"][0]["metadata_json"]
+        assert lib_meta["has_c2pa"] is False
+        assert lib_meta["c2pa_skip_reason"] == "unsupported_format_docx"

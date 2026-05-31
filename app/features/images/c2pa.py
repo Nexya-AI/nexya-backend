@@ -64,11 +64,19 @@ log = structlog.get_logger(__name__)
 
 C2PA_VERSION: Final[str] = "v1-2026-04"
 
-# Formats supportés par c2pa-rs (wheels Rust). PDF/MP4 hors scope V1
-# car `/image/generate` ne produit que des images. Étendre quand
-# Nexya Studio exportera vidéo/PDF (Phase 7-8).
+# Formats supportés par c2pa-rs (wheels Rust). PDF ajouté C4.7d pour
+# signer les documents générés par `/generate/document` (conformité AI
+# Act UE août 2026). DOCX/PPTX/MP4 hors scope V1 — c2pa-rs ne supporte
+# pas OOXML/Office natif, le skip silencieux est géré côté caller
+# (`service.py` document_generator) avec `c2pa_skip_reason='unsupported_format_docx'`.
 _SUPPORTED_MIMES: Final[frozenset[str]] = frozenset(
-    {"image/png", "image/jpeg", "image/jpg", "image/webp"}
+    {
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "image/webp",
+        "application/pdf",  # C4.7d — documents générés via WeasyPrint
+    }
 )
 
 

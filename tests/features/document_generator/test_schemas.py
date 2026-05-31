@@ -299,3 +299,100 @@ class TestDocumentGenerateResponseSchema:
                 expires_at=now,
                 generated_at=now,
             )
+
+
+# ──────────────────────────────────────────────────────────────────
+# C4.7d — Watermark + C2PA enrichissement schémas
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestC47dWatermarkC2PASchemas:
+    """C4.7d — Validation Pydantic des nouveaux champs watermark/C2PA."""
+
+    def test_request_remove_watermark_default_false(self) -> None:
+        """Sans le param, remove_watermark=False (UX safe par défaut)."""
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+        )
+        assert body.remove_watermark is False
+
+    def test_request_remove_watermark_accepts_true(self) -> None:
+        """Pro user toggle ON → remove_watermark=True traverse Pydantic."""
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+            remove_watermark=True,
+        )
+        assert body.remove_watermark is True
+
+    def test_response_includes_watermark_and_c2pa_fields_defaults(self) -> None:
+        """C4.7d — DocumentGenerateResponse expose les 5 nouveaux champs
+        avec defaults sécurisés (False / None)."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        resp = DocumentGenerateResponse(
+            library_id=uuid.uuid4(),
+            download_url="https://example.com/x.pdf",
+            filename="x.pdf",
+            size_bytes=100,
+            pages=1,
+            truncated=False,
+            expires_at=now,
+            generated_at=now,
+        )
+        assert resp.watermark_applied is False
+        assert resp.watermark_version is None
+        assert resp.c2pa_applied is False
+        assert resp.c2pa_manifest_id is None
+        assert resp.c2pa_skip_reason is None
+
+    def test_response_watermark_and_c2pa_applied_populated(self) -> None:
+        """C4.7d — Round-trip avec toutes les protections actives."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        resp = DocumentGenerateResponse(
+            library_id=uuid.uuid4(),
+            download_url="https://example.com/x.pdf",
+            filename="x.pdf",
+            size_bytes=100,
+            pages=1,
+            truncated=False,
+            expires_at=now,
+            generated_at=now,
+            watermark_applied=True,
+            watermark_version="v1-doc-pdf-docx-2026-05",
+            c2pa_applied=True,
+            c2pa_manifest_id="mock-pdf-000001",
+            c2pa_skip_reason=None,
+        )
+        assert resp.watermark_applied is True
+        assert resp.watermark_version == "v1-doc-pdf-docx-2026-05"
+        assert resp.c2pa_applied is True
+        assert resp.c2pa_manifest_id == "mock-pdf-000001"
+        assert resp.c2pa_skip_reason is None
+
+    def test_response_c2pa_skip_reason_for_docx(self) -> None:
+        """C4.7d — DOCX V1 → c2pa_applied=False + skip_reason informatif."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        resp = DocumentGenerateResponse(
+            library_id=uuid.uuid4(),
+            download_url="https://example.com/x.docx",
+            filename="x.docx",
+            size_bytes=100,
+            pages=1,
+            truncated=False,
+            expires_at=now,
+            generated_at=now,
+            watermark_applied=True,
+            watermark_version="v1-doc-pdf-docx-2026-05",
+            c2pa_applied=False,
+            c2pa_manifest_id=None,
+            c2pa_skip_reason="unsupported_format_docx",
+        )
+        assert resp.c2pa_applied is False
+        assert resp.c2pa_skip_reason == "unsupported_format_docx"

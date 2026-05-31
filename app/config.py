@@ -499,6 +499,19 @@ class Settings(BaseSettings):
     # False → endpoint retourne 503 immédiat sans tenter le render.
     documents_generator_enabled: bool = True
 
+    # Kill-switch watermark documents (C4.7d).
+    # True → logo NEXYA bleu en bas à droite du PDF (via WeasyPrint @page CSS)
+    # + footer python-docx avec logo + texte « Généré par NEXYA AI ».
+    # False → documents nus sans branding (mode dev/CI ou incident).
+    documents_generator_watermark_enabled: bool = True
+
+    # Ratio prix document Pro sans watermark vs avec (C4.7d, # TODO Ivan provisoire).
+    # 1.5 = un export sans watermark coûte 1.5× plus que la version avec.
+    # V1 informatif uniquement (wallet v2 facturera selon ce ratio).
+    documents_generator_no_watermark_price_multiplier: float = Field(
+        default=1.5, ge=1.0, le=10.0
+    )
+
     # ── Paiements ──────────────────────────────────────────────
     cinetpay_api_key: str = ""
     cinetpay_site_id: str = ""
