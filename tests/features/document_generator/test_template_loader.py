@@ -173,14 +173,16 @@ class TestRenderMinimalTemplate:
 
 class TestTemplateNotFoundError:
     def test_unknown_template_raises_explicit_error(self) -> None:
+        # C4.7c (2026-05-31) — sciences devenu VALIDE.
+        # Utilise "business" (V2 ou jamais) comme slug invalide.
         with pytest.raises(TemplateNotFoundError) as exc_info:
             render_document_html(
-                "sciences",  # type: ignore[arg-type]
+                "business",  # type: ignore[arg-type]
                 title="Hack",
                 markdown_source="Test",
                 options=DocumentGenerateOptions(),
             )
-        assert "sciences" in str(exc_info.value)
+        assert "business" in str(exc_info.value)
         assert exc_info.value.code == "TEMPLATE_NOT_FOUND"
 
     def test_path_traversal_attempt_blocked(self) -> None:
@@ -201,3 +203,174 @@ class TestTemplateNotFoundError:
                 markdown_source="Test",
                 options=DocumentGenerateOptions(),
             )
+
+
+# ──────────────────────────────────────────────────────────────────
+# C4.7c — Template sciences
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestRenderSciencesTemplate:
+    def test_sciences_template_renders_with_title_and_meta(self) -> None:
+        html = render_document_html(
+            "sciences",
+            title="Étude photosynthèse C4",
+            markdown_source="## Introduction\n\nLa photosynthèse C4...",
+            options=DocumentGenerateOptions(
+                subject="Biologie moléculaire",
+                level="L3 Univ. Yaoundé I",
+                date_iso="2026-05-31",
+            ),
+        )
+        assert "<!DOCTYPE html>" in html
+        assert "Étude photosynthèse C4" in html
+        assert "Biologie moléculaire" in html
+        assert "Yaoundé" in html
+        assert "2026-05-31" in html
+        assert "sciences-header" in html  # Class CSS spécifique
+
+    def test_sciences_template_escapes_xss_in_title(self) -> None:
+        html = render_document_html(
+            "sciences",
+            title="<script>alert('xss')</script>",
+            markdown_source="Body",
+            options=DocumentGenerateOptions(),
+        )
+        # Jinja2 autoescape transforme en text safe
+        assert "<script>alert('xss')</script>" not in html
+
+    def test_sciences_template_footer_disclaimer_present(self) -> None:
+        html = render_document_html(
+            "sciences",
+            title="Test",
+            markdown_source="Body",
+            options=DocumentGenerateOptions(),
+        )
+        # C4.7c — disclaimer footer figé "Document de travail"
+        assert "Document de travail" in html
+        assert "sciences-footer-disclaimer" in html
+
+
+# ──────────────────────────────────────────────────────────────────
+# C4.7c — Template legal
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestRenderLegalTemplate:
+    def test_legal_template_renders_with_title_and_meta(self) -> None:
+        html = render_document_html(
+            "legal",
+            title="Analyse contrat SARL OHADA",
+            markdown_source="## Article 1\n\nObjet du contrat...",
+            options=DocumentGenerateOptions(
+                subject="Droit OHADA",
+                level="Tribunal Yaoundé",  # Sans apostrophe (escape Jinja2)
+                date_iso="2026-05-31",
+            ),
+        )
+        assert "<!DOCTYPE html>" in html
+        assert "Analyse contrat SARL OHADA" in html
+        assert "Droit OHADA" in html
+        assert "Tribunal" in html
+        assert "Yaoundé" in html
+        assert "Domaine" in html  # Label meta legal
+        assert "Juridiction" in html  # Label meta legal
+        assert "legal-header" in html
+
+    def test_legal_template_escapes_xss_in_subject(self) -> None:
+        html = render_document_html(
+            "legal",
+            title="Test",
+            markdown_source="Body",
+            options=DocumentGenerateOptions(
+                subject="<img src=x onerror=alert(1)>",
+            ),
+        )
+        # Jinja2 autoescape escape les balises HTML user-controlled
+        assert "<img src=x onerror" not in html
+
+    def test_legal_template_footer_disclaimer_present(self) -> None:
+        html = render_document_html(
+            "legal",
+            title="Test",
+            markdown_source="Body",
+            options=DocumentGenerateOptions(),
+        )
+        # C4.7c — disclaimer footer figé avocat
+        assert "Document d'information juridique" in html
+        assert "Consulter un avocat" in html
+        assert "legal-footer-disclaimer" in html
+
+
+# ──────────────────────────────────────────────────────────────────
+# C4.7c — Template medicine (SAFETY-CRITICAL)
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestRenderMedicineTemplate:
+    def test_medicine_template_renders_with_title_and_meta(self) -> None:
+        html = render_document_html(
+            "medicine",
+            title="Info diabète type 2",
+            markdown_source="## Symptômes\n\nLa polyurie...",
+            options=DocumentGenerateOptions(
+                subject="Endocrinologie",
+                level="Hôpital Général Yaoundé",
+                date_iso="2026-05-31",
+            ),
+        )
+        assert "<!DOCTYPE html>" in html
+        assert "Info diabète type 2" in html
+        assert "Endocrinologie" in html
+        assert "Hôpital Général" in html
+        assert "medicine-header" in html
+
+    def test_medicine_template_urgent_disclaimer_in_body(self) -> None:
+        """C4.7c SAFETY-CRITICAL — disclaimer urgence EN TÊTE body."""
+        html = render_document_html(
+            "medicine",
+            title="Test médical",
+            markdown_source="Body content",
+            options=DocumentGenerateOptions(),
+        )
+        # Bloc disclaimer urgence présent
+        assert "medicine-urgent-disclaimer" in html
+        assert "AVERTISSEMENT MÉDICAL" in html
+        assert "consultation médicale professionnelle" in html
+
+    def test_medicine_template_contains_cameroon_emergency_numbers(self) -> None:
+        """C4.7c SAFETY-CRITICAL — numéros urgence Cameroun obligatoires."""
+        html = render_document_html(
+            "medicine",
+            title="Test",
+            markdown_source="Body",
+            options=DocumentGenerateOptions(),
+        )
+        # Numéros aligné `expert_prompts/medicine.py` A2
+        assert "117" in html  # Police
+        assert "118" in html  # Pompiers
+        assert "119" in html  # SAMU
+        assert "112" in html  # International
+
+    def test_medicine_template_footer_disclaimer_no_diagnosis(self) -> None:
+        html = render_document_html(
+            "medicine",
+            title="Test",
+            markdown_source="Body",
+            options=DocumentGenerateOptions(),
+        )
+        # C4.7c — footer disclaimer "ne pose pas de diagnostic"
+        assert "ne pose pas de diagnostic" in html
+        assert "medicine-footer-disclaimer" in html
+
+    def test_medicine_template_disclaimer_present_even_without_options(self) -> None:
+        """Le disclaimer urgence est FIGÉ et ne dépend d'aucune option."""
+        html = render_document_html(
+            "medicine",
+            title=None,  # Pas de titre
+            markdown_source="Juste body",
+            options=DocumentGenerateOptions(),  # Tout vide
+        )
+        # Disclaimer reste présent quelle que soit la config
+        assert "AVERTISSEMENT MÉDICAL" in html
+        assert "117" in html

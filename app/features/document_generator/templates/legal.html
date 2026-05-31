@@ -1,0 +1,115 @@
+{% extends "_base.html" %}
+
+{#
+  Template `legal` C4.7c.
+  Document juridique formel. Style serif Georgia sur le titre + body
+  justify (convention juridique). Header gauche-aligné avec meta
+  Domaine · Juridiction · Date.
+
+  Variables attendues :
+    title : titre principal (h1 gauche, serif)
+    body_html : contenu rendu depuis markdown (déjà safe)
+    options.subject : Domaine juridique (str | None, ex: « Droit OHADA »)
+    options.level : Juridiction (str | None, ex: « Cour d'appel Yaoundé »)
+    options.date_iso : date YYYY-MM-DD (str | None, défaut aujourd'hui)
+    options.page_numbers : bool (défaut True)
+#}
+
+{% block extra_css %}
+    @page {
+        size: A4 portrait;
+        margin: 2.5cm 2.2cm;
+
+        {% if options.page_numbers %}
+        @bottom-right {
+            content: "Page " counter(page) " / " counter(pages);
+            font-size: 9pt;
+            color: #888;
+            font-family: 'Georgia', 'Times New Roman', serif;
+        }
+        {% endif %}
+
+        @bottom-left {
+            content: "NEXYA AI · Document juridique";
+            font-size: 9pt;
+            color: #888;
+            font-family: 'Georgia', 'Times New Roman', serif;
+        }
+    }
+
+    /* Style juridique : serif + justify body (convention) */
+    main p {
+        text-align: justify;
+        text-indent: 0;
+    }
+
+    .legal-header {
+        margin-bottom: 2em;
+        padding-bottom: 0.8em;
+        border-bottom: 1px solid #1a1a1a;
+    }
+
+    .legal-title {
+        font-family: 'Georgia', 'Times New Roman', serif;
+        font-size: 22pt;
+        font-weight: 700;
+        margin: 0 0 0.6em 0;
+        color: #1a1a1a;
+        line-height: 1.25;
+    }
+
+    .legal-meta {
+        font-family: 'Georgia', 'Times New Roman', serif;
+        font-size: 10.5pt;
+        color: #555;
+    }
+
+    .legal-meta-row {
+        margin: 0.15em 0;
+    }
+
+    .legal-meta-label {
+        font-weight: 600;
+        color: #1a1a1a;
+        display: inline-block;
+        min-width: 6em;
+    }
+
+    .legal-footer-disclaimer {
+        margin-top: 2.5em;
+        padding-top: 0.8em;
+        border-top: 1px solid #e0e0e0;
+        font-size: 9pt;
+        color: #888;
+        font-style: italic;
+        text-align: center;
+        font-family: 'Georgia', 'Times New Roman', serif;
+    }
+{% endblock %}
+
+{% block header %}
+    <header class="legal-header">
+        <h1 class="legal-title">{{ title | default('Document juridique') | e }}</h1>
+        <div class="legal-meta">
+            {% if options.subject %}
+            <div class="legal-meta-row">
+                <span class="legal-meta-label">Domaine :</span> {{ options.subject | e }}
+            </div>
+            {% endif %}
+            {% if options.level %}
+            <div class="legal-meta-row">
+                <span class="legal-meta-label">Juridiction :</span> {{ options.level | e }}
+            </div>
+            {% endif %}
+            <div class="legal-meta-row">
+                <span class="legal-meta-label">Date :</span> {{ options.date_iso | default(today_iso) | e }}
+            </div>
+        </div>
+    </header>
+{% endblock %}
+
+{% block footer %}
+    <div class="legal-footer-disclaimer">
+        Document d'information juridique — Consulter un avocat pour tout cas concret.
+    </div>
+{% endblock %}

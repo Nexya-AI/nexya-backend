@@ -316,3 +316,159 @@ class TestDocxStructure:
             namelist = zf.namelist()
             assert "word/document.xml" in namelist
             assert "[Content_Types].xml" in namelist
+
+
+# ──────────────────────────────────────────────────────────────────
+# C4.7c — Templates sciences/legal/medicine
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestRenderHappySciences:
+    @pytest.mark.asyncio
+    async def test_sciences_renders_valid_docx_bytes(self) -> None:
+        result = await render_markdown_to_docx(
+            template_name="sciences",
+            title="Étude photosynthèse",
+            markdown_source="## Intro\n\nBody scientifique.",
+            options=DocumentGenerateOptions(
+                subject="Biologie",
+                level="L3",
+                date_iso="2026-05-31",
+            ),
+        )
+        assert len(result.docx_bytes) > 0
+        assert result.docx_bytes[:2] == b"PK"  # DOCX = ZIP
+        assert result.pages >= 1
+
+    @pytest.mark.asyncio
+    async def test_sciences_contains_title_and_meta_in_xml(self) -> None:
+        """Vérifie que titre et meta apparaissent dans word/document.xml."""
+        import zipfile
+
+        result = await render_markdown_to_docx(
+            template_name="sciences",
+            title="Mon étude",
+            markdown_source="Body",
+            options=DocumentGenerateOptions(
+                subject="Physique quantique",
+                level="L3 Yaoundé",
+            ),
+        )
+        with zipfile.ZipFile(io.BytesIO(result.docx_bytes)) as zf:
+            content = zf.read("word/document.xml").decode("utf-8")
+            assert "Mon étude" in content
+            assert "Physique quantique" in content
+            assert "Yaoundé" in content
+
+    @pytest.mark.asyncio
+    async def test_sciences_renders_without_options(self) -> None:
+        """Cas dégradé : sans subject/level → titre + date par défaut."""
+        result = await render_markdown_to_docx(
+            template_name="sciences",
+            title="Sans options",
+            markdown_source="Body simple.",
+            options=DocumentGenerateOptions(),
+        )
+        assert len(result.docx_bytes) > 0
+
+
+class TestRenderHappyLegal:
+    @pytest.mark.asyncio
+    async def test_legal_renders_valid_docx_bytes(self) -> None:
+        result = await render_markdown_to_docx(
+            template_name="legal",
+            title="Contrat SARL OHADA",
+            markdown_source="## Art. 1\n\nObjet du contrat...",
+            options=DocumentGenerateOptions(
+                subject="Droit OHADA",
+                level="Cour d'appel Yaoundé",
+            ),
+        )
+        assert len(result.docx_bytes) > 0
+        assert result.docx_bytes[:2] == b"PK"
+
+    @pytest.mark.asyncio
+    async def test_legal_contains_labeled_meta_in_xml(self) -> None:
+        """Vérifie que labels 'Domaine'/'Juridiction'/'Date' apparaissent."""
+        import zipfile
+
+        result = await render_markdown_to_docx(
+            template_name="legal",
+            title="Test legal",
+            markdown_source="Body",
+            options=DocumentGenerateOptions(
+                subject="OHADA",
+                level="TGI Douala",
+            ),
+        )
+        with zipfile.ZipFile(io.BytesIO(result.docx_bytes)) as zf:
+            content = zf.read("word/document.xml").decode("utf-8")
+            assert "Domaine" in content
+            assert "OHADA" in content
+            assert "Juridiction" in content
+            assert "Douala" in content
+            assert "Date" in content
+
+    @pytest.mark.asyncio
+    async def test_legal_renders_without_options(self) -> None:
+        result = await render_markdown_to_docx(
+            template_name="legal",
+            title="Sans options",
+            markdown_source="Body.",
+            options=DocumentGenerateOptions(),
+        )
+        assert len(result.docx_bytes) > 0
+
+
+class TestRenderHappyMedicine:
+    @pytest.mark.asyncio
+    async def test_medicine_renders_valid_docx_bytes(self) -> None:
+        result = await render_markdown_to_docx(
+            template_name="medicine",
+            title="Info diabète",
+            markdown_source="## Symptômes\n\nPolyurie...",
+            options=DocumentGenerateOptions(
+                subject="Endocrinologie",
+                level="Hôpital Général",
+            ),
+        )
+        assert len(result.docx_bytes) > 0
+        assert result.docx_bytes[:2] == b"PK"
+
+    @pytest.mark.asyncio
+    async def test_medicine_disclaimer_present_in_xml(self) -> None:
+        """SAFETY-CRITICAL : disclaimer urgence DOIT apparaître dans le DOCX."""
+        import zipfile
+
+        result = await render_markdown_to_docx(
+            template_name="medicine",
+            title="Info santé",
+            markdown_source="Body médical.",
+            options=DocumentGenerateOptions(),
+        )
+        with zipfile.ZipFile(io.BytesIO(result.docx_bytes)) as zf:
+            content = zf.read("word/document.xml").decode("utf-8")
+            # Disclaimer urgence présent
+            assert "AVERTISSEMENT MÉDICAL" in content
+            # Numéros urgence Cameroun obligatoires
+            assert "117" in content
+            assert "118" in content
+            assert "119" in content
+            assert "112" in content  # International
+            assert "consultation médicale" in content
+
+    @pytest.mark.asyncio
+    async def test_medicine_disclaimer_present_even_without_options(self) -> None:
+        """SAFETY-CRITICAL : disclaimer FIGÉ même sans titre ni options."""
+        import zipfile
+
+        result = await render_markdown_to_docx(
+            template_name="medicine",
+            title=None,
+            markdown_source="Juste body.",
+            options=DocumentGenerateOptions(),
+        )
+        with zipfile.ZipFile(io.BytesIO(result.docx_bytes)) as zf:
+            content = zf.read("word/document.xml").decode("utf-8")
+            assert "AVERTISSEMENT MÉDICAL" in content
+            assert "117" in content

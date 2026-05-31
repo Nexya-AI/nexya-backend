@@ -17,15 +17,38 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # ── Enums Literal (anti-injection + Pydantic strict) ─────────────────
 
-DocumentTemplate = Literal["school", "minimal"]
-"""Templates disponibles V1 C4.7a.
+DocumentTemplate = Literal[
+    "school", "minimal", "sciences", "legal", "medicine"
+]
+"""Templates disponibles (C4.7a + C4.7c).
 
+Templates V1 (C4.7a) :
 - `school` : entête « Devoir / Travail dirigé » + métadonnées Niveau/
-  Matière/Date, style sobre noir/blanc, taille A4 portrait, marges 2cm.
+  Matière/Date, style sobre noir/blanc, A4 portrait, marges 2cm.
 - `minimal` : page blanche minimaliste, titre H1 + body markdown, sans
   entête institutionnel. Idéal pour notes, mémos, exports généraux.
 
-V2 (C4.7b/c/d) ajoutera : sciences, legal, medicine, cooking, business.
+Templates V2 (C4.7c, livré 2026-05-31) — réutilisent les options
+existantes (subject/level/date_iso) avec resignification sémantique :
+
+- `sciences` : article scientifique. Style sobre académique.
+  · `subject` = Discipline (ex: « Physique », « Biologie moléculaire »)
+  · `level` = Établissement (ex: « L3 Université Yaoundé I »)
+  · Footer disclaimer figé « Document de travail — vérifier les sources ».
+
+- `legal` : document juridique. Style serif (Georgia) formel.
+  · `subject` = Domaine juridique (ex: « Droit OHADA », « Droit civil »)
+  · `level` = Juridiction (ex: « Cour d'appel Yaoundé », « TGI »)
+  · Footer disclaimer figé « Document d'information — consulter un avocat ».
+
+- `medicine` : document médical. **SAFETY-CRITICAL**. Style sobre.
+  · `subject` = Spécialité (ex: « Cardiologie », « Pédiatrie »)
+  · `level` = Établissement (ex: « Hôpital Général Yaoundé »)
+  · **Disclaimer urgence EN TÊTE body** (bloc rouge gras) avec numéros
+    Cameroun 117/118/119 + 112 international.
+  · Footer disclaimer figé « NEXYA AI ne pose pas de diagnostic ».
+
+V2+ (C4.7d) ajoutera : watermark NEXYA branding + C2PA AI Act.
 """
 
 DocumentFormat = Literal["pdf", "docx"]

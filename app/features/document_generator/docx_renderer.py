@@ -278,9 +278,156 @@ def _build_minimal_header(document: Any, *, title: str | None) -> None:
         document.add_heading(title, level=1)
 
 
+def _build_sciences_header(
+    document: Any,
+    *,
+    title: str | None,
+    options: DocumentGenerateOptions,
+    today_iso: str,
+) -> None:
+    """Ajoute l'en-tête Sciences (titre centré + meta italique gris).
+
+    Style sobre académique aligné `templates/sciences.html` C4.7c.
+    """
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    if title:
+        h = document.add_heading(title, level=0)
+        h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    # Meta : Discipline · Établissement · Date (italique gris)
+    meta_parts: list[str] = []
+    if options.subject:
+        meta_parts.append(options.subject)
+    if options.level:
+        meta_parts.append(options.level)
+    meta_parts.append(options.date_iso or today_iso)
+
+    if meta_parts:
+        p = document.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(" · ".join(meta_parts))
+        run.italic = True
+
+    # Espace avant body
+    document.add_paragraph()
+
+
+def _build_legal_header(
+    document: Any,
+    *,
+    title: str | None,
+    options: DocumentGenerateOptions,
+    today_iso: str,
+) -> None:
+    """Ajoute l'en-tête Legal (gauche-aligné + meta labellisée).
+
+    Style juridique formel aligné `templates/legal.html` C4.7c (sans
+    serif Georgia côté DOCX car python-docx ne change pas la police
+    par défaut sans manipuler XML — V1 utilise la police par défaut).
+    """
+    if title:
+        document.add_heading(title, level=0)
+
+    # Meta : labels Domaine / Juridiction / Date
+    if options.subject:
+        p = document.add_paragraph()
+        run_label = p.add_run("Domaine : ")
+        run_label.bold = True
+        p.add_run(options.subject)
+
+    if options.level:
+        p = document.add_paragraph()
+        run_label = p.add_run("Juridiction : ")
+        run_label.bold = True
+        p.add_run(options.level)
+
+    p = document.add_paragraph()
+    run_label = p.add_run("Date : ")
+    run_label.bold = True
+    p.add_run(options.date_iso or today_iso)
+
+    # Espace avant body
+    document.add_paragraph()
+
+
+def _build_medicine_header(
+    document: Any,
+    *,
+    title: str | None,
+    options: DocumentGenerateOptions,
+    today_iso: str,
+) -> None:
+    """Ajoute l'en-tête Medicine (titre centré bleu + meta).
+
+    Style sobre médical aligné `templates/medicine.html` C4.7c.
+    Le disclaimer SAFETY-CRITICAL est ajouté séparément via
+    `_build_medicine_disclaimer_paragraph` AVANT le body.
+    """
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import RGBColor
+
+    if title:
+        h = document.add_heading(title, level=0)
+        h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        # Titre en bleu primary (#2563eb) cohérent avec template HTML
+        for run in h.runs:
+            run.font.color.rgb = RGBColor(0x25, 0x63, 0xEB)
+
+    # Meta : Spécialité · Établissement · Date
+    meta_parts: list[str] = []
+    if options.subject:
+        meta_parts.append(options.subject)
+    if options.level:
+        meta_parts.append(options.level)
+    meta_parts.append(options.date_iso or today_iso)
+
+    if meta_parts:
+        p = document.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.add_run(" · ".join(meta_parts))
+
+    # Espace avant disclaimer
+    document.add_paragraph()
+
+
+def _build_medicine_disclaimer_paragraph(document: Any) -> None:
+    """Ajoute le disclaimer urgence médical EN TÊTE du body (SAFETY-CRITICAL).
+
+    Bloc gras rouge avec numéros urgence Cameroun 117/118/119 + 112
+    international. Aligné sur les standards `expert_prompts/medicine.py`
+    A2 et le template HTML `medicine.html` C4.7c. JAMAIS désactivable.
+    """
+    from docx.shared import RGBColor
+
+    # Ligne titre rouge gras "⚠️ AVERTISSEMENT MÉDICAL"
+    p_title = document.add_paragraph()
+    run_title = p_title.add_run("⚠️ AVERTISSEMENT MÉDICAL")
+    run_title.bold = True
+    run_title.font.color.rgb = RGBColor(0xDC, 0x26, 0x26)  # rouge #dc2626
+
+    # Corps du disclaimer (texte informatif)
+    p_body = document.add_paragraph()
+    p_body.add_run(
+        "Ce document est fourni à titre d'information uniquement et ne "
+        "remplace en aucun cas une consultation médicale professionnelle."
+    )
+
+    # Numéros urgence en gras (visibilité maximale)
+    p_numbers = document.add_paragraph()
+    run_numbers = p_numbers.add_run(
+        "En cas d'urgence vitale au Cameroun : 117 (Police) · 118 (Pompiers) "
+        "· 119 (SAMU). À l'international : 112."
+    )
+    run_numbers.bold = True
+
+    # Séparateur visuel avant body
+    document.add_paragraph()
+
+
 def _render_docx_sync(
     *,
-    template_name: Literal["school", "minimal"],
+    template_name: Literal["school", "minimal", "sciences", "legal", "medicine"],
     title: str | None,
     markdown_source: str,
     options: DocumentGenerateOptions,
@@ -291,10 +438,13 @@ def _render_docx_sync(
     Appelé dans `asyncio.to_thread` pour ne pas bloquer l'event loop.
 
     Args:
-        template_name: Slug template (school | minimal).
+        template_name: Slug template (school | minimal | sciences | legal |
+            medicine).
         title: Titre principal du document.
         markdown_source: Contenu source markdown brut.
-        options: Options de personnalisation.
+        options: Options de personnalisation (subject/level/date_iso
+            réutilisés sémantiquement par template — cf. docstring
+            `DocumentTemplate` dans schemas.py).
         max_pages: Cap dur pages (heuristique paragraphes).
 
     Returns:
@@ -309,9 +459,19 @@ def _render_docx_sync(
     doc = Document()
     today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    # Header par template
+    # Header par template (dispatch 5 templates C4.7a + C4.7c)
     if template_name == "school":
         _build_school_header(doc, title=title, options=options, today_iso=today_iso)
+    elif template_name == "sciences":
+        _build_sciences_header(doc, title=title, options=options, today_iso=today_iso)
+    elif template_name == "legal":
+        _build_legal_header(doc, title=title, options=options, today_iso=today_iso)
+    elif template_name == "medicine":
+        _build_medicine_header(doc, title=title, options=options, today_iso=today_iso)
+        # SAFETY-CRITICAL : disclaimer urgence EN TÊTE body (FIGÉ, jamais
+        # désactivable). Aligné `expert_prompts/medicine.py` A2 +
+        # `templates/medicine.html` C4.7c.
+        _build_medicine_disclaimer_paragraph(doc)
     else:  # minimal
         _build_minimal_header(doc, title=title)
 
@@ -355,7 +515,7 @@ def _render_docx_sync(
 
 async def render_markdown_to_docx(
     *,
-    template_name: Literal["school", "minimal"],
+    template_name: Literal["school", "minimal", "sciences", "legal", "medicine"],
     title: str | None,
     markdown_source: str,
     options: DocumentGenerateOptions,
@@ -371,10 +531,13 @@ async def render_markdown_to_docx(
         4. Cap pages estimé via heuristique paragraphes
 
     Args:
-        template_name: Slug template (school | minimal).
-        title: Titre principal du document (None = pas de header school/minimal).
+        template_name: Slug template (school | minimal | sciences | legal |
+            medicine). Doit appartenir à ALLOWED_TEMPLATES côté Pydantic.
+        title: Titre principal du document (None = défaut par template).
         markdown_source: Contenu source markdown brut.
-        options: Options de personnalisation (subject/level/date_iso pour school).
+        options: Options de personnalisation (subject/level/date_iso
+            réutilisés sémantiquement par template — cf. docstring
+            `DocumentTemplate` dans schemas.py).
         timeout_seconds: Timeout hardcap render (défaut 30s).
         max_pages: Cap dur pages estimé (défaut 50).
 
