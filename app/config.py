@@ -522,6 +522,26 @@ class Settings(BaseSettings):
     # Cohabite avec watermark C4.7d (logo bas-droit) sans conflit.
     documents_generator_branding_enabled: bool = True
 
+    # ── Document preview (C4.10 — Affichage enrichi PDF/DOCX uploadés) ─
+    # Pipeline preview pour les fichiers UPLOADÉS user (PDF passthrough +
+    # DOCX → HTML mammoth → PDF weasyprint). Cache MinIO bucket `previews/`
+    # 30 jours sur hash content. **AUCUN branding NEXYA appliqué** (RGPD
+    # strict — fichiers user intouchables, branding réservé aux documents
+    # GÉNÉRÉS par NEXYA via /generate/document).
+    documents_generator_preview_enabled: bool = True
+    documents_generator_preview_cache_ttl_days: int = Field(
+        default=30, ge=1, le=365
+    )
+    documents_generator_preview_timeout_seconds: float = Field(
+        default=15.0, ge=5.0, le=60.0
+    )
+    documents_generator_preview_max_pages: int = Field(
+        default=50, ge=1, le=200
+    )
+    documents_generator_preview_rate_limit_per_hour: int = Field(
+        default=60, ge=1, le=1_000
+    )
+
     # ── Paiements ──────────────────────────────────────────────
     cinetpay_api_key: str = ""
     cinetpay_site_id: str = ""

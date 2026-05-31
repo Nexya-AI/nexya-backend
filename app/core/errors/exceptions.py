@@ -392,6 +392,56 @@ class FileContentMismatchException(NexYaException):
         )
 
 
+class FilePreviewNotPreviewableException(NexYaException):
+    """Le type MIME du fichier ne supporte pas la génération de preview PDF
+    (C4.10). Status 415.
+
+    Le preview est uniquement supporté pour `application/pdf` (passthrough)
+    et `application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+    (DOCX → HTML mammoth → PDF weasyprint).
+
+    Les images, audio, vidéo, XLSX, PPTX, TXT, MD ne génèrent PAS de preview
+    V1. Le client Flutter affiche l'icône MIME générique sans tap action.
+    """
+
+    def __init__(self, *, mime_type: str = "") -> None:
+        super().__init__(
+            code="FILE_TYPE_NOT_PREVIEWABLE",
+            message=(
+                f"L'aperçu n'est pas disponible pour ce type de fichier ({mime_type})."
+                if mime_type
+                else "L'aperçu n'est pas disponible pour ce type de fichier."
+            ),
+            status_code=415,
+            data={"mime_type": mime_type} if mime_type else None,
+        )
+
+
+class FilePreviewUnavailableException(NexYaException):
+    """La génération du preview a échoué — backend KO temporaire OU pipeline
+    de conversion DOCX → PDF qui plante (mammoth crash, weasyprint timeout,
+    pikepdf parse error). Status 503.
+
+    Le client Flutter affiche un snackbar « Aperçu temporairement indisponible »
+    + bouton Retry CTA. L'user peut continuer à utiliser le fichier (RAG,
+    téléchargement via presigned URL) — seul l'aperçu visuel est dégradé.
+
+    Le pipeline a un fallback texte brut (extracted_text → PDF minimaliste)
+    qui intercepte la plupart des cas. Cette exception ne se déclenche que
+    sur double-échec (conversion DOCX KO + fallback texte KO aussi).
+    """
+
+    def __init__(self, *, reason: str = "") -> None:
+        super().__init__(
+            code="FILE_PREVIEW_UNAVAILABLE",
+            message=(
+                "Aperçu temporairement indisponible. Réessayez dans quelques instants."
+            ),
+            status_code=503,
+            data={"reason": reason[:200]} if reason else None,
+        )
+
+
 class MemoryQuotaExceededException(NexYaException):
     """Plafond de mémoires (faits durables IA) atteint pour le plan courant.
 

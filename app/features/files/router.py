@@ -21,10 +21,13 @@ le polling client est borné à ~10 hits/upload sur 5 min).
 
 from __future__ import annotations
 
+import io
 import uuid
+from typing import TYPE_CHECKING
 
 import structlog
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -34,9 +37,13 @@ from app.core.errors.exceptions import RateLimitAbuseException
 from app.core.security.rate_limiter import check_user_rate_limit
 from app.features.auth.models import User
 from app.features.files.models import UploadedFile
+from app.features.files.preview_service import PreviewService
 from app.features.files.schemas import UploadedFileResponse
 from app.features.files.service import FileUploadService, build_text_preview
 from app.shared.schemas import NexyaResponse
+
+if TYPE_CHECKING:
+    pass
 
 log = structlog.get_logger()
 
@@ -132,6 +139,104 @@ async def upload_file(
         scan_virus=scan_virus,
     )
     return NexyaResponse(success=True, data=await _upload_to_response(row))
+
+
+@router.get(
+    "/{upload_id}/preview",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "content": {"application/pdf": {}},
+            "description": "PDF preview du fichier uploadé (passthrough si PDF natif, conversion mammoth+weasyprint si DOCX).",
+        },
+        404: {"description": "Upload introuvable ou non possédé par l'user (IDOR-safe)."},
+        415: {"description": "FILE_TYPE_NOT_PREVIEWABLE — MIME hors {pdf, docx}."},
+        429: {"description": "RATE_LIMIT_ABUSE — > 60 previews/heure/user."},
+        503: {"description": "FILE_PREVIEW_UNAVAILABLE — kill-switch off ou pipeline crash."},
+    },
+)
+async def get_file_preview(
+    upload_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Génère un PDF preview du fichier uploadé (C4.10).
+
+    Pipeline :
+    - PDF natif → passthrough strict (RGPD : pas de re-render, métadonnées
+      XMP de l'original intactes).
+    - DOCX → conversion mammoth (HTML) → weasyprint (PDF) → pikepdf (cap pages).
+      AUCUN branding NEXYA (RGPD : fichiers uploadés user intouchables —
+      le branding est RÉSERVÉ aux documents GÉNÉRÉS par NEXYA via
+      `/generate/document`).
+
+    Cache MinIO 30j sur hash content — un même fichier ré-prévisualisé
+    retourne le PDF cached en ~50ms (vs ~1-2s de génération DOCX).
+
+    Fail-safe : si mammoth crash sur DOCX exotique → fallback texte brut
+    (extracted_text E3 → PDF minimaliste 1 page). L'user voit AU MOINS le
+    texte au lieu d'une erreur 503.
+
+    Codes d'erreur :
+    - **404** `RESOURCE_NOT_FOUND` si upload n'existe pas / soft-deleted /
+      n'appartient pas à l'user courant (IDOR-safe).
+    - **415** `FILE_TYPE_NOT_PREVIEWABLE` si MIME hors {`application/pdf`,
+      `application/vnd.openxmlformats-officedocument.wordprocessingml.document`}.
+      XLSX/PPTX/TXT/MD différés V2.
+    - **429** `RATE_LIMIT_ABUSE` si > 60 previews/heure/user.
+    - **503** `FILE_PREVIEW_UNAVAILABLE` si kill-switch
+      `documents_generator_preview_enabled=False` OU pipeline crash
+      (mammoth + fallback texte échouent tous les 2).
+
+    Headers réponse :
+    - `Content-Type: application/pdf`
+    - `Cache-Control: private, max-age=86400` (cache navigateur client 1h)
+    - `X-Preview-Cache: hit|miss` (info debug pour le client)
+    - `X-Preview-Truncated: true` si le DOCX a été tronqué au cap pages
+    """
+    # Kill-switch backend (config.py `documents_generator_preview_enabled`).
+    if not settings.documents_generator_preview_enabled:
+        log.info(
+            "files.preview.killswitch_off",
+            upload_id=str(upload_id),
+            user_id=str(current_user.id),
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Preview feature is currently disabled.",
+        )
+
+    # Rate limit user-scope 60/h (anti-abus + protection CPU mammoth+weasyprint).
+    await check_user_rate_limit(
+        current_user.id,
+        action="file_preview",
+        max_requests=settings.documents_generator_preview_rate_limit_per_hour,
+        window_seconds=3600,
+        on_exceeded=RateLimitAbuseException,
+    )
+
+    # Pipeline strict via PreviewService (cache-first → MinIO → générer →
+    # cache async). Les 3 exceptions typées (404 / 415 / 503) sont
+    # propagées telles quelles vers le handler global NEXYA.
+    result = await PreviewService.get_cached_or_generate(
+        upload_id, current_user, db
+    )
+
+    # StreamingResponse en mode proxy bytes (le PDF tient en RAM, cap
+    # `documents_generator_preview_max_pages=50` borne la taille).
+    headers = {
+        "Content-Length": str(result.size_bytes),
+        "Cache-Control": "private, max-age=86400",
+        "X-Preview-Cache": "hit" if result.from_cache else "miss",
+    }
+    if result.truncated:
+        headers["X-Preview-Truncated"] = "true"
+
+    return StreamingResponse(
+        content=io.BytesIO(result.pdf_bytes),
+        media_type="application/pdf",
+        headers=headers,
+    )
 
 
 @router.get(

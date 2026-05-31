@@ -58,6 +58,15 @@ dependencies = [
     # tables, listes). Cap 50 pages dur via comptage estimation paragraphes.
     "python-docx>=1.1,<2",
 
+    # ── DOCX → HTML conversion (C4.10 — Document preview pipeline) ─
+    # mammoth = conversion DOCX → HTML pure-Python (~50 KB) sans subprocess
+    # ni LibreOffice. Utilisé par PreviewService pour générer un PDF preview
+    # des DOCX uploadés user (via mammoth → HTML → weasyprint → PDF). Fidélité
+    # acceptable (~80% mise en page), latence ~1-2s, Africa-first léger.
+    # Fallback texte brut si mammoth crash sur DOCX exotique. AUCUN branding
+    # NEXYA appliqué (RGPD strict — fichiers uploadés user intouchables).
+    "mammoth>=1.8,<2",
+
     # ── Logging ────────────────────────────────────────────────
     "structlog>=24.1,<25",
 
