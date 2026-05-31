@@ -63,7 +63,10 @@ class TestDocumentGenerateRequestSchema:
 
     @pytest.mark.parametrize(
         "invalid_template",
-        ["sciences", "legal", "medical", "cooking", "business", ""],
+        # C4.7c (2026-05-31) — sciences/legal/medicine devenus VALIDES,
+        # retirés de cette liste. Nouveaux invalides : cooking/business/
+        # unknown_xyz (V2 ou jamais).
+        ["cooking", "business", "unknown_xyz", "medical", "../path", ""],
     )
     def test_rejects_unknown_template_via_literal(self, invalid_template: str) -> None:
         with pytest.raises(ValidationError):
@@ -72,6 +75,51 @@ class TestDocumentGenerateRequestSchema:
                 message_id=uuid.uuid4(),
                 template=invalid_template,  # type: ignore[arg-type]
             )
+
+    # ── C4.7c — Nouveaux templates sciences/legal/medicine ───────────
+    @pytest.mark.parametrize(
+        "valid_template",
+        ["school", "minimal", "sciences", "legal", "medicine"],
+    )
+    def test_accepts_all_5_templates(self, valid_template: str) -> None:
+        """C4.7c — Pydantic Literal accepte les 5 templates disponibles."""
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+            template=valid_template,  # type: ignore[arg-type]
+        )
+        assert body.template == valid_template
+
+    @pytest.mark.parametrize(
+        "fmt,tmpl",
+        [
+            ("pdf", "sciences"),
+            ("docx", "sciences"),
+            ("pdf", "legal"),
+            ("docx", "legal"),
+            ("pdf", "medicine"),
+            ("docx", "medicine"),
+        ],
+    )
+    def test_accepts_6_new_template_format_combinations(
+        self, fmt: str, tmpl: str
+    ) -> None:
+        """C4.7c — Les 6 nouvelles combinaisons (3 templates × 2 formats)
+        sont toutes acceptées par Pydantic."""
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+            format=fmt,  # type: ignore[arg-type]
+            template=tmpl,  # type: ignore[arg-type]
+            options=DocumentGenerateOptions(
+                subject="Test",
+                level="Test Niveau",
+                date_iso="2026-05-31",
+            ),
+        )
+        assert body.format == fmt
+        assert body.template == tmpl
+        assert body.options.subject == "Test"
 
     @pytest.mark.parametrize(
         "invalid_format",

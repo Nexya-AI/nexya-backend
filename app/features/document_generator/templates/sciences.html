@@ -1,0 +1,97 @@
+{% extends "_base.html" %}
+
+{#
+  Template `sciences` C4.7c.
+  Article scientifique / fiche de recherche. Style sobre académique
+  sans entête institutionnel lourd (vs school). Titre centré + meta
+  Discipline · Établissement · Date en italique gris.
+
+  Variables attendues :
+    title : titre principal (h1 centré)
+    body_html : contenu rendu depuis markdown (déjà safe)
+    options.subject : Discipline (str | None, ex: « Physique »)
+    options.level : Établissement (str | None, ex: « L3 Univ. Yaoundé I »)
+    options.date_iso : date YYYY-MM-DD (str | None, défaut aujourd'hui)
+    options.page_numbers : bool (défaut True)
+#}
+
+{% block extra_css %}
+    @page {
+        size: A4 portrait;
+        margin: 2.5cm 2.2cm;
+
+        {% if options.page_numbers %}
+        @bottom-right {
+            content: counter(page) " / " counter(pages);
+            font-size: 9pt;
+            color: #888;
+        }
+        {% endif %}
+
+        @bottom-left {
+            content: "NEXYA AI · Article scientifique";
+            font-size: 9pt;
+            color: #888;
+        }
+    }
+
+    .sciences-header {
+        text-align: center;
+        margin-bottom: 2em;
+        padding-bottom: 0.8em;
+    }
+
+    .sciences-title {
+        font-size: 22pt;
+        font-weight: 700;
+        margin: 0.4em 0 0.3em 0;
+        color: #1a1a1a;
+        line-height: 1.25;
+    }
+
+    .sciences-meta {
+        margin-top: 0.6em;
+        font-size: 10.5pt;
+        color: #555;
+        font-style: italic;
+    }
+
+    .sciences-meta-sep {
+        margin: 0 0.5em;
+        color: #aaa;
+        font-style: normal;
+    }
+
+    .sciences-footer-disclaimer {
+        margin-top: 2.5em;
+        padding-top: 0.8em;
+        border-top: 1px solid #e0e0e0;
+        font-size: 9pt;
+        color: #888;
+        font-style: italic;
+        text-align: center;
+    }
+{% endblock %}
+
+{% block header %}
+    <header class="sciences-header">
+        <h1 class="sciences-title">{{ title | default('Article scientifique') | e }}</h1>
+        <div class="sciences-meta">
+            {% if options.subject %}
+            <span>{{ options.subject | e }}</span>
+            <span class="sciences-meta-sep">·</span>
+            {% endif %}
+            {% if options.level %}
+            <span>{{ options.level | e }}</span>
+            <span class="sciences-meta-sep">·</span>
+            {% endif %}
+            <span>{{ options.date_iso | default(today_iso) | e }}</span>
+        </div>
+    </header>
+{% endblock %}
+
+{% block footer %}
+    <div class="sciences-footer-disclaimer">
+        Document de travail — Vérifier les sources avant publication.
+    </div>
+{% endblock %}

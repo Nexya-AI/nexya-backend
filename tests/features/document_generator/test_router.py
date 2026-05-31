@@ -264,7 +264,9 @@ class TestGenerateDocumentValidation:
                     json={
                         "conversation_id": str(uuid.uuid4()),
                         "message_id": str(uuid.uuid4()),
-                        "template": "sciences",  # Pas dans Literal
+                        # C4.7c — sciences devenu VALIDE, on utilise
+                        # "business" comme slug invalide (V2 ou jamais).
+                        "template": "business",
                     },
                 )
             assert response.status_code == 422
@@ -465,6 +467,62 @@ class TestGenerateDocumentRateLimit:
             assert response.status_code == 201
             # Pro user → 100/h
             assert captured_max["value"] == 100
+        finally:
+            _cleanup_overrides()
+
+
+# ──────────────────────────────────────────────────────────────────
+# C4.7c — 3 nouveaux templates (sciences/legal/medicine) bout-en-bout
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestGenerateDocumentExtraTemplates:
+    @pytest.mark.parametrize(
+        "template_slug",
+        ["sciences", "legal", "medicine"],
+    )
+    def test_post_with_new_template_returns_201(
+        self, template_slug: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """C4.7c — POST /generate/document accepte les 3 nouveaux templates."""
+        user = _make_fake_user()
+        _install_overrides(monkeypatch, user)
+
+        now = datetime.now(timezone.utc)
+        captured = {}
+
+        async def fake_generate(user_arg, body_arg, db_arg):
+            captured["template"] = body_arg.template
+            captured["format"] = body_arg.format
+            return DocumentGenerateResponse(
+                library_id=uuid.uuid4(),
+                download_url=f"https://x/y.pdf?t={template_slug}",
+                filename=f"doc_{template_slug}.pdf",
+                size_bytes=5000,
+                pages=3,
+                truncated=False,
+                expires_at=now,
+                generated_at=now,
+            )
+
+        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
+
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/generate/document",
+                    json={
+                        "conversation_id": str(uuid.uuid4()),
+                        "message_id": str(uuid.uuid4()),
+                        "template": template_slug,
+                        "options": {
+                            "subject": "Test subject",
+                            "level": "Test level",
+                        },
+                    },
+                )
+            assert response.status_code == 201
+            assert captured["template"] == template_slug
         finally:
             _cleanup_overrides()
 

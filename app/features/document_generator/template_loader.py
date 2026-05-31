@@ -36,12 +36,18 @@ log = structlog.get_logger(__name__)
 TEMPLATES_DIR: Final[Path] = Path(__file__).parent / "templates"
 """Répertoire des templates Jinja2 (sibling du module Python)."""
 
-ALLOWED_TEMPLATES: Final[frozenset[str]] = frozenset({"school", "minimal"})
-"""Whitelist stricte des templates V1.
+ALLOWED_TEMPLATES: Final[frozenset[str]] = frozenset(
+    {"school", "minimal", "sciences", "legal", "medicine"}
+)
+"""Whitelist stricte des templates disponibles (C4.7a + C4.7c).
 
 Défense en profondeur : même si Pydantic Literal `DocumentTemplate` accepte
 ces valeurs, on revérifie au moment du chargement (anti hot-reload + anti
 dépendance accidentelle à un appelant non-Pydantic).
+
+Les 5 templates correspondent à 5 fichiers `.html` dans `templates/` :
+- school.html, minimal.html (C4.7a)
+- sciences.html, legal.html, medicine.html (C4.7c)
 """
 
 
@@ -118,7 +124,7 @@ _JINJA_ENV: Final[Environment] = _build_jinja_env()
 
 
 def render_document_html(
-    template_name: Literal["school", "minimal"],
+    template_name: Literal["school", "minimal", "sciences", "legal", "medicine"],
     *,
     title: str | None,
     markdown_source: str,
@@ -127,12 +133,16 @@ def render_document_html(
     """Rend un template Jinja2 → HTML complet pour WeasyPrint.
 
     Args:
-        template_name: Slug template (school | minimal). Doit appartenir
-            à `ALLOWED_TEMPLATES`.
+        template_name: Slug template (school | minimal | sciences | legal |
+            medicine). Doit appartenir à `ALLOWED_TEMPLATES`.
         title: Titre principal affiché (h1). Si None, le template gère
-            son défaut (« Devoir » pour school, omis pour minimal).
+            son défaut (« Devoir » pour school, omis pour minimal/sciences,
+            « Document juridique » pour legal, « Document médical » pour
+            medicine).
         markdown_source: Contenu source en markdown brut.
-        options: Options de personnalisation par template.
+        options: Options de personnalisation par template (subject/level/
+            date_iso réutilisés sémantiquement par template, cf. docstring
+            de DocumentTemplate dans schemas.py).
 
     Returns:
         HTML string prêt à passer à WeasyPrint.

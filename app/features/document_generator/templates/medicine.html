@@ -1,0 +1,143 @@
+{% extends "_base.html" %}
+
+{#
+  Template `medicine` C4.7c — SAFETY-CRITICAL.
+  Document médical sobre. Header centré + meta Spécialité · Établissement
+  · Date.
+
+  ⚠️ DISCLAIMER URGENCE OBLIGATOIRE EN TÊTE DU BODY (bloc rouge gras avec
+  numéros urgence Cameroun 117/118/119 + 112 international). Aligné sur
+  les standards de `app/ai/expert_prompts/medicine.py` A2.
+
+  Variables attendues :
+    title : titre principal (h1 centré)
+    body_html : contenu rendu depuis markdown (déjà safe)
+    options.subject : Spécialité médicale (str | None, ex: « Cardiologie »)
+    options.level : Établissement (str | None, ex: « Hôpital Général »)
+    options.date_iso : date YYYY-MM-DD (str | None, défaut aujourd'hui)
+    options.page_numbers : bool (défaut True)
+#}
+
+{% block extra_css %}
+    @page {
+        size: A4 portrait;
+        margin: 2.5cm 2.2cm;
+
+        {% if options.page_numbers %}
+        @bottom-right {
+            content: counter(page) " / " counter(pages);
+            font-size: 9pt;
+            color: #888;
+        }
+        {% endif %}
+
+        @bottom-left {
+            content: "NEXYA AI · Document médical";
+            font-size: 9pt;
+            color: #888;
+        }
+    }
+
+    .medicine-header {
+        text-align: center;
+        margin-bottom: 1.5em;
+        padding-bottom: 0.8em;
+        border-bottom: 1px solid #e0e0e0;
+    }
+
+    .medicine-title {
+        font-size: 22pt;
+        font-weight: 700;
+        margin: 0.4em 0 0.3em 0;
+        color: #2563eb;
+        line-height: 1.25;
+    }
+
+    .medicine-meta {
+        margin-top: 0.6em;
+        font-size: 10.5pt;
+        color: #555;
+    }
+
+    .medicine-meta-sep {
+        margin: 0 0.5em;
+        color: #aaa;
+    }
+
+    /* DISCLAIMER URGENCE — bloc rouge gras EN TÊTE body */
+    .medicine-urgent-disclaimer {
+        margin: 1em 0 1.8em 0;
+        padding: 0.9em 1em;
+        background: #fef2f2;
+        border-left: 4px solid #dc2626;
+        border-radius: 3px;
+        font-size: 10pt;
+        line-height: 1.5;
+        color: #1a1a1a;
+        page-break-inside: avoid;
+    }
+
+    .medicine-urgent-disclaimer strong {
+        color: #dc2626;
+        font-weight: 700;
+        display: block;
+        margin-bottom: 0.3em;
+        font-size: 10.5pt;
+    }
+
+    .medicine-urgent-disclaimer .urgent-numbers {
+        margin-top: 0.4em;
+        font-weight: 600;
+        color: #1a1a1a;
+    }
+
+    .medicine-footer-disclaimer {
+        margin-top: 2.5em;
+        padding-top: 0.8em;
+        border-top: 1px solid #e0e0e0;
+        font-size: 9pt;
+        color: #888;
+        font-style: italic;
+        text-align: center;
+    }
+{% endblock %}
+
+{% block header %}
+    <header class="medicine-header">
+        <h1 class="medicine-title">{{ title | default('Document médical') | e }}</h1>
+        <div class="medicine-meta">
+            {% if options.subject %}
+            <span>{{ options.subject | e }}</span>
+            <span class="medicine-meta-sep">·</span>
+            {% endif %}
+            {% if options.level %}
+            <span>{{ options.level | e }}</span>
+            <span class="medicine-meta-sep">·</span>
+            {% endif %}
+            <span>{{ options.date_iso | default(today_iso) | e }}</span>
+        </div>
+    </header>
+{% endblock %}
+
+{% block body %}
+    {# Disclaimer urgence FIGÉ injecté EN TÊTE du body (avant le markdown).
+       Pattern aligné sur les standards safety-critical de l'expert
+       medicine NEXYA (cf. expert_prompts/medicine.py A2). #}
+    <div class="medicine-urgent-disclaimer">
+        <strong>⚠️ AVERTISSEMENT MÉDICAL</strong>
+        Ce document est fourni à titre d'information uniquement et ne
+        remplace en aucun cas une consultation médicale professionnelle.
+        <div class="urgent-numbers">
+            En cas d'urgence vitale au Cameroun : 117 (Police) · 118 (Pompiers)
+            · 119 (SAMU). À l'international : 112.
+        </div>
+    </div>
+
+    {{ body_html | safe }}
+{% endblock %}
+
+{% block footer %}
+    <div class="medicine-footer-disclaimer">
+        Document d'information médicale — NEXYA AI ne pose pas de diagnostic.
+    </div>
+{% endblock %}
