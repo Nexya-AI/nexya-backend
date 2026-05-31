@@ -547,3 +547,98 @@ class TestGenerateDocumentAuth:
             )
         # 401 (token manquant) ou 403 (guard refuse)
         assert response.status_code in (401, 403)
+
+
+# ──────────────────────────────────────────────────────────────────
+# C4.7d — Gate Pro 403 PLAN_REQUIRED + Response shape enrichie
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestC47dRouterWatermarkC2PA:
+    """C4.7d — Mapping router des 5 nouveaux champs + 403 paywall."""
+
+    def test_router_403_plan_required_on_remove_watermark_free(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """C4.7d — Free + remove_watermark=true → 403 PLAN_REQUIRED."""
+        from app.core.errors.exceptions import PlanRequiredException
+
+        user = _make_fake_user(is_pro=False)
+        _install_overrides(monkeypatch, user)
+
+        async def fake_generate(*args, **kwargs):
+            raise PlanRequiredException(feature="Document sans watermark")
+
+        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
+
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/generate/document",
+                    json={
+                        "conversation_id": str(uuid.uuid4()),
+                        "message_id": str(uuid.uuid4()),
+                        "remove_watermark": True,
+                    },
+                )
+
+            assert response.status_code == 403
+            body = response.json()
+            assert body["success"] is False
+            assert body["code"] == "PLAN_REQUIRED"
+        finally:
+            _cleanup_overrides()
+
+    def test_router_201_with_watermark_and_c2pa_fields_in_response_pro_user(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """C4.7d — Pro + watermark défaut → response inclut les 5 champs."""
+        user = _make_fake_user(is_pro=True)
+        _install_overrides(monkeypatch, user)
+
+        now = datetime.now(timezone.utc)
+        fake_response = DocumentGenerateResponse(
+            library_id=uuid.uuid4(),
+            download_url="https://minio.local/foo.pdf?sig=abc",
+            filename="my_doc.pdf",
+            size_bytes=12345,
+            pages=10,
+            truncated=False,
+            expires_at=now,
+            generated_at=now,
+            # C4.7d champs enrichis
+            watermark_applied=True,
+            watermark_version="v1-doc-pdf-docx-2026-05",
+            c2pa_applied=True,
+            c2pa_manifest_id="mock-c2pa-000042",
+            c2pa_skip_reason=None,
+        )
+
+        async def fake_generate(*args, **kwargs):
+            return fake_response
+
+        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
+
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/generate/document",
+                    json={
+                        "conversation_id": str(uuid.uuid4()),
+                        "message_id": str(uuid.uuid4()),
+                        "template": "minimal",
+                        "format": "pdf",
+                    },
+                )
+
+            assert response.status_code == 201
+            body = response.json()
+            assert body["success"] is True
+            data = body["data"]
+            assert data["watermark_applied"] is True
+            assert data["watermark_version"] == "v1-doc-pdf-docx-2026-05"
+            assert data["c2pa_applied"] is True
+            assert data["c2pa_manifest_id"] == "mock-c2pa-000042"
+            assert data["c2pa_skip_reason"] is None
+        finally:
+            _cleanup_overrides()

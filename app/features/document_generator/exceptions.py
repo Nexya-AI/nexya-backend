@@ -92,3 +92,33 @@ class DocumentStorageUnavailableError(DocumentGeneratorError):
     """
 
     code = "DOCUMENT_STORAGE_UNAVAILABLE"
+
+
+class DocumentWatermarkSkippedError(DocumentGeneratorError):
+    """Marker INFO (jamais raise) : watermark non appliqué (C4.7d).
+
+    Utilisé comme valeur informative `watermark_applied=False` + log warning
+    quand l'application du watermark a échoué silencieusement (Pillow crash,
+    asset PNG corrompu, OOM). Le document est retourné quand même au user
+    SANS watermark — fail-safe absolu, jamais bloquer `/generate/document`.
+    """
+
+    code = "DOCUMENT_WATERMARK_SKIPPED"
+
+
+class DocumentC2PASkippedError(DocumentGeneratorError):
+    """Marker INFO (jamais raise) : signature C2PA non appliquée (C4.7d).
+
+    Utilisé comme valeur informative `c2pa_applied=False` + `c2pa_skip_reason`
+    tracé pour audit conformité AI Act. Causes possibles :
+    - `unsupported_format_docx` (DOCX V1 — c2pa-rs ne supporte pas OOXML)
+    - `disabled_by_killswitch` (settings.c2pa_enabled=False)
+    - `sign_error` (exception lib c2pa-python ou clés X.509 invalides)
+    - `c2pa_lib_unavailable` (lib pas installée + mode mock désactivé)
+
+    Le document est retourné quand même au user SANS signature C2PA —
+    fail-safe absolu. Conformité AI Act UE août 2026 sera assurée dès
+    que les clés X.509 d'Ivan seront fournies + lib `c2pa-python` installée.
+    """
+
+    code = "DOCUMENT_C2PA_SKIPPED"

@@ -36,6 +36,7 @@ import structlog
 from .exceptions import DocumentRenderFailedError
 from .schemas import DocumentGenerateOptions
 from .template_loader import _MD  # Singleton MarkdownIt partagé avec PDF
+from .watermark_assets import get_watermark_path
 
 log = structlog.get_logger(__name__)
 
@@ -63,12 +64,17 @@ class RenderedDocx:
         pages: Nombre estimé de pages (heuristique).
         truncated: True si le DOCX a été tronqué au cap pages.
         size_bytes: len(docx_bytes) — exposé pour cohérence response.
+        watermark_applied: True si le footer NEXYA (logo + texte
+            « Généré par NEXYA AI ») a été appliqué. C4.7d.
+            False si remove_watermark=True, kill-switch off, asset
+            PNG introuvable, ou exception python-docx (fail-safe).
     """
 
     docx_bytes: bytes
     pages: int
     truncated: bool
     size_bytes: int
+    watermark_applied: bool = False
 
 
 # ── Helpers sync (appelés dans to_thread) ────────────────────────────
@@ -425,6 +431,65 @@ def _build_medicine_disclaimer_paragraph(document: Any) -> None:
     document.add_paragraph()
 
 
+def _apply_docx_watermark_footer(document: Any) -> bool:
+    """Ajoute logo NEXYA + texte « Généré par NEXYA AI » dans le footer DOCX.
+
+    C4.7d — Watermark sobre right-aligned dans le footer de la première
+    section (s'applique à toutes les pages via python-docx section header
+    inheritance par défaut). Logo 0.6 inch (~15mm) + espace + texte 8pt
+    italique gris.
+
+    Pattern senior :
+    - **Asset chargé via singleton** `get_watermark_path()` (cache process-
+      wide, fail-safe → None si PNG introuvable).
+    - **Fail-safe absolu** : exception python-docx (image format non
+      supporté, OOM, structure XML invalide) → log warning + return False.
+      Le DOCX est retourné quand même au user SANS footer watermark.
+    - **Footer first section uniquement** — python-docx propagation
+      automatique aux sections suivantes via inheritance par défaut.
+
+    Args:
+        document: Instance `docx.Document` mutée in-place.
+
+    Returns:
+        True si le footer a été appliqué avec succès, False sinon
+        (le caller propage `watermark_applied=False` dans RenderedDocx).
+    """
+    try:
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.shared import Inches, Pt, RGBColor
+
+        path = get_watermark_path()
+        if path is None:
+            log.warning("documents.docx.watermark_skipped_no_asset")
+            return False
+
+        section = document.sections[0]
+        footer = section.footer
+        paragraph = footer.paragraphs[0]
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+        # Logo NEXYA — width 0.6 inch ≈ 15mm, lisible sans envahir
+        run_logo = paragraph.add_run()
+        run_logo.add_picture(str(path), width=Inches(0.6))
+
+        # Texte italique gris discret à droite du logo
+        run_text = paragraph.add_run("  Généré par NEXYA AI")
+        run_text.italic = True
+        run_text.font.size = Pt(8)
+        run_text.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+
+        log.debug("documents.docx.watermark_applied")
+        return True
+    except Exception as exc:  # noqa: BLE001 — fail-safe absolu
+        log.warning(
+            "documents.docx.watermark_apply_failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        return False
+
+
 def _render_docx_sync(
     *,
     template_name: Literal["school", "minimal", "sciences", "legal", "medicine"],
@@ -432,6 +497,7 @@ def _render_docx_sync(
     markdown_source: str,
     options: DocumentGenerateOptions,
     max_pages: int,
+    apply_watermark: bool = False,
 ) -> RenderedDocx:
     """Rend un DOCX complet (sync, CPU-bound).
 
@@ -489,6 +555,13 @@ def _render_docx_sync(
         )
         note_run.italic = True
 
+    # C4.7d — Watermark footer (logo NEXYA + texte « Généré par NEXYA AI »)
+    # appliqué APRÈS le body. python-docx propage le footer first-section
+    # à toutes les pages via inheritance par défaut. Fail-safe absolu.
+    watermark_applied = False
+    if apply_watermark:
+        watermark_applied = _apply_docx_watermark_footer(doc)
+
     # Save en BytesIO
     output = io.BytesIO()
     doc.save(output)
@@ -507,6 +580,7 @@ def _render_docx_sync(
         pages=min(estimated_pages, max_pages),
         truncated=truncated,
         size_bytes=len(docx_bytes),
+        watermark_applied=watermark_applied,
     )
 
 
@@ -521,6 +595,7 @@ async def render_markdown_to_docx(
     options: DocumentGenerateOptions,
     timeout_seconds: float = _DEFAULT_RENDER_TIMEOUT_SECONDS,
     max_pages: int = _DEFAULT_MAX_PAGES,
+    apply_watermark: bool = False,
 ) -> RenderedDocx:
     """Rend markdown → DOCX complet avec timeout + cap pages.
 
@@ -562,6 +637,7 @@ async def render_markdown_to_docx(
                 markdown_source=markdown_source,
                 options=options,
                 max_pages=max_pages,
+                apply_watermark=apply_watermark,
             ),
             timeout=timeout_seconds,
         )

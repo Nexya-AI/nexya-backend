@@ -149,7 +149,10 @@ async def test_mock_provider_force_skip_returns_applied_false() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mime_type",
-    ["application/pdf", "video/mp4", "text/plain", "image/gif", ""],
+    # [C4.7d 2026-05-31] `application/pdf` retiré — désormais supporté pour la
+    # signature C2PA des documents générés (cf. nexya_backend §15 entrée C4.7d).
+    # Liste finale = mimes qui restent rejetés (vidéo, plain text, gif, empty).
+    ["video/mp4", "text/plain", "image/gif", ""],
 )
 async def test_mock_provider_skips_unsupported_format(mime_type: str) -> None:
     provider = MockManifestProvider()

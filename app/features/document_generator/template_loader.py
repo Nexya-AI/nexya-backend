@@ -28,6 +28,7 @@ from markdown_it import MarkdownIt
 
 from .exceptions import TemplateNotFoundError
 from .schemas import DocumentGenerateOptions
+from .watermark_assets import get_watermark_data_url
 
 log = structlog.get_logger(__name__)
 
@@ -129,6 +130,7 @@ def render_document_html(
     title: str | None,
     markdown_source: str,
     options: DocumentGenerateOptions,
+    apply_watermark: bool = False,
 ) -> str:
     """Rend un template Jinja2 → HTML complet pour WeasyPrint.
 
@@ -143,6 +145,12 @@ def render_document_html(
         options: Options de personnalisation par template (subject/level/
             date_iso réutilisés sémantiquement par template, cf. docstring
             de DocumentTemplate dans schemas.py).
+        apply_watermark: True (défaut False) → injecte le logo NEXYA en
+            base64 data URL dans le contexte Jinja2 (`watermark_data_url`).
+            Le template `_base.html` ajoute alors une @page background-image
+            bottom-right. C4.7d. Fail-safe : si l'asset PNG est introuvable,
+            `watermark_data_url=None` et le template skip silencieusement
+            (via `{% if watermark_data_url %}`).
 
     Returns:
         HTML string prêt à passer à WeasyPrint.
@@ -168,10 +176,16 @@ def render_document_html(
     # Date par défaut = aujourd'hui UTC ISO court (YYYY-MM-DD)
     today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+    # C4.7d : résolution paresseuse du data URL watermark (singleton fail-safe).
+    # `None` si apply_watermark=False ou asset PNG introuvable → template Jinja2
+    # skip silencieusement via `{% if watermark_data_url %}`.
+    watermark_data_url = get_watermark_data_url() if apply_watermark else None
+
     template = _JINJA_ENV.get_template(f"{template_name}.html")
     return template.render(
         title=title,
         body_html=body_html,
         options=options,
         today_iso=today_iso,
+        watermark_data_url=watermark_data_url,
     )

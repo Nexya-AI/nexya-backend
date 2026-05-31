@@ -37,9 +37,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.errors.exceptions import ResourceNotFoundException
+from app.core.errors.exceptions import PlanRequiredException, ResourceNotFoundException
 from app.features.auth.models import User
 from app.features.chat.models import Conversation, Message
+from app.features.images.c2pa import (
+    C2PAError,
+    C2PASignRequest,
+    C2PASignResult,
+    get_manifest_provider,
+)
 from app.features.library.service import LibraryService
 
 from .docx_renderer import render_markdown_to_docx
@@ -55,6 +61,7 @@ from .schemas import (
     DocumentTemplate,
 )
 from .template_loader import render_document_html
+from .watermark_assets import WATERMARK_VERSION
 from .weasyprint_renderer import render_html_to_pdf
 
 log = structlog.get_logger(__name__)
@@ -176,6 +183,19 @@ class DocumentGeneratorService:
             DocumentRenderFailedError: 503 si WeasyPrint timeout/crash.
             DocumentStorageUnavailableError: 503 si MinIO fail.
         """
+        # 0. C4.7d Gate Pro AVANT render (économie WeasyPrint+pikepdf si Free
+        # tente remove_watermark=True). Pattern strict aligné `/image/generate`
+        # E4 — paywall pre-flight pour ne JAMAIS facturer une feature Pro à un
+        # Free qui n'a pas le plan.
+        if body.remove_watermark and not user.is_pro:
+            log.info(
+                "documents.remove_watermark.plan_required",
+                user_id=str(user.id),
+                template=body.template,
+                format=body.format,
+            )
+            raise PlanRequiredException(feature="Document sans watermark")
+
         # 1. Récupération source markdown (avec owner-check IDOR-safe)
         markdown_source = await DocumentGeneratorService._get_owned_message_content(
             conversation_id=body.conversation_id,
@@ -199,14 +219,25 @@ class DocumentGeneratorService:
                 "en plusieurs parties plus courtes."
             )
 
+        # C4.7d : calcul de l'intent watermark (kill-switch backend ET
+        # remove_watermark user). True = on tente l'application (le succès
+        # final dépend de la dispo de l'asset PNG, fail-safe absolu côté
+        # renderer si OOM/Pillow crash).
+        apply_watermark = (
+            settings.documents_generator_watermark_enabled
+            and not body.remove_watermark
+        )
+
         # 3. Rendu format-spécifique (dispatch PDF vs DOCX)
         if body.format == "pdf":
-            # PDF pipeline (C4.7a) : HTML Jinja2 → WeasyPrint → pikepdf
+            # PDF pipeline (C4.7a + C4.7d watermark) : HTML Jinja2 +
+            # @page background-image base64 → WeasyPrint → pikepdf
             html_content = render_document_html(
                 template_name=body.template,
                 title=body.title,
                 markdown_source=markdown_source,
                 options=body.options,
+                apply_watermark=apply_watermark,
             )
             rendered_pdf = await render_html_to_pdf(
                 html_content,
@@ -221,8 +252,19 @@ class DocumentGeneratorService:
             mime_type = "application/pdf"
             provider_name = "weasyprint"
             file_type_for_library: str = "pdf"
+            # C4.7d : pour le PDF, watermark_applied est dérivé directement
+            # de l'intent + dispo asset (le template Jinja2 skip silencieusement
+            # via `{% if watermark_data_url %}`). On pré-calcule ici via
+            # `get_watermark_data_url()` qui est cached singleton.
+            from .watermark_assets import get_watermark_data_url
+
+            watermark_applied = apply_watermark and (
+                get_watermark_data_url() is not None
+            )
         else:  # body.format == "docx"
-            # DOCX pipeline (C4.7b) : markdown-it AST → python-docx natif
+            # DOCX pipeline (C4.7b + C4.7d watermark footer) : markdown-it
+            # AST → python-docx natif + footer logo + texte « Généré par
+            # NEXYA AI » via _apply_docx_watermark_footer (fail-safe absolu).
             rendered_docx = await render_markdown_to_docx(
                 template_name=body.template,
                 title=body.title,
@@ -230,6 +272,7 @@ class DocumentGeneratorService:
                 options=body.options,
                 timeout_seconds=settings.documents_generator_render_timeout_seconds,
                 max_pages=settings.documents_generator_max_pages,
+                apply_watermark=apply_watermark,
             )
             output_bytes = rendered_docx.docx_bytes
             output_pages = rendered_docx.pages
@@ -239,6 +282,77 @@ class DocumentGeneratorService:
             mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             provider_name = "python-docx"
             file_type_for_library = "docx"
+            # C4.7d : flag remonté par le renderer (True si footer appliqué OK,
+            # False si fail-safe Pillow/OOM ou asset PNG introuvable).
+            watermark_applied = rendered_docx.watermark_applied
+
+        # 3.5 C4.7d — Signature C2PA AI Act (PDF uniquement V1).
+        # DOCX différé V2 — c2pa-rs ne supporte pas OOXML natif, skip
+        # silencieux avec `c2pa_skip_reason='unsupported_format_docx'`.
+        # Fail-safe absolu : exception lib c2pa-python / clés X.509 invalides
+        # → c2pa_applied=False + skip_reason='sign_error', le document
+        # est retourné au user SANS signature (jamais bloquer).
+        c2pa_applied = False
+        c2pa_manifest_id: str | None = None
+        c2pa_signed_at: datetime | None = None
+        c2pa_skip_reason: str | None = None
+
+        if body.format == "docx":
+            c2pa_skip_reason = "unsupported_format_docx"
+            log.debug(
+                "documents.c2pa.skipped_docx",
+                reason=c2pa_skip_reason,
+                user_id=str(user.id),
+            )
+        else:
+            try:
+                manifest_provider = get_manifest_provider()
+                c2pa_request = C2PASignRequest(
+                    prompt=f"NEXYA document template={body.template}",
+                    provider=provider_name,
+                    model=f"template_{body.template}",
+                    generation_timestamp=datetime.now(timezone.utc),
+                    watermark_applied=watermark_applied,
+                    watermark_version=(
+                        WATERMARK_VERSION if watermark_applied else None
+                    ),
+                )
+                c2pa_result: C2PASignResult = await manifest_provider.sign_image(
+                    image_bytes=output_bytes,
+                    mime_type=mime_type,
+                    request=c2pa_request,
+                )
+                if c2pa_result.applied:
+                    # Remplace output_bytes par la version signée (manifest
+                    # C2PA embarqué dans les métadonnées XMP du PDF).
+                    output_bytes = c2pa_result.image_bytes
+                    output_size = len(output_bytes)
+                    c2pa_applied = True
+                    c2pa_manifest_id = c2pa_result.manifest_id
+                    c2pa_signed_at = c2pa_result.signed_at
+                else:
+                    c2pa_skip_reason = c2pa_result.skip_reason or "unknown"
+                    log.info(
+                        "documents.c2pa.skip_provider",
+                        reason=c2pa_skip_reason,
+                        user_id=str(user.id),
+                    )
+            except C2PAError as exc:
+                c2pa_skip_reason = "sign_error"
+                log.warning(
+                    "documents.c2pa.sign_failed_typed",
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                    user_id=str(user.id),
+                )
+            except Exception as exc:  # noqa: BLE001 — fail-safe absolu
+                c2pa_skip_reason = "sign_error"
+                log.warning(
+                    "documents.c2pa.sign_failed_unexpected",
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                    user_id=str(user.id),
+                )
 
         # 4. Génération filename FS-safe
         title_for_filename = body.title or f"document_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
@@ -266,8 +380,26 @@ class DocumentGeneratorService:
                     "pages": output_pages,
                     "truncated": output_truncated,
                     "format": body.format,
-                    "generator_version": "c47b-v1" if body.format == "docx" else "c47a-v1",
+                    "generator_version": "c47d-v1",  # bumped from c47a/c47b
                     "options": body.options.model_dump(exclude_none=True),
+                    # C4.7d — watermark tracking
+                    "has_watermark": watermark_applied,
+                    "watermark_version": (
+                        WATERMARK_VERSION if watermark_applied else None
+                    ),
+                    # Tracé pour future facturation différentielle wallet V2
+                    # (pattern aligné E4 image — Pro qui retire le watermark
+                    # paiera +50% via wallet v2 selon `no_watermark_price_multiplier`).
+                    "no_watermark_was_requested": bool(
+                        body.remove_watermark and user.is_pro
+                    ),
+                    # C4.7d — C2PA AI Act tracking
+                    "has_c2pa": c2pa_applied,
+                    "c2pa_manifest_id": c2pa_manifest_id,
+                    "c2pa_signed_at": (
+                        c2pa_signed_at.isoformat() if c2pa_signed_at else None
+                    ),
+                    "c2pa_skip_reason": c2pa_skip_reason,
                 },
             )
         except Exception as exc:
@@ -318,6 +450,11 @@ class DocumentGeneratorService:
             size_bytes=output_size,
             truncated=output_truncated,
             source_chars=len(markdown_source),
+            # C4.7d watermark + C2PA forensic logging
+            watermark_applied=watermark_applied,
+            c2pa_applied=c2pa_applied,
+            c2pa_skip_reason=c2pa_skip_reason,
+            remove_watermark_requested=body.remove_watermark,
         )
 
         return DocumentGenerateResponse(
@@ -329,6 +466,14 @@ class DocumentGeneratorService:
             truncated=output_truncated,
             expires_at=expires_at,
             generated_at=now,
+            # C4.7d — Watermark + C2PA enrichissement réponse client
+            watermark_applied=watermark_applied,
+            watermark_version=(
+                WATERMARK_VERSION if watermark_applied else None
+            ),
+            c2pa_applied=c2pa_applied,
+            c2pa_manifest_id=c2pa_manifest_id,
+            c2pa_skip_reason=c2pa_skip_reason,
         )
 
 
