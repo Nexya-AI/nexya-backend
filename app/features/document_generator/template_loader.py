@@ -26,6 +26,12 @@ import structlog
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markdown_it import MarkdownIt
 
+from .branding import (
+    BrandingContext,
+    build_invisible_html_marker,
+    build_pdf_branding_footer_css,
+    build_pdf_branding_header_css,
+)
 from .exceptions import TemplateNotFoundError
 from .schemas import DocumentGenerateOptions
 from .watermark_assets import get_watermark_data_url
@@ -131,6 +137,7 @@ def render_document_html(
     markdown_source: str,
     options: DocumentGenerateOptions,
     apply_watermark: bool = False,
+    branding_context: BrandingContext | None = None,
 ) -> str:
     """Rend un template Jinja2 → HTML complet pour WeasyPrint.
 
@@ -151,6 +158,12 @@ def render_document_html(
             bottom-right. C4.7d. Fail-safe : si l'asset PNG est introuvable,
             `watermark_data_url=None` et le template skip silencieusement
             (via `{% if watermark_data_url %}`).
+        branding_context: BrandingContext (C4.8) — si fourni, injecte
+            les blocs CSS @page top-left header `[NEXYA AI]` + @page
+            bottom-center footer `Généré par NEXYA AI · Nexyalabs · date`
+            + marqueur HTML invisible audit forensic. Si None (kill-switch
+            OFF côté service), aucun branding visible (skip silencieux via
+            `{% if branding_header_css %}` / `{% if branding_invisible_html %}`).
 
     Returns:
         HTML string prêt à passer à WeasyPrint.
@@ -181,6 +194,30 @@ def render_document_html(
     # skip silencieusement via `{% if watermark_data_url %}`.
     watermark_data_url = get_watermark_data_url() if apply_watermark else None
 
+    # C4.8 : branding CSS + marker invisible (skip silencieux si ctx None).
+    # Fail-safe absolu : si les helpers raise (cas improbable, dataclass
+    # frozen sans I/O), on laisse les chaînes vides → template skip via
+    # `{% if branding_header_css %}`.
+    branding_header_css = ""
+    branding_footer_css = ""
+    branding_invisible_html = ""
+    if branding_context is not None:
+        try:
+            branding_header_css = build_pdf_branding_header_css(branding_context)
+            branding_footer_css = build_pdf_branding_footer_css(branding_context)
+            branding_invisible_html = build_invisible_html_marker(branding_context)
+        except Exception as exc:  # noqa: BLE001 — fail-safe absolu
+            log.warning(
+                "documents.branding.css_build_failed",
+                error=str(exc),
+                error_type=type(exc).__name__,
+                template=template_name,
+            )
+            # Reset les 3 strings à vide (pas de branding partiel)
+            branding_header_css = ""
+            branding_footer_css = ""
+            branding_invisible_html = ""
+
     template = _JINJA_ENV.get_template(f"{template_name}.html")
     return template.render(
         title=title,
@@ -188,4 +225,7 @@ def render_document_html(
         options=options,
         today_iso=today_iso,
         watermark_data_url=watermark_data_url,
+        branding_header_css=branding_header_css,
+        branding_footer_css=branding_footer_css,
+        branding_invisible_html=branding_invisible_html,
     )

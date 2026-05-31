@@ -48,6 +48,11 @@ from app.features.images.c2pa import (
 )
 from app.features.library.service import LibraryService
 
+from .branding import (
+    BRANDING_VERSION,
+    build_branding_context,
+    generate_intelligent_filename,
+)
 from .docx_renderer import render_markdown_to_docx
 from .exceptions import (
     DocumentSourceTooLongError,
@@ -228,21 +233,39 @@ class DocumentGeneratorService:
             and not body.remove_watermark
         )
 
+        # C4.8 + C4.9 : construit le BrandingContext UNE FOIS pour toute
+        # la requête (cohérence cross-canal : PDF info, XMP, DOCX core_props,
+        # HTML marker, filename portent tous la même date/template).
+        # Kill-switch global → branding_context=None → tous les helpers
+        # skip silencieusement (fail-safe absolu via Jinja2 `{% if %}` +
+        # checks Python None dans renderers).
+        branding_context = None
+        if settings.documents_generator_branding_enabled:
+            branding_context = build_branding_context(
+                template=body.template,
+                title=body.title,
+                locale="fr",  # V1 FR-only ; V2 lira `user.preferences.locale`
+            )
+
         # 3. Rendu format-spécifique (dispatch PDF vs DOCX)
         if body.format == "pdf":
-            # PDF pipeline (C4.7a + C4.7d watermark) : HTML Jinja2 +
-            # @page background-image base64 → WeasyPrint → pikepdf
+            # PDF pipeline (C4.7a + C4.7d watermark + C4.8 branding) :
+            # HTML Jinja2 + @page background-image base64 + @page top-left
+            # header + @page bottom-center footer + invisible marker
+            # → WeasyPrint → pikepdf (compress + native metadata XMP).
             html_content = render_document_html(
                 template_name=body.template,
                 title=body.title,
                 markdown_source=markdown_source,
                 options=body.options,
                 apply_watermark=apply_watermark,
+                branding_context=branding_context,
             )
             rendered_pdf = await render_html_to_pdf(
                 html_content,
                 timeout_seconds=settings.documents_generator_render_timeout_seconds,
                 max_pages=settings.documents_generator_max_pages,
+                branding_context=branding_context,
             )
             output_bytes = rendered_pdf.pdf_bytes
             output_pages = rendered_pdf.pages
@@ -262,9 +285,11 @@ class DocumentGeneratorService:
                 get_watermark_data_url() is not None
             )
         else:  # body.format == "docx"
-            # DOCX pipeline (C4.7b + C4.7d watermark footer) : markdown-it
-            # AST → python-docx natif + footer logo + texte « Généré par
-            # NEXYA AI » via _apply_docx_watermark_footer (fail-safe absolu).
+            # DOCX pipeline (C4.7b + C4.7d watermark footer + C4.8 + C4.9
+            # branding) : markdown-it AST → python-docx natif + footer
+            # logo + texte « Généré par NEXYA AI » via _apply_docx_watermark_footer
+            # + header [NEXYA AI] + footer page counter PAGE/NUMPAGES +
+            # core_properties + marker invisible (fail-safe absolu sur tout).
             rendered_docx = await render_markdown_to_docx(
                 template_name=body.template,
                 title=body.title,
@@ -273,6 +298,7 @@ class DocumentGeneratorService:
                 timeout_seconds=settings.documents_generator_render_timeout_seconds,
                 max_pages=settings.documents_generator_max_pages,
                 apply_watermark=apply_watermark,
+                branding_context=branding_context,
             )
             output_bytes = rendered_docx.docx_bytes
             output_pages = rendered_docx.pages
@@ -354,10 +380,23 @@ class DocumentGeneratorService:
                     user_id=str(user.id),
                 )
 
-        # 4. Génération filename FS-safe
-        title_for_filename = body.title or f"document_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
-        safe_basename = _sanitize_filename(title_for_filename, fallback="document")
-        filename = f"{safe_basename}.{file_extension}"
+        # 4. Génération filename — C4.8 utilise le filename intelligent
+        # `nexya_<template>_<title-slug>_<YYYY-MM-DD>.<ext>` quand
+        # branding actif, sinon fallback legacy C4.7a.
+        # `safe_basename` reste calculé dans les 2 branches car utilisé
+        # comme fallback pour `library_item.title` plus bas.
+        title_for_filename = body.title or (
+            f"document_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+        )
+        safe_basename = _sanitize_filename(
+            title_for_filename, fallback="document"
+        )
+        if branding_context is not None:
+            filename = generate_intelligent_filename(
+                branding_context, extension=file_extension
+            )
+        else:
+            filename = f"{safe_basename}.{file_extension}"
 
         # 5. Persistance Library (MinIO upload + DB INSERT)
         try:
@@ -380,7 +419,7 @@ class DocumentGeneratorService:
                     "pages": output_pages,
                     "truncated": output_truncated,
                     "format": body.format,
-                    "generator_version": "c47d-v1",  # bumped from c47a/c47b
+                    "generator_version": "c48-v1",  # bumped from c47d/c47b/c47a
                     "options": body.options.model_dump(exclude_none=True),
                     # C4.7d — watermark tracking
                     "has_watermark": watermark_applied,
@@ -400,6 +439,11 @@ class DocumentGeneratorService:
                         c2pa_signed_at.isoformat() if c2pa_signed_at else None
                     ),
                     "c2pa_skip_reason": c2pa_skip_reason,
+                    # C4.8 + C4.9 — Branding NEXYA tracking
+                    "branding_version": (
+                        BRANDING_VERSION if branding_context is not None else None
+                    ),
+                    "has_branding": branding_context is not None,
                 },
             )
         except Exception as exc:
@@ -455,6 +499,12 @@ class DocumentGeneratorService:
             c2pa_applied=c2pa_applied,
             c2pa_skip_reason=c2pa_skip_reason,
             remove_watermark_requested=body.remove_watermark,
+            # C4.8 branding forensic logging
+            branding_applied=branding_context is not None,
+            branding_version=(
+                BRANDING_VERSION if branding_context is not None else None
+            ),
+            filename=filename,
         )
 
         return DocumentGenerateResponse(

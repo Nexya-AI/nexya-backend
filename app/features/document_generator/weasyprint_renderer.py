@@ -31,6 +31,7 @@ from typing import Final
 
 import structlog
 
+from .branding import BrandingContext, apply_pdf_native_metadata
 from .exceptions import DocumentRenderFailedError
 
 log = structlog.get_logger(__name__)
@@ -131,12 +132,17 @@ def _post_process_pdf_sync(
     pdf_bytes: bytes,
     *,
     max_pages: int,
+    branding_context: BrandingContext | None = None,
 ) -> RenderedPdf:
-    """Post-process pikepdf : count pages, tronque, compresse.
+    """Post-process pikepdf : count pages, tronque, compresse, branding metadata.
 
     Args:
         pdf_bytes: PDF brut sortant de WeasyPrint.
         max_pages: Cap dur de pages (tronque au-delà).
+        branding_context: BrandingContext (C4.8 + C4.9). Si fourni, enrichit
+            les métadonnées natives PDF (`/Info` legacy + XMP modern) via
+            `apply_pdf_native_metadata`. Si None, comportement legacy
+            (sanitize basique via `meta.load_from_docinfo`).
 
     Returns:
         RenderedPdf avec pdf_bytes compressé + metadata.
@@ -160,10 +166,17 @@ def _post_process_pdf_sync(
 
         actual_pages = len(pdf.pages)
 
-        # Sanitize metadata : retire les infos provider (anti fingerprinting
-        # WeasyPrint version, OS, etc.) — Title posé par le template.
-        with pdf.open_metadata() as meta:
-            meta.load_from_docinfo(pdf.docinfo)
+        # C4.8 + C4.9 : enrichit les métadonnées natives PDF si branding
+        # context fourni. Fail-safe absolu côté helper (exception swallow
+        # → log warning + return False, PDF reste valide).
+        if branding_context is not None:
+            apply_pdf_native_metadata(pdf, branding_context)
+        else:
+            # Legacy : sanitize metadata uniquement (pas de branding).
+            # Retire les infos provider (anti fingerprinting WeasyPrint
+            # version, OS, etc.) — Title posé par le template.
+            with pdf.open_metadata() as meta:
+                meta.load_from_docinfo(pdf.docinfo)
 
         # Compression streams (pikepdf optimise les flux internes)
         pdf.save(
@@ -190,18 +203,22 @@ async def render_html_to_pdf(
     *,
     timeout_seconds: float = _DEFAULT_RENDER_TIMEOUT_SECONDS,
     max_pages: int = _DEFAULT_MAX_PAGES,
+    branding_context: BrandingContext | None = None,
 ) -> RenderedPdf:
     """Rend HTML → PDF complet avec timeout + cap pages + compression.
 
     Pipeline :
         1. WeasyPrint render dans thread (sync, ~1-5s typique)
         2. Timeout asyncio 30s default (kill si dépasse)
-        3. pikepdf post-process (count + truncate + compress)
+        3. pikepdf post-process (count + truncate + compress + metadata)
 
     Args:
         html_content: HTML string complet (template Jinja2 rendu).
         timeout_seconds: Timeout hardcap render (défaut 30s).
         max_pages: Cap dur pages (défaut 50).
+        branding_context: BrandingContext (C4.8). Si fourni, enrichit
+            les métadonnées natives PDF via `apply_pdf_native_metadata`
+            dans `_post_process_pdf_sync`.
 
     Returns:
         RenderedPdf avec metadata complète.
@@ -244,12 +261,13 @@ async def render_html_to_pdf(
             "Vérifie que le document source ne contient pas de structures HTML/CSS invalides."
         ) from exc
 
-    # Étape 2 : pikepdf post-process (count pages + compress)
+    # Étape 2 : pikepdf post-process (count pages + compress + branding metadata)
     try:
         result = await asyncio.to_thread(
             _post_process_pdf_sync,
             pdf_raw_bytes,
             max_pages=max_pages,
+            branding_context=branding_context,
         )
     except Exception as exc:
         log.warning(

@@ -46,7 +46,7 @@ class TestRenderHappy:
             assert "<html" in html_content
             return _FAKE_PDF_BYTES
 
-        def fake_post_process(pdf_bytes: bytes, *, max_pages: int):
+        def fake_post_process(pdf_bytes: bytes, *, max_pages: int, branding_context=None):
             from app.features.document_generator.weasyprint_renderer import RenderedPdf
 
             return RenderedPdf(
@@ -123,7 +123,7 @@ class TestRenderExceptions:
         def fake_render_sync(html_content: str) -> bytes:
             return _FAKE_PDF_BYTES
 
-        def fake_post_process(pdf_bytes: bytes, *, max_pages: int):
+        def fake_post_process(pdf_bytes: bytes, *, max_pages: int, branding_context=None):
             raise ValueError("PDF malformed at offset 42")
 
         monkeypatch.setattr(renderer_module, "_render_pdf_sync", fake_render_sync)
@@ -149,7 +149,7 @@ class TestRenderTruncation:
         def fake_render_sync(html_content: str) -> bytes:
             return _FAKE_PDF_BYTES
 
-        def fake_post_process(pdf_bytes: bytes, *, max_pages: int):
+        def fake_post_process(pdf_bytes: bytes, *, max_pages: int, branding_context=None):
             from app.features.document_generator.weasyprint_renderer import RenderedPdf
 
             return RenderedPdf(
