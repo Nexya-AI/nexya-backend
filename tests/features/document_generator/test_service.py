@@ -1,8 +1,9 @@
-"""Tests unitaires — DocumentGeneratorService (C4.7a).
+"""Tests unitaires — DocumentGeneratorService (C4.7a + C4.7b).
 
 Mock-first strict :
     - DB session fake (pas de Postgres réel)
     - WeasyPrint mocké (pas de cairo/pango runtime)
+    - python-docx mocké (pas de Word natif runtime)
     - LibraryService mocké (pas de MinIO réel)
 
 Couvre :
@@ -10,7 +11,9 @@ Couvre :
     - 404 si message inexistant / soft-deleted
     - 413 si content > cap
     - Helper _sanitize_filename robustesse
-    - Happy path complet (message → PDF → Library → response)
+    - Happy path complet PDF (message → PDF → Library → response)
+    - Happy path complet DOCX (message → DOCX → Library → response)
+    - Dispatch format=pdf vs format=docx (mime_type, file_type, provider, version)
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from app.core.errors.exceptions import ResourceNotFoundException
+from app.features.document_generator import docx_renderer as docx_renderer_module
 from app.features.document_generator import service as service_module
 from app.features.document_generator import weasyprint_renderer as renderer_module
 from app.features.document_generator.exceptions import DocumentSourceTooLongError
@@ -325,6 +329,187 @@ class TestGenerateHappyPath:
         # Filename non vide, basé sur "document_YYYY-MM-DD"
         assert result.filename.endswith(".pdf")
         assert "document" in result.filename
+
+
+def _install_fake_docx_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    docx_bytes: bytes = b"PK\x03\x04fake-docx",
+    pages: int = 3,
+    truncated: bool = False,
+) -> dict:
+    """Installe les mocks python-docx + LibraryService pour C4.7b."""
+    captures: dict = {"library_calls": [], "render_calls": []}
+
+    async def fake_render_docx(**kwargs):  # type: ignore[no-untyped-def]
+        captures["render_calls"].append(kwargs)
+        return docx_renderer_module.RenderedDocx(
+            docx_bytes=docx_bytes,
+            pages=pages,
+            truncated=truncated,
+            size_bytes=len(docx_bytes),
+        )
+
+    monkeypatch.setattr(service_module, "render_markdown_to_docx", fake_render_docx)
+
+    fake_library_item = MagicMock()
+    fake_library_item.id = uuid.uuid4()
+
+    async def fake_create_from_bytes(*args, **kwargs):
+        captures["library_calls"].append(kwargs)
+        return fake_library_item
+
+    async def fake_presigned_url_for(item, *, ttl_seconds=None):
+        captures["presigned_ttl"] = ttl_seconds
+        return f"https://minio.local/{item.id}?sig=docx"
+
+    from app.features.library.service import LibraryService
+
+    monkeypatch.setattr(LibraryService, "create_from_bytes", fake_create_from_bytes)
+    monkeypatch.setattr(LibraryService, "presigned_url_for", fake_presigned_url_for)
+
+    return captures
+
+
+class TestGenerateDocxFormat:
+    """C4.7b — Dispatch format=docx bout-en-bout."""
+
+    @pytest.mark.asyncio
+    async def test_docx_pipeline_minimal_template(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """format=docx déclenche docx_renderer + Library file_type=docx."""
+        fake_message = _make_fake_message("# Doc DOCX\n\nContent.")
+        fake_result = MagicMock()
+        fake_result.scalar_one_or_none = MagicMock(return_value=fake_message)
+        fake_db = MagicMock()
+        fake_db.execute = AsyncMock(return_value=fake_result)
+
+        captures = _install_fake_docx_pipeline(monkeypatch, pages=4)
+
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+            format="docx",
+            template="minimal",
+            title="Mon doc Word",
+        )
+
+        result = await DocumentGeneratorService.generate(_make_fake_user(), body, fake_db)
+
+        # Render appelé via docx_renderer
+        assert len(captures["render_calls"]) == 1
+        render_kwargs = captures["render_calls"][0]
+        assert render_kwargs["template_name"] == "minimal"
+        assert render_kwargs["title"] == "Mon doc Word"
+
+        # Library appelée avec file_type=docx + mime DOCX correct
+        assert len(captures["library_calls"]) == 1
+        lib_call = captures["library_calls"][0]
+        assert lib_call["type_"] == "document"
+        assert lib_call["file_type"] == "docx"
+        assert (
+            lib_call["mime_type"]
+            == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        assert lib_call["provider"] == "python-docx"
+        assert lib_call["metadata_json"]["format"] == "docx"
+        assert lib_call["metadata_json"]["generator_version"] == "c47b-v1"
+
+        # Response : filename .docx, pages, truncated
+        assert result.filename.endswith(".docx")
+        assert result.pages == 4
+        assert result.truncated is False
+        assert result.size_bytes == len(b"PK\x03\x04fake-docx")
+
+    @pytest.mark.asyncio
+    async def test_docx_school_template_forwards_options(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DOCX template school : options subject/level/date forwardées."""
+        fake_message = _make_fake_message("Devoir maths.")
+        fake_result = MagicMock()
+        fake_result.scalar_one_or_none = MagicMock(return_value=fake_message)
+        fake_db = MagicMock()
+        fake_db.execute = AsyncMock(return_value=fake_result)
+
+        captures = _install_fake_docx_pipeline(monkeypatch)
+
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+            format="docx",
+            template="school",
+            options=DocumentGenerateOptions(
+                subject="Mathématiques",
+                level="Terminale S",
+                date_iso="2026-05-31",
+            ),
+            title="DM Word",
+        )
+
+        await DocumentGeneratorService.generate(_make_fake_user(), body, fake_db)
+
+        render_kwargs = captures["render_calls"][0]
+        assert render_kwargs["template_name"] == "school"
+        opts = render_kwargs["options"]
+        assert opts.subject == "Mathématiques"
+        assert opts.level == "Terminale S"
+        assert opts.date_iso == "2026-05-31"
+
+    @pytest.mark.asyncio
+    async def test_docx_truncated_flag_propagated(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_message = _make_fake_message("Long content")
+        fake_result = MagicMock()
+        fake_result.scalar_one_or_none = MagicMock(return_value=fake_message)
+        fake_db = MagicMock()
+        fake_db.execute = AsyncMock(return_value=fake_result)
+
+        _install_fake_docx_pipeline(monkeypatch, pages=50, truncated=True)
+
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+            format="docx",
+            template="minimal",
+            title="Long Word doc",
+        )
+
+        result = await DocumentGeneratorService.generate(_make_fake_user(), body, fake_db)
+        assert result.truncated is True
+        assert result.pages == 50
+
+    @pytest.mark.asyncio
+    async def test_pdf_default_format_still_works(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Rétro-compat : sans format= explicite, défaut = pdf."""
+        fake_message = _make_fake_message("Default pdf flow.")
+        fake_result = MagicMock()
+        fake_result.scalar_one_or_none = MagicMock(return_value=fake_message)
+        fake_db = MagicMock()
+        fake_db.execute = AsyncMock(return_value=fake_result)
+
+        captures = _install_fake_pipeline(monkeypatch, pages=2)
+
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+            template="minimal",
+            title="Default PDF",
+            # format absent → défaut "pdf"
+        )
+
+        result = await DocumentGeneratorService.generate(_make_fake_user(), body, fake_db)
+
+        assert result.filename.endswith(".pdf")
+        lib_call = captures["library_calls"][0]
+        assert lib_call["file_type"] == "pdf"
+        assert lib_call["mime_type"] == "application/pdf"
+        assert lib_call["provider"] == "weasyprint"
+        assert lib_call["metadata_json"]["format"] == "pdf"
 
 
 class TestGenerateErrors:
