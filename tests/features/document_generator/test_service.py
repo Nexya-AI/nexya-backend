@@ -178,7 +178,10 @@ def _install_fake_pipeline(
         captures["render_calls"].append(html_content)
         return pdf_bytes
 
-    def fake_post_process(pdf_bytes_in: bytes, *, max_pages: int):
+    def fake_post_process(pdf_bytes_in: bytes, *, max_pages: int, branding_context=None):
+        # [C4.8 2026-05-31] kwarg `branding_context` accepté (ignoré dans le
+        # mock, c'est le helper apply_pdf_native_metadata qui est testé
+        # séparément). Backward-compat strict — None par défaut.
         return renderer_module.RenderedPdf(
             pdf_bytes=pdf_bytes_in,
             pages=pages,
@@ -237,7 +240,10 @@ class TestGenerateHappyPath:
 
         assert result.pages == 5
         assert result.truncated is False
-        assert result.filename == "Mon_document.pdf"
+        # [C4.8 2026-05-31] filename intelligent NEXYA-branded :
+        # `nexya_<template>_<title-slug>_<YYYY-MM-DD>.<ext>`
+        assert result.filename.startswith("nexya_minimal_mon-document_")
+        assert result.filename.endswith(".pdf")
         assert result.download_url.startswith("https://minio.local/")
         assert result.size_bytes > 0
         # LibraryService.create_from_bytes appelé avec bons paramètres
@@ -414,9 +420,9 @@ class TestGenerateDocxFormat:
         )
         assert lib_call["provider"] == "python-docx"
         assert lib_call["metadata_json"]["format"] == "docx"
-        # [C4.7d 2026-05-31] generator_version bumpé c47b-v1 → c47d-v1
-        # (cohérent — watermark + C2PA enrichissent toute la metadata)
-        assert lib_call["metadata_json"]["generator_version"] == "c47d-v1"
+        # [C4.8 2026-05-31] generator_version bumpé c47d-v1 → c48-v1
+        # (cohérent — branding + AI Act metadata enrichissent toute la metadata)
+        assert lib_call["metadata_json"]["generator_version"] == "c48-v1"
 
         # Response : filename .docx, pages, truncated
         assert result.filename.endswith(".docx")

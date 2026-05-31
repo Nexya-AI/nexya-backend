@@ -33,6 +33,13 @@ from typing import Any, Final, Literal
 
 import structlog
 
+from .branding import (
+    BrandingContext,
+    apply_docx_branding_header,
+    apply_docx_core_properties,
+    apply_docx_invisible_marker,
+    enrich_docx_footer_with_branding,
+)
 from .exceptions import DocumentRenderFailedError
 from .schemas import DocumentGenerateOptions
 from .template_loader import _MD  # Singleton MarkdownIt partagé avec PDF
@@ -68,6 +75,10 @@ class RenderedDocx:
             « Généré par NEXYA AI ») a été appliqué. C4.7d.
             False si remove_watermark=True, kill-switch off, asset
             PNG introuvable, ou exception python-docx (fail-safe).
+        branding_applied: True si le branding C4.8 a été appliqué
+            avec succès (header + footer page counter + core_properties
+            + marker invisible). False si kill-switch off ou exception
+            python-docx (fail-safe absolu).
     """
 
     docx_bytes: bytes
@@ -75,6 +86,7 @@ class RenderedDocx:
     truncated: bool
     size_bytes: int
     watermark_applied: bool = False
+    branding_applied: bool = False
 
 
 # ── Helpers sync (appelés dans to_thread) ────────────────────────────
@@ -498,6 +510,7 @@ def _render_docx_sync(
     options: DocumentGenerateOptions,
     max_pages: int,
     apply_watermark: bool = False,
+    branding_context: BrandingContext | None = None,
 ) -> RenderedDocx:
     """Rend un DOCX complet (sync, CPU-bound).
 
@@ -524,6 +537,13 @@ def _render_docx_sync(
 
     doc = Document()
     today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # C4.8 — Branding header `[NEXYA AI]` discret EN HAUT de la première
+    # section. Doit être appliqué AVANT le body pour cohérence visuelle
+    # (inheritance python-docx propage à toutes les pages). Fail-safe absolu.
+    branding_applied_header = False
+    if branding_context is not None:
+        branding_applied_header = apply_docx_branding_header(doc, branding_context)
 
     # Header par template (dispatch 5 templates C4.7a + C4.7c)
     if template_name == "school":
@@ -562,6 +582,36 @@ def _render_docx_sync(
     if apply_watermark:
         watermark_applied = _apply_docx_watermark_footer(doc)
 
+    # C4.8 — Branding footer (page counter natif Word + Nexyalabs + date)
+    # APRÈS le watermark C4.7d (qui occupe le paragraphe 0 du footer
+    # avec logo + texte). On AJOUTE 2 nouveaux paragraphes au footer.
+    # C4.9 — core_properties DOCX (pendant des XMP PDF) AVANT le save.
+    # C4.8 — marker invisible (audit forensic grep-able).
+    # Fail-safe absolu sur les 3 (helpers gèrent leurs propres exceptions).
+    branding_applied_footer = False
+    branding_applied_core = False
+    branding_applied_marker = False
+    if branding_context is not None:
+        branding_applied_footer = enrich_docx_footer_with_branding(
+            doc, branding_context
+        )
+        branding_applied_core = apply_docx_core_properties(
+            doc, branding_context
+        )
+        branding_applied_marker = apply_docx_invisible_marker(
+            doc, branding_context
+        )
+
+    # C4.8 — branding_applied agrégé : True si au moins 1 des 4 helpers
+    # (header + footer + core_properties + marker) a réussi. Tracé dans
+    # Library metadata pour audit historique.
+    branding_applied = (
+        branding_applied_header
+        or branding_applied_footer
+        or branding_applied_core
+        or branding_applied_marker
+    )
+
     # Save en BytesIO
     output = io.BytesIO()
     doc.save(output)
@@ -581,6 +631,7 @@ def _render_docx_sync(
         truncated=truncated,
         size_bytes=len(docx_bytes),
         watermark_applied=watermark_applied,
+        branding_applied=branding_applied,
     )
 
 
@@ -596,6 +647,7 @@ async def render_markdown_to_docx(
     timeout_seconds: float = _DEFAULT_RENDER_TIMEOUT_SECONDS,
     max_pages: int = _DEFAULT_MAX_PAGES,
     apply_watermark: bool = False,
+    branding_context: BrandingContext | None = None,
 ) -> RenderedDocx:
     """Rend markdown → DOCX complet avec timeout + cap pages.
 
@@ -638,6 +690,7 @@ async def render_markdown_to_docx(
                 options=options,
                 max_pages=max_pages,
                 apply_watermark=apply_watermark,
+                branding_context=branding_context,
             ),
             timeout=timeout_seconds,
         )

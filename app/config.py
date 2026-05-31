@@ -512,6 +512,16 @@ class Settings(BaseSettings):
         default=1.5, ge=1.0, le=10.0
     )
 
+    # Kill-switch branding documents (C4.8 + C4.9).
+    # True → header [NEXYA AI] coin haut-gauche + footer center « Généré
+    # par NEXYA AI · Nexyalabs · YYYY-MM-DD » + métadonnées natives PDF
+    # (pikepdf XMP dc:creator/dc:title/...) + DOCX core_properties.author/
+    # comments/keywords + marqueur HTML invisible audit forensic + filename
+    # intelligent `nexya_<template>_<title-slug>_<date>.<ext>`.
+    # False → documents nus sans branding (mode dev/CI/incident transparent).
+    # Cohabite avec watermark C4.7d (logo bas-droit) sans conflit.
+    documents_generator_branding_enabled: bool = True
+
     # ── Paiements ──────────────────────────────────────────────
     cinetpay_api_key: str = ""
     cinetpay_site_id: str = ""

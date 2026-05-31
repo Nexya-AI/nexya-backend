@@ -118,9 +118,27 @@
             background-origin: padding-box;
         }
         {% endif %}
+
+        {# C4.8 — Branding NEXYA header [NEXYA AI] coin haut-gauche +
+           footer center « Généré par NEXYA AI · Nexyalabs · YYYY-MM-DD ».
+           Injectés UNIQUEMENT si branding_header_css / branding_footer_css
+           sont non-vides (fail-safe : kill-switch OFF → vides → skip).
+           Cohabite avec watermark C4.7d (coin bas-droit) sans conflit. #}
+        {% if branding_header_css %}
+        {{ branding_header_css | safe }}
+        {% endif %}
+        {% if branding_footer_css %}
+        {{ branding_footer_css | safe }}
+        {% endif %}
     </style>
 </head>
 <body>
+    {# C4.8 — Marqueur HTML invisible NEXYA-DOC-BRANDING pour audit forensic.
+       Commentaire HTML ignoré au rendu (WeasyPrint), mais grep-able sur
+       le PDF source via `strings document.pdf | grep NEXYA-DOC`. #}
+    {% if branding_invisible_html %}
+    {{ branding_invisible_html | safe }}
+    {% endif %}
     {% block header %}{% endblock %}
     <main>
         {% block body %}
