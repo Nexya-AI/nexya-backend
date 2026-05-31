@@ -147,6 +147,109 @@ class TestGenerateDocumentHappy:
 
 
 # ──────────────────────────────────────────────────────────────────
+# C4.7b — Format DOCX bout-en-bout
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestGenerateDocumentDocx:
+    def test_format_docx_returns_201_with_docx_filename(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """format=docx → 201 + filename.docx + envelope OK."""
+        user = _make_fake_user()
+        _install_overrides(monkeypatch, user)
+
+        now = datetime.now(timezone.utc)
+        fake_response = DocumentGenerateResponse(
+            library_id=uuid.uuid4(),
+            download_url="https://minio.local/foo.docx?sig=xyz",
+            filename="Mon_doc_Word.docx",
+            size_bytes=8000,
+            pages=4,
+            truncated=False,
+            expires_at=now,
+            generated_at=now,
+        )
+
+        captured_body = {}
+
+        async def fake_generate(user_arg, body_arg, db_arg):
+            captured_body["format"] = body_arg.format
+            captured_body["template"] = body_arg.template
+            return fake_response
+
+        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
+
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/generate/document",
+                    json={
+                        "conversation_id": str(uuid.uuid4()),
+                        "message_id": str(uuid.uuid4()),
+                        "format": "docx",
+                        "template": "minimal",
+                        "title": "Mon doc Word",
+                    },
+                )
+            assert response.status_code == 201
+            data = response.json()
+            assert data["success"] is True
+            assert data["data"]["filename"].endswith(".docx")
+            assert captured_body["format"] == "docx"
+            assert captured_body["template"] == "minimal"
+        finally:
+            _cleanup_overrides()
+
+    def test_format_docx_with_school_template_and_options(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """format=docx + template=school + options school → OK."""
+        user = _make_fake_user()
+        _install_overrides(monkeypatch, user)
+
+        now = datetime.now(timezone.utc)
+        captured = {}
+
+        async def fake_generate(user_arg, body_arg, db_arg):
+            captured["subject"] = body_arg.options.subject
+            captured["level"] = body_arg.options.level
+            return DocumentGenerateResponse(
+                library_id=uuid.uuid4(),
+                download_url="https://x/y.docx",
+                filename="DM.docx",
+                size_bytes=5000,
+                pages=2,
+                truncated=False,
+                expires_at=now,
+                generated_at=now,
+            )
+
+        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
+
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/generate/document",
+                    json={
+                        "conversation_id": str(uuid.uuid4()),
+                        "message_id": str(uuid.uuid4()),
+                        "format": "docx",
+                        "template": "school",
+                        "options": {
+                            "subject": "Histoire",
+                            "level": "1ère ES",
+                        },
+                    },
+                )
+            assert response.status_code == 201
+            assert captured["subject"] == "Histoire"
+            assert captured["level"] == "1ère ES"
+        finally:
+            _cleanup_overrides()
+
+
+# ──────────────────────────────────────────────────────────────────
 # Validation Pydantic
 # ──────────────────────────────────────────────────────────────────
 
@@ -177,7 +280,7 @@ class TestGenerateDocumentValidation:
                     json={
                         "conversation_id": str(uuid.uuid4()),
                         "message_id": str(uuid.uuid4()),
-                        "format": "docx",  # V2 — pas accepté V1
+                        "format": "pptx",  # Pas dans Literal ['pdf','docx']
                     },
                 )
             assert response.status_code == 422

@@ -28,11 +28,16 @@ DocumentTemplate = Literal["school", "minimal"]
 V2 (C4.7b/c/d) ajoutera : sciences, legal, medicine, cooking, business.
 """
 
-DocumentFormat = Literal["pdf"]
-"""Format de sortie V1 = PDF seul.
+DocumentFormat = Literal["pdf", "docx"]
+"""Format de sortie disponible (C4.7a + C4.7b).
 
-V2 C4.7b ajoutera `docx` (python-docx). V1 strict : seul PDF accepté,
-le champ Pydantic Literal rejette `docx`/`both` avec 422 propre.
+- `pdf` : pipeline WeasyPrint + pikepdf (C4.7a, livré 2026-05-30)
+- `docx` : pipeline python-docx natif Word (C4.7b, livré 2026-05-31)
+
+Les deux templates `school` / `minimal` sont disponibles dans les deux
+formats (4 combinaisons : pdf+school, pdf+minimal, docx+school, docx+minimal).
+
+V2 (C4.7c+) ajoutera 3 templates supplémentaires (sciences/legal/medicine).
 """
 
 

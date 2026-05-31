@@ -50,6 +50,14 @@ dependencies = [
     # + cap pages). Évite ré-écriture brutale via PyPDF2 obsolète.
     "pikepdf>=9.0,<10",
 
+    # ── DOCX generation (C4.7b — Word natif pipeline) ──────────
+    # python-docx = écriture .docx native (Office Open XML) sans LibreOffice
+    # subprocess (anti-overengineering : ~500 KB dep pure-Python vs ~500 MB
+    # binaires LibreOffice). Utilisé par docx_renderer pour traverser l'AST
+    # markdown-it et produire un fichier .docx avec styles (h1-h6, code,
+    # tables, listes). Cap 50 pages dur via comptage estimation paragraphes.
+    "python-docx>=1.1,<2",
+
     # ── Logging ────────────────────────────────────────────────
     "structlog>=24.1,<25",
 

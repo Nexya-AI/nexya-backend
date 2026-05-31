@@ -42,6 +42,7 @@ from app.features.auth.models import User
 from app.features.chat.models import Conversation, Message
 from app.features.library.service import LibraryService
 
+from .docx_renderer import render_markdown_to_docx
 from .exceptions import (
     DocumentSourceTooLongError,
     DocumentStorageUnavailableError,
@@ -198,48 +199,74 @@ class DocumentGeneratorService:
                 "en plusieurs parties plus courtes."
             )
 
-        # 3. Rendu HTML via template Jinja2
-        html_content = render_document_html(
-            template_name=body.template,
-            title=body.title,
-            markdown_source=markdown_source,
-            options=body.options,
-        )
+        # 3. Rendu format-spécifique (dispatch PDF vs DOCX)
+        if body.format == "pdf":
+            # PDF pipeline (C4.7a) : HTML Jinja2 → WeasyPrint → pikepdf
+            html_content = render_document_html(
+                template_name=body.template,
+                title=body.title,
+                markdown_source=markdown_source,
+                options=body.options,
+            )
+            rendered_pdf = await render_html_to_pdf(
+                html_content,
+                timeout_seconds=settings.documents_generator_render_timeout_seconds,
+                max_pages=settings.documents_generator_max_pages,
+            )
+            output_bytes = rendered_pdf.pdf_bytes
+            output_pages = rendered_pdf.pages
+            output_truncated = rendered_pdf.truncated
+            output_size = rendered_pdf.size_bytes
+            file_extension = "pdf"
+            mime_type = "application/pdf"
+            provider_name = "weasyprint"
+            file_type_for_library: str = "pdf"
+        else:  # body.format == "docx"
+            # DOCX pipeline (C4.7b) : markdown-it AST → python-docx natif
+            rendered_docx = await render_markdown_to_docx(
+                template_name=body.template,
+                title=body.title,
+                markdown_source=markdown_source,
+                options=body.options,
+                timeout_seconds=settings.documents_generator_render_timeout_seconds,
+                max_pages=settings.documents_generator_max_pages,
+            )
+            output_bytes = rendered_docx.docx_bytes
+            output_pages = rendered_docx.pages
+            output_truncated = rendered_docx.truncated
+            output_size = rendered_docx.size_bytes
+            file_extension = "docx"
+            mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            provider_name = "python-docx"
+            file_type_for_library = "docx"
 
-        # 4. Rendu PDF via WeasyPrint + pikepdf
-        rendered = await render_html_to_pdf(
-            html_content,
-            timeout_seconds=settings.documents_generator_render_timeout_seconds,
-            max_pages=settings.documents_generator_max_pages,
-        )
-
-        # 5. Génération filename FS-safe
+        # 4. Génération filename FS-safe
         title_for_filename = body.title or f"document_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
         safe_basename = _sanitize_filename(title_for_filename, fallback="document")
-        filename = f"{safe_basename}.pdf"
+        filename = f"{safe_basename}.{file_extension}"
 
-        # 6. Persistance Library (MinIO upload + DB INSERT)
+        # 5. Persistance Library (MinIO upload + DB INSERT)
         try:
             library_item = await LibraryService.create_from_bytes(
                 user,
                 db,
                 type_="document",
-                file_type="pdf",
+                file_type=file_type_for_library,
                 title=body.title or safe_basename,
-                data=rendered.pdf_bytes,
-                mime_type="application/pdf",
+                data=output_bytes,
+                mime_type=mime_type,
                 source="generated",
-                provider="weasyprint",
+                provider=provider_name,
                 model=f"template_{body.template}",
                 prompt=None,  # Pas de prompt LLM ici, source = message direct
                 source_conversation_id=body.conversation_id,
                 source_message_id=body.message_id,
                 metadata_json={
                     "template": body.template,
-                    "pages": rendered.pages,
-                    "truncated": rendered.truncated,
+                    "pages": output_pages,
+                    "truncated": output_truncated,
                     "format": body.format,
-                    "generator_version": "c47a-v1",
+                    "generator_version": "c47b-v1" if body.format == "docx" else "c47a-v1",
                     "options": body.options.model_dump(exclude_none=True),
                 },
             )
@@ -258,7 +285,7 @@ class DocumentGeneratorService:
             # global et retourneront 500.
             raise
 
-        # 7. Génération presigned URL TTL 30 min
+        # 6. Génération presigned URL TTL 30 min
         try:
             presigned_url = await LibraryService.presigned_url_for(
                 library_item,
@@ -271,10 +298,10 @@ class DocumentGeneratorService:
                 library_id=str(library_item.id),
             )
             raise DocumentStorageUnavailableError(
-                "PDF généré mais URL de téléchargement temporairement indisponible."
+                "Document généré mais URL de téléchargement temporairement indisponible."
             ) from exc
 
-        # 8. Construction response
+        # 7. Construction response
         now = datetime.now(timezone.utc)
         expires_at = datetime.fromtimestamp(
             now.timestamp() + settings.documents_generator_presigned_ttl_seconds,
@@ -286,9 +313,10 @@ class DocumentGeneratorService:
             user_id=str(user.id),
             library_id=str(library_item.id),
             template=body.template,
-            pages=rendered.pages,
-            size_bytes=rendered.size_bytes,
-            truncated=rendered.truncated,
+            format=body.format,
+            pages=output_pages,
+            size_bytes=output_size,
+            truncated=output_truncated,
             source_chars=len(markdown_source),
         )
 
@@ -296,9 +324,9 @@ class DocumentGeneratorService:
             library_id=library_item.id,
             download_url=presigned_url,
             filename=filename,
-            size_bytes=rendered.size_bytes,
-            pages=rendered.pages,
-            truncated=rendered.truncated,
+            size_bytes=output_size,
+            pages=output_pages,
+            truncated=output_truncated,
             expires_at=expires_at,
             generated_at=now,
         )

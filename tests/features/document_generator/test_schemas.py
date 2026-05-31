@@ -1,8 +1,8 @@
-"""Tests unitaires — schémas Pydantic document_generator (C4.7a).
+"""Tests unitaires — schémas Pydantic document_generator (C4.7a + C4.7b).
 
 Couvre :
     - Validation Literal `DocumentTemplate` (school/minimal accepté, autres rejetés)
-    - Validation Literal `DocumentFormat` (pdf accepté V1)
+    - Validation Literal `DocumentFormat` (pdf + docx accepté, autres rejetés)
     - Cap chars sur title (200) + options.subject/level (100)
     - Defaults DocumentGenerateOptions
     - Sérialisation/désérialisation round-trip
@@ -75,7 +75,7 @@ class TestDocumentGenerateRequestSchema:
 
     @pytest.mark.parametrize(
         "invalid_format",
-        ["docx", "both", "odt", "html", ""],
+        ["both", "odt", "html", "pptx", "txt", ""],
     )
     def test_rejects_unknown_format_via_literal(self, invalid_format: str) -> None:
         with pytest.raises(ValidationError):
@@ -84,6 +84,40 @@ class TestDocumentGenerateRequestSchema:
                 message_id=uuid.uuid4(),
                 format=invalid_format,  # type: ignore[arg-type]
             )
+
+    @pytest.mark.parametrize("valid_format", ["pdf", "docx"])
+    def test_accepts_pdf_and_docx_formats(self, valid_format: str) -> None:
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+            format=valid_format,  # type: ignore[arg-type]
+        )
+        assert body.format == valid_format
+
+    def test_docx_with_school_template_accepted(self) -> None:
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+            format="docx",
+            template="school",
+            options=DocumentGenerateOptions(
+                subject="Mathématiques",
+                level="Terminale S",
+            ),
+        )
+        assert body.format == "docx"
+        assert body.template == "school"
+        assert body.options.subject == "Mathématiques"
+
+    def test_docx_with_minimal_template_accepted(self) -> None:
+        body = DocumentGenerateRequest(
+            conversation_id=uuid.uuid4(),
+            message_id=uuid.uuid4(),
+            format="docx",
+            template="minimal",
+        )
+        assert body.format == "docx"
+        assert body.template == "minimal"
 
     def test_rejects_invalid_uuid_for_conversation_id(self) -> None:
         with pytest.raises(ValidationError):
