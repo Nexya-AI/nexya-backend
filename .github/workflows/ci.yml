@@ -44,7 +44,7 @@ jobs:
     name: Lint (ruff)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -70,7 +70,7 @@ jobs:
     name: Typecheck (mypy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -97,7 +97,7 @@ jobs:
     # logs visibles dans l'UI GHA. V2 = strict avec seuil CVSS.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -174,7 +174,7 @@ jobs:
       FCM_MOCK_ENABLED: "true"
       STORAGE_MOCK_ENABLED: "true"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -218,7 +218,7 @@ jobs:
     name: Docker build (validate image)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Build Docker image
         run: |
@@ -280,7 +280,7 @@ jobs:
       JWT_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nFAKE\n-----END PRIVATE KEY-----"
       JWT_PUBLIC_KEY: "-----BEGIN PUBLIC KEY-----\nFAKE\n-----END PUBLIC KEY-----"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Python
         uses: actions/setup-python@v5

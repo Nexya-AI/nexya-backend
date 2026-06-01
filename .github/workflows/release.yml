@@ -44,7 +44,7 @@ jobs:
       contents: read
       packages: write   # nécessaire pour push sur ghcr.io
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -92,7 +92,7 @@ jobs:
     permissions:
       contents: write   # nécessaire pour créer la release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0   # full history pour le changelog
 
