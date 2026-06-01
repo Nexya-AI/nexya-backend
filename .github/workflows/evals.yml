@@ -127,7 +127,7 @@ jobs:
 
       - name: Comment PR with summary
         if: github.event_name == 'pull_request' && always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -245,7 +245,7 @@ jobs:
 
       - name: Open GitHub issue if regression
         if: steps.evals.outputs.rc == '1'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');

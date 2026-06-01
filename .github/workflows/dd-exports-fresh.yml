@@ -129,7 +129,7 @@ jobs:
 
       - name: Open issue if any export is stale
         if: steps.openapi_diff.outputs.is_stale == 'true' || steps.schema_diff.outputs.is_stale == 'true'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const today = new Date().toISOString().slice(0, 10);
