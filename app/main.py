@@ -70,6 +70,7 @@ from app.core.openapi import customize_openapi
 from app.core.security.headers import NexyaSecurityHeadersMiddleware
 from app.features.ai_models.router import router as ai_models_router
 from app.features.auth.models import User
+from app.features.account.router import router as account_router  # C4.11
 from app.features.auth.router import router as auth_router
 from app.features.chat.router import router as chat_router
 from app.features.files.router import router as files_router
@@ -231,6 +232,7 @@ app.add_middleware(
 # ══════════════════════════════════════════════════════════════
 
 app.include_router(auth_router)
+app.include_router(account_router)  # C4.11 — GET /user/quotas dashboard
 app.include_router(chat_router)
 app.include_router(projects_router)
 app.include_router(library_router)

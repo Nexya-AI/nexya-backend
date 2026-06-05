@@ -101,6 +101,18 @@ class LibraryItem(Base, UUIDMixin):
         ForeignKey("messages.id", ondelete="SET NULL"),
     )
 
+    # C4.11 — Versioning auto v1/v2/v3 via self-ref FK.
+    # NULL = doc racine (version 1). Non-NULL = pointe vers la racine
+    # du lineage (pattern arbre plat, pas linked-list — évite JOIN
+    # récursif côté SQL). `ON DELETE SET NULL` : soft-delete racine
+    # préserve les versions descendantes (anti-perte de données).
+    # Le `version_number` est stocké dans `metadata_json.version_number`
+    # (pas une colonne dédiée — minimal disruption schéma).
+    parent_library_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("library_items.id", ondelete="SET NULL"),
+    )
+
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(String))
     metadata_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
@@ -166,5 +178,17 @@ class LibraryItem(Base, UUIDMixin):
             "user_id",
             "source_conversation_id",
             postgresql_where=text("deleted_at IS NULL AND source_conversation_id IS NOT NULL"),
+        ),
+        # C4.11 — Index partiel pour le hot-path versioning :
+        # - `versions_count` (`SELECT COUNT(*) WHERE user_id=? AND parent_library_id=?`)
+        # - Future endpoint `GET /library/{root_id}/versions` (V2).
+        # Partiel pour rester compact (95% du volume = racines `parent IS NULL`).
+        Index(
+            "idx_library_versions",
+            "user_id",
+            "parent_library_id",
+            postgresql_where=text(
+                "deleted_at IS NULL AND parent_library_id IS NOT NULL"
+            ),
         ),
     )

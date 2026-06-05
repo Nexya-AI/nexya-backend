@@ -123,6 +123,25 @@ class Settings(BaseSettings):
     library_max_free: int = Field(default=50, ge=1)
     library_max_pro: int = Field(default=1000, ge=1)
 
+    # ── Library storage cap (Session C4.11 — 2026-06-04) ────────
+    # Plafond sur la SOMME des `size_bytes` des items actifs (sans
+    # compter les soft-deleted, ils seront purgés Phase 12). Dépassement
+    # → 402 `LIBRARY_STORAGE_EXCEEDED` avec data {current_bytes, max_bytes, plan}.
+    # Free 100 MB couvre largement les usages texte/petites images.
+    # Pro 10 GB couvre les power users (PDFs scannés enterprise, archives
+    # projets multi-fichiers). Au-delà, V2 si signal user (Pro Premium
+    # 100 GB add-on payant).
+    library_storage_max_bytes_free: int = 100 * 1024 * 1024  # 100 MB
+    library_storage_max_bytes_pro: int = 10 * 1024 * 1024 * 1024  # 10 GB
+
+    # ── Documents quotas mensuels (C4.11 dashboard) ─────────────
+    # Plafond mensuel de docs PDF+DOCX générés via /generate/document.
+    # Compteur reset 1er du mois UTC. Dépassement → 402
+    # DOCUMENTS_QUOTA_EXCEEDED (déjà géré par DocumentGeneratorService).
+    # Affiché dans le dashboard quotas user `GET /user/quotas`.
+    documents_quota_max_free: int = Field(default=5, ge=1)
+    documents_quota_max_pro: int = Field(default=100, ge=1)
+
     # ── Files (upload, extraction, virus scan) — Session E3 ─────
     # Cap dur applicatif pour un upload unitaire. Les PDFs enterprise
     # peuvent être gros (rapports scannés), d'où 100 MB vs 20 MB côté

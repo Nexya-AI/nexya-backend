@@ -46,6 +46,7 @@ from app.features.images.c2pa import (
     C2PASignResult,
     get_manifest_provider,
 )
+from app.features.library.models import LibraryItem  # C4.11 detection régénération
 from app.features.library.service import LibraryService
 
 from .branding import (
@@ -161,6 +162,53 @@ class DocumentGeneratorService:
             raise ResourceNotFoundException("Message")
 
         return message.content
+
+    @staticmethod
+    async def _resolve_versioning_root(
+        user_id: uuid.UUID,
+        source_message_id: uuid.UUID,
+        db: AsyncSession,
+    ) -> uuid.UUID | None:
+        """C4.11 — Détecte si un doc existe déjà pour ce message source.
+
+        **Detection SOUPLE** (décision Ivan C4.11) : on cherche un item
+        `source='generated'` ET `source_message_id == ?` ET non soft-deleted
+        ET `parent_library_id IS NULL` (racine du lineage). Le `file_type`
+        est **IGNORÉ** : un user qui régénère le même message en PDF
+        puis DOCX obtient v1+v2 du même « doc logique » (UX intuitive).
+
+        Retourne :
+        - `None` si aucun doc existant pour ce message → c'est la première
+          génération, l'item à créer sera la racine v1 (parent_library_id=NULL).
+        - UUID de la racine du lineage si un doc existe déjà → le nouvel
+          item à créer sera une version descendante (v2, v3, ...) qui
+          pointera vers cette racine.
+
+        Edge cases :
+        - Si plusieurs racines existent (cas pathologique post-bug ou
+          migration cross-feature future), on prend la plus ancienne
+          (ORDER BY created_at ASC + LIMIT 1) — déterministe et stable.
+        - Si la racine a été soft-deleted, on l'ignore (filtre
+          `deleted_at IS NULL`) — un user qui supprime sa racine
+          recommence un lineage propre v1.
+
+        Pattern aligné `MemoryStore.search` D1 (SQL scalar_one_or_none
+        sans charger l'item entier — juste l'ID pour économie réseau).
+        """
+        stmt = (
+            select(LibraryItem.id)
+            .where(
+                LibraryItem.user_id == user_id,
+                LibraryItem.source_message_id == source_message_id,
+                LibraryItem.source == "generated",
+                LibraryItem.deleted_at.is_(None),
+                LibraryItem.parent_library_id.is_(None),  # racine seulement
+            )
+            .order_by(LibraryItem.created_at.asc())
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
 
     @staticmethod
     async def generate(
@@ -398,6 +446,17 @@ class DocumentGeneratorService:
         else:
             filename = f"{safe_basename}.{file_extension}"
 
+        # 4.5 C4.11 — Detection régénération SOUPLE (user, source_message_id)
+        # Si un doc existe déjà pour ce message, on l'attache comme version
+        # descendante du lineage (parent_library_id = racine). Sinon, NULL =
+        # ce nouvel item est la racine v1. La detection ignore le file_type
+        # (PDF v1 + DOCX v2 du même message = même lineage UX-wise).
+        parent_root_id = await DocumentGeneratorService._resolve_versioning_root(
+            user_id=user.id,
+            source_message_id=body.message_id,
+            db=db,
+        )
+
         # 5. Persistance Library (MinIO upload + DB INSERT)
         try:
             library_item = await LibraryService.create_from_bytes(
@@ -414,6 +473,7 @@ class DocumentGeneratorService:
                 prompt=None,  # Pas de prompt LLM ici, source = message direct
                 source_conversation_id=body.conversation_id,
                 source_message_id=body.message_id,
+                parent_library_id=parent_root_id,  # C4.11 versioning lineage
                 metadata_json={
                     "template": body.template,
                     "pages": output_pages,

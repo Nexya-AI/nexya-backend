@@ -88,6 +88,12 @@ class LibraryItemCreate(BaseModel):
     screenshots, petits fichiers). L'upload multipart streaming arrive
     en E3 (`POST /files/upload`) — on gardera la sémantique `type` +
     `file_type` identique.
+
+    C4.11 (2026-06-04) — `parent_library_id` optionnel : pointe vers
+    le doc RACINE du lineage si l'item est une version descendante.
+    NULL = doc racine (version 1, comportement legacy). Non-NULL =
+    `version_number = MAX(siblings.version_number) + 1` calculé
+    côté service (transparent client).
     """
 
     type: LibraryItemType
@@ -107,6 +113,7 @@ class LibraryItemCreate(BaseModel):
 
     source_conversation_id: uuid.UUID | None = None
     source_message_id: uuid.UUID | None = None
+    parent_library_id: uuid.UUID | None = None  # C4.11 versioning
 
     # Hints optionnels — si le client les a déjà calculés, pas de
     # re-calcul serveur (pas de PIL au C3). Sinon null.
@@ -265,6 +272,18 @@ class LibraryItemResponse(BaseModel):
     updated_at: datetime
     deleted_at: datetime | None = None
 
+    # C4.11 — Versioning auto v1/v2/v3
+    # - `parent_library_id` : UUID racine du lineage, NULL si doc racine V1
+    # - `version_number` : numéro de version dans le lineage (1 pour racine,
+    #   2 pour 1ère régénération, etc.). Stocké dans metadata_json côté DB
+    #   mais exposé en top-level pour l'UI client (chip "vN").
+    # - `versions_count` : nombre total de versions actives dans le lineage
+    #   (incluse la racine + descendants non soft-deleted). Calculé via
+    #   COUNT SQL côté service au moment de la lecture.
+    parent_library_id: uuid.UUID | None = None
+    version_number: int = 1
+    versions_count: int = 1
+
     model_config = {"from_attributes": True}
 
 
@@ -273,6 +292,11 @@ class LibraryItemListItem(BaseModel):
 
     Omet `prompt`, `metadata_json`, `description` (rarement affichés en
     grille). Garde `url` pour la vignette directe.
+
+    C4.11 — Champs versioning ajoutés pour permettre au client de :
+    - Filtrer les vues parent uniquement (`parent_library_id IS NULL`)
+    - Afficher badge "+N versions" sur les docs racines (`versions_count > 1`)
+    - Cacher les versions descendantes dans la grille principale.
     """
 
     id: uuid.UUID
@@ -293,6 +317,11 @@ class LibraryItemListItem(BaseModel):
     tags: list[str] | None
 
     created_at: datetime
+
+    # C4.11 — Versioning (cf. LibraryItemResponse docstring)
+    parent_library_id: uuid.UUID | None = None
+    version_number: int = 1
+    versions_count: int = 1
 
     model_config = {"from_attributes": True}
 

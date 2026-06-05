@@ -612,6 +612,41 @@ class LibraryQuotaExceededException(NexYaException):
         )
 
 
+class LibraryStorageExceededException(NexYaException):
+    """Plafond de STOCKAGE cumulé Library atteint pour le plan (C4.11).
+
+    Différent de `LibraryQuotaExceededException` qui plafonne le NOMBRE
+    d'items : ici on plafonne la SOMME des `size_bytes` (cumul disque).
+    Status 402 — UI affiche modal paywall avec jauge MB/GB et CTA upgrade.
+
+    `data` expose `current_bytes` + `max_bytes` + `plan` pour que le
+    Flutter calcule la jauge `current/max` et affiche un message
+    humanisé (« 95 MB sur 100 MB — passez à Pro pour 10 GB »).
+    """
+
+    def __init__(self, *, current_bytes: int, max_bytes: int, plan: str) -> None:
+        current_mb = current_bytes // (1024 * 1024)
+        max_label = (
+            f"{max_bytes // (1024 * 1024 * 1024)} GB"
+            if max_bytes >= 1024 * 1024 * 1024
+            else f"{max_bytes // (1024 * 1024)} MB"
+        )
+        super().__init__(
+            code="LIBRARY_STORAGE_EXCEEDED",
+            message=(
+                f"Vous avez atteint la limite de stockage du plan {plan} "
+                f"({current_mb} MB sur {max_label}). "
+                "Passez à Pro pour 10 GB de stockage."
+            ),
+            status_code=402,
+            data={
+                "current_bytes": current_bytes,
+                "max_bytes": max_bytes,
+                "plan": plan,
+            },
+        )
+
+
 class TasksQuotaExceededException(NexYaException):
     """Plafond de tâches planifiées actives atteint (F1 Planner).
 
