@@ -33,6 +33,7 @@ from app.features.auth.models import (  # noqa: F401
     User,
 )
 from app.features.chat.models import AbuseReport, Conversation, Message  # noqa: F401
+from app.features.document_generator.job_models import DocumentJob  # noqa: F401
 from app.features.experts.models import ExpertCorpusChunk  # noqa: F401
 from app.features.feedback.models import MessageFeedback  # noqa: F401
 from app.features.files.chunk_models import DocumentChunk  # noqa: F401

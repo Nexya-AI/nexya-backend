@@ -518,6 +518,24 @@ class Settings(BaseSettings):
     # False → endpoint retourne 503 immédiat sans tenter le render.
     documents_generator_enabled: bool = True
 
+    # ── Génération asynchrone des docs lourds (C4.12) ──────────────
+    # Le backend ne peut PAS chronométrer le rendu WeasyPrint à l'avance —
+    # il ESTIME la durée depuis la taille du markdown source. Si le source
+    # dépasse le seuil, on déporte le rendu sur le worker arq et on renvoie
+    # 202 {job_id, status:"processing"} au lieu de bloquer la requête HTTP
+    # 10-30s. Le worker génère en background puis push FCM « 📄 doc prêt »
+    # + deep link vers la conversation (Africa-first 2G/3G : l'user pose le
+    # téléphone, le worker bosse, le push le rappelle).
+    documents_generator_async_enabled: bool = True
+
+    # Seuil de bascule sync → async (caractères du markdown source).
+    # 8000 chars ≈ ~10-15s de rendu WeasyPrint sur HW modeste (le point où
+    # bloquer le SSE devient inconfortable). En-dessous, rendu synchrone
+    # immédiat (UX instantanée préservée pour les petits docs). Tunable.
+    documents_generator_async_threshold_chars: int = Field(
+        default=8000, ge=1_000, le=200_000
+    )
+
     # Kill-switch watermark documents (C4.7d).
     # True → logo NEXYA bleu en bas à droite du PDF (via WeasyPrint @page CSS)
     # + footer python-docx avec logo + texte « Généré par NEXYA AI ».

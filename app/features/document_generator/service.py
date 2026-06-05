@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Final
 
@@ -66,6 +67,8 @@ from .schemas import (
     DocumentGenerateResponse,
     DocumentTemplate,
 )
+from .job_models import DocumentJob
+from .job_service import DocumentJobService
 from .template_loader import render_document_html
 from .watermark_assets import WATERMARK_VERSION
 from .weasyprint_renderer import render_html_to_pdf
@@ -74,6 +77,23 @@ log = structlog.get_logger(__name__)
 
 # Suppress F401 — utilisé dans le pipeline indirect via library
 _ = DocumentTruncatedError
+
+
+# ── C4.12 : résultat scellé sync vs async ────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentSyncResult:
+    """Rendu synchrone réussi — le router renvoie 201 + cette réponse."""
+
+    response: DocumentGenerateResponse
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentAsyncResult:
+    """Rendu déporté sur le worker — le router renvoie 202 + le job."""
+
+    job: DocumentJob
 
 # ── Constantes filename sanitization ─────────────────────────────────
 
@@ -211,6 +231,24 @@ class DocumentGeneratorService:
         return result.scalar_one_or_none()
 
     @staticmethod
+    def _assert_watermark_allowed(user: User, body: DocumentGenerateRequest) -> None:
+        """Gate Pro pré-flight pour `remove_watermark` (C4.7d).
+
+        Free qui tente `remove_watermark=True` → `PlanRequiredException` (403).
+        Pattern strict aligné `/image/generate` E4 — ne JAMAIS facturer une
+        feature Pro à un Free. Extrait pour réutilisation par `generate` ET
+        `generate_or_enqueue` (le chemin async doit gater AVANT d'enqueue).
+        """
+        if body.remove_watermark and not user.is_pro:
+            log.info(
+                "documents.remove_watermark.plan_required",
+                user_id=str(user.id),
+                template=body.template,
+                format=body.format,
+            )
+            raise PlanRequiredException(feature="Document sans watermark")
+
+    @staticmethod
     async def generate(
         user: User,
         body: DocumentGenerateRequest,
@@ -240,14 +278,7 @@ class DocumentGeneratorService:
         # tente remove_watermark=True). Pattern strict aligné `/image/generate`
         # E4 — paywall pre-flight pour ne JAMAIS facturer une feature Pro à un
         # Free qui n'a pas le plan.
-        if body.remove_watermark and not user.is_pro:
-            log.info(
-                "documents.remove_watermark.plan_required",
-                user_id=str(user.id),
-                template=body.template,
-                format=body.format,
-            )
-            raise PlanRequiredException(feature="Document sans watermark")
+        DocumentGeneratorService._assert_watermark_allowed(user, body)
 
         # 1. Récupération source markdown (avec owner-check IDOR-safe)
         markdown_source = await DocumentGeneratorService._get_owned_message_content(
@@ -586,6 +617,95 @@ class DocumentGeneratorService:
             c2pa_skip_reason=c2pa_skip_reason,
         )
 
+    @staticmethod
+    async def generate_or_enqueue(
+        user: User,
+        body: DocumentGenerateRequest,
+        db: AsyncSession,
+    ) -> "DocumentSyncResult | DocumentAsyncResult":
+        """Décide sync vs async selon la taille du markdown source (C4.12).
+
+        Le backend ne peut PAS chronométrer le rendu WeasyPrint à l'avance ;
+        il ESTIME depuis `len(markdown_source)`. Si la source dépasse le seuil
+        `documents_generator_async_threshold_chars` (et que l'async est
+        activé), le rendu est déporté sur le worker arq — on renvoie un job
+        `queued` et le client est prévenu par push FCM.
+
+        Pipeline pré-flight (ordre = du moins coûteux au plus coûteux) :
+            1. Gate Pro watermark (403 avant toute écriture).
+            2. Fetch source (1 SELECT, owner-check IDOR-safe → 404).
+            3. Cap source chars (413 si > max — rejet synchrone, pas un job
+               qui échouera dans le worker).
+            4. Décision sync (≤ seuil OU async désactivé) → `generate` direct.
+               Sinon async → INSERT job + enqueue arq.
+
+        Le worker re-fetch la source depuis la DB (anti-tampering préservé —
+        on ne stocke jamais le markdown dans le job).
+
+        Returns:
+            DocumentSyncResult (→ router 201) | DocumentAsyncResult (→ 202).
+
+        Raises:
+            PlanRequiredException: 403 (Free tente remove_watermark).
+            ResourceNotFoundException: 404 (message/conv KO).
+            DocumentSourceTooLongError: 413 (source > cap).
+        """
+        # 1. Gate Pro watermark (pré-flight, avant toute écriture/enqueue).
+        DocumentGeneratorService._assert_watermark_allowed(user, body)
+
+        # 2. Fetch source (owner-check IDOR-safe) — sert à mesurer la taille.
+        markdown_source = await DocumentGeneratorService._get_owned_message_content(
+            conversation_id=body.conversation_id,
+            message_id=body.message_id,
+            user_id=user.id,
+            db=db,
+        )
+
+        # 3. Cap source chars : rejet 413 SYNCHRONE (ne pas enqueue un job
+        # voué à l'échec dans le worker).
+        max_chars = settings.documents_generator_max_source_chars
+        if len(markdown_source) > max_chars:
+            log.warning(
+                "documents.source_too_long",
+                source_chars=len(markdown_source),
+                max_chars=max_chars,
+                user_id=str(user.id),
+            )
+            raise DocumentSourceTooLongError(
+                f"Le contenu source dépasse {max_chars} caractères "
+                f"(actuel : {len(markdown_source)}). Scinde le document "
+                "en plusieurs parties plus courtes."
+            )
+
+        # 4. Décision sync vs async sur le seuil de taille.
+        threshold = settings.documents_generator_async_threshold_chars
+        go_sync = (
+            not settings.documents_generator_async_enabled
+            or len(markdown_source) <= threshold
+        )
+
+        if go_sync:
+            response = await DocumentGeneratorService.generate(user, body, db)
+            return DocumentSyncResult(response=response)
+
+        # Chemin async : créer le job + enqueue arq. Import paresseux de
+        # l'enqueue helper (évite la dépendance arq à l'import du module +
+        # casse le cycle workers ↔ service).
+        job = await DocumentJobService.create_job(user, body, db)
+        from workers.document_tasks import enqueue_document_generation
+
+        await enqueue_document_generation(job.id)
+        log.info(
+            "documents.async.enqueued",
+            job_id=str(job.id),
+            user_id=str(user.id),
+            source_chars=len(markdown_source),
+            threshold=threshold,
+            format=body.format,
+            template=body.template,
+        )
+        return DocumentAsyncResult(job=job)
+
 
 # Aliases pour test/mock
 __all__ = [
@@ -594,5 +714,7 @@ __all__ = [
     "DocumentGenerateResponse",
     "DocumentGenerateOptions",
     "DocumentTemplate",
+    "DocumentSyncResult",
+    "DocumentAsyncResult",
     "_sanitize_filename",
 ]

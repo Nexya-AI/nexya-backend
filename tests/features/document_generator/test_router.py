@@ -1,16 +1,17 @@
-"""Tests router — `POST /generate/document` (C4.7a).
+"""Tests router — `POST /generate/document` + `GET .../jobs/{id}` (C4.7a + C4.12).
 
 Mock-first :
     - DB session via `app.dependency_overrides`
-    - DocumentGeneratorService.generate monkeypatché
+    - DocumentGeneratorService.generate_or_enqueue monkeypatché (le router
+      délègue à l'orchestrateur sync/async depuis C4.12)
     - Rate limit monkeypatché (sinon Redis nécessaire)
 
 Couvre :
-    - 201 happy path + envelope NexyaResponse
-    - 422 sur template invalide
-    - 404 IDOR (ResourceNotFoundException du service)
-    - 413 source too long
-    - 503 render failed
+    - 201 happy path sync + envelope NexyaResponse (C4.7a)
+    - 202 async (DocumentAsyncResult → job enqueué — C4.12)
+    - GET /jobs/{id} polling 200 + 404 IDOR (C4.12)
+    - 422 template/format/uuid/title invalides
+    - 413 source too long / 503 render failed
     - 429 rate limit Free 60/h vs Pro 100/h
     - Auth required (sans JWT)
 """
@@ -19,20 +20,29 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.auth.guards import get_current_user
 from app.core.database.postgres import get_db
+from app.core.errors.exceptions import ResourceNotFoundException
 from app.features.document_generator import router as router_module
 from app.features.document_generator.exceptions import (
     DocumentRenderFailedError,
     DocumentSourceTooLongError,
 )
-from app.features.document_generator.schemas import DocumentGenerateResponse
-from app.features.document_generator.service import DocumentGeneratorService
+from app.features.document_generator.job_service import DocumentJobService
+from app.features.document_generator.schemas import (
+    DocumentGenerateResponse,
+    DocumentJobResponse,
+)
+from app.features.document_generator.service import (
+    DocumentAsyncResult,
+    DocumentGeneratorService,
+    DocumentSyncResult,
+)
 from app.main import app
 
 
@@ -44,10 +54,8 @@ def _make_fake_user(is_pro: bool = False):
 
 
 def _install_overrides(monkeypatch: pytest.MonkeyPatch, user, *, skip_rate_limit: bool = True):
-    """Installe app.dependency_overrides + skip rate_limit Redis."""
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[get_db] = lambda: MagicMock()
-
     if skip_rate_limit:
         async def fake_rate_limit(*args, **kwargs):
             return None
@@ -59,8 +67,49 @@ def _cleanup_overrides():
     app.dependency_overrides.clear()
 
 
+def _fake_response(**overrides) -> DocumentGenerateResponse:
+    now = datetime.now(timezone.utc)
+    base = dict(
+        library_id=uuid.uuid4(),
+        download_url="https://minio.local/foo.pdf?sig=abc",
+        filename="my_doc.pdf",
+        size_bytes=12345,
+        pages=10,
+        truncated=False,
+        expires_at=now,
+        generated_at=now,
+    )
+    base.update(overrides)
+    return DocumentGenerateResponse(**base)
+
+
+def _patch_sync(monkeypatch: pytest.MonkeyPatch, response: DocumentGenerateResponse, *, capture=None):
+    """Monkeypatch generate_or_enqueue → DocumentSyncResult (chemin 201)."""
+
+    async def fake_orchestrate(user_arg, body_arg, db_arg):
+        if capture is not None:
+            capture["format"] = body_arg.format
+            capture["template"] = body_arg.template
+            capture["subject"] = body_arg.options.subject
+            capture["level"] = body_arg.options.level
+        return DocumentSyncResult(response=response)
+
+    monkeypatch.setattr(
+        DocumentGeneratorService, "generate_or_enqueue", fake_orchestrate
+    )
+
+
+def _patch_raises(monkeypatch: pytest.MonkeyPatch, exc: Exception):
+    async def fake_orchestrate(*args, **kwargs):
+        raise exc
+
+    monkeypatch.setattr(
+        DocumentGeneratorService, "generate_or_enqueue", fake_orchestrate
+    )
+
+
 # ──────────────────────────────────────────────────────────────────
-# Happy path
+# Happy path SYNC (201)
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -68,24 +117,7 @@ class TestGenerateDocumentHappy:
     def test_returns_201_with_envelope(self, monkeypatch: pytest.MonkeyPatch) -> None:
         user = _make_fake_user(is_pro=False)
         _install_overrides(monkeypatch, user)
-
-        now = datetime.now(timezone.utc)
-        fake_response = DocumentGenerateResponse(
-            library_id=uuid.uuid4(),
-            download_url="https://minio.local/foo.pdf?sig=abc",
-            filename="my_doc.pdf",
-            size_bytes=12345,
-            pages=10,
-            truncated=False,
-            expires_at=now,
-            generated_at=now,
-        )
-
-        async def fake_generate(user_arg, body_arg, db_arg):
-            return fake_response
-
-        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
-
+        _patch_sync(monkeypatch, _fake_response(filename="my_doc.pdf", pages=10))
         try:
             with TestClient(app) as client:
                 response = client.post(
@@ -107,26 +139,8 @@ class TestGenerateDocumentHappy:
             _cleanup_overrides()
 
     def test_school_template_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        user = _make_fake_user()
-        _install_overrides(monkeypatch, user)
-
-        now = datetime.now(timezone.utc)
-        fake_response = DocumentGenerateResponse(
-            library_id=uuid.uuid4(),
-            download_url="https://x/y.pdf",
-            filename="d.pdf",
-            size_bytes=1000,
-            pages=5,
-            truncated=False,
-            expires_at=now,
-            generated_at=now,
-        )
-
-        async def fake_generate(*args, **kwargs):
-            return fake_response
-
-        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
-
+        _install_overrides(monkeypatch, _make_fake_user())
+        _patch_sync(monkeypatch, _fake_response(filename="d.pdf", pages=5))
         try:
             with TestClient(app) as client:
                 response = client.post(
@@ -135,10 +149,7 @@ class TestGenerateDocumentHappy:
                         "conversation_id": str(uuid.uuid4()),
                         "message_id": str(uuid.uuid4()),
                         "template": "school",
-                        "options": {
-                            "subject": "Maths",
-                            "level": "Term S",
-                        },
+                        "options": {"subject": "Maths", "level": "Term S"},
                     },
                 )
             assert response.status_code == 201
@@ -147,7 +158,7 @@ class TestGenerateDocumentHappy:
 
 
 # ──────────────────────────────────────────────────────────────────
-# C4.7b — Format DOCX bout-en-bout
+# C4.7b — Format DOCX
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -155,31 +166,13 @@ class TestGenerateDocumentDocx:
     def test_format_docx_returns_201_with_docx_filename(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """format=docx → 201 + filename.docx + envelope OK."""
-        user = _make_fake_user()
-        _install_overrides(monkeypatch, user)
-
-        now = datetime.now(timezone.utc)
-        fake_response = DocumentGenerateResponse(
-            library_id=uuid.uuid4(),
-            download_url="https://minio.local/foo.docx?sig=xyz",
-            filename="Mon_doc_Word.docx",
-            size_bytes=8000,
-            pages=4,
-            truncated=False,
-            expires_at=now,
-            generated_at=now,
+        _install_overrides(monkeypatch, _make_fake_user())
+        captured = {}
+        _patch_sync(
+            monkeypatch,
+            _fake_response(filename="Mon_doc_Word.docx", pages=4),
+            capture=captured,
         )
-
-        captured_body = {}
-
-        async def fake_generate(user_arg, body_arg, db_arg):
-            captured_body["format"] = body_arg.format
-            captured_body["template"] = body_arg.template
-            return fake_response
-
-        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
-
         try:
             with TestClient(app) as client:
                 response = client.post(
@@ -194,39 +187,20 @@ class TestGenerateDocumentDocx:
                 )
             assert response.status_code == 201
             data = response.json()
-            assert data["success"] is True
             assert data["data"]["filename"].endswith(".docx")
-            assert captured_body["format"] == "docx"
-            assert captured_body["template"] == "minimal"
+            assert captured["format"] == "docx"
+            assert captured["template"] == "minimal"
         finally:
             _cleanup_overrides()
 
     def test_format_docx_with_school_template_and_options(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """format=docx + template=school + options school → OK."""
-        user = _make_fake_user()
-        _install_overrides(monkeypatch, user)
-
-        now = datetime.now(timezone.utc)
+        _install_overrides(monkeypatch, _make_fake_user())
         captured = {}
-
-        async def fake_generate(user_arg, body_arg, db_arg):
-            captured["subject"] = body_arg.options.subject
-            captured["level"] = body_arg.options.level
-            return DocumentGenerateResponse(
-                library_id=uuid.uuid4(),
-                download_url="https://x/y.docx",
-                filename="DM.docx",
-                size_bytes=5000,
-                pages=2,
-                truncated=False,
-                expires_at=now,
-                generated_at=now,
-            )
-
-        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
-
+        _patch_sync(
+            monkeypatch, _fake_response(filename="DM.docx", pages=2), capture=captured
+        )
         try:
             with TestClient(app) as client:
                 response = client.post(
@@ -236,15 +210,127 @@ class TestGenerateDocumentDocx:
                         "message_id": str(uuid.uuid4()),
                         "format": "docx",
                         "template": "school",
-                        "options": {
-                            "subject": "Histoire",
-                            "level": "1ère ES",
-                        },
+                        "options": {"subject": "Histoire", "level": "1ère ES"},
                     },
                 )
             assert response.status_code == 201
             assert captured["subject"] == "Histoire"
             assert captured["level"] == "1ère ES"
+        finally:
+            _cleanup_overrides()
+
+
+# ──────────────────────────────────────────────────────────────────
+# C4.12 — Chemin asynchrone (202) + polling
+# ──────────────────────────────────────────────────────────────────
+
+
+class TestGenerateDocumentAsync:
+    def test_returns_202_when_async(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Doc lourd → generate_or_enqueue renvoie DocumentAsyncResult → 202."""
+        _install_overrides(monkeypatch, _make_fake_user())
+
+        conv_id = uuid.uuid4()
+        msg_id = uuid.uuid4()
+        fake_job = MagicMock()
+        fake_job.id = uuid.uuid4()
+        fake_job.conversation_id = conv_id
+        fake_job.message_id = msg_id
+        fake_job.format = "pdf"
+
+        async def fake_orchestrate(*args, **kwargs):
+            return DocumentAsyncResult(job=fake_job)
+
+        monkeypatch.setattr(
+            DocumentGeneratorService, "generate_or_enqueue", fake_orchestrate
+        )
+
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/generate/document",
+                    json={
+                        "conversation_id": str(conv_id),
+                        "message_id": str(msg_id),
+                    },
+                )
+            assert response.status_code == 202
+            data = response.json()
+            assert data["success"] is True
+            assert data["data"]["status"] == "processing"
+            assert data["data"]["job_id"] == str(fake_job.id)
+            assert data["data"]["conversation_id"] == str(conv_id)
+            assert data["data"]["format"] == "pdf"
+        finally:
+            _cleanup_overrides()
+
+    def test_get_job_returns_200(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """GET /jobs/{id} → 200 + DocumentJobResponse."""
+        user = _make_fake_user()
+        _install_overrides(monkeypatch, user)
+
+        job_id = uuid.uuid4()
+        now = datetime.now(timezone.utc)
+        job_response = DocumentJobResponse(
+            job_id=job_id,
+            status="done",
+            format="pdf",
+            template="minimal",
+            library_id=uuid.uuid4(),
+            download_url="https://minio.local/x.pdf?sig=fresh",
+            filename="x.pdf",
+            pages=12,
+            size_bytes=9999,
+            truncated=False,
+            error_code=None,
+            created_at=now,
+            completed_at=now,
+        )
+
+        async def fake_get_owned(jid, u, db):
+            return MagicMock()
+
+        async def fake_to_response(job, u, db):
+            return job_response
+
+        monkeypatch.setattr(DocumentJobService, "get_owned_job", fake_get_owned)
+        monkeypatch.setattr(DocumentJobService, "to_response", fake_to_response)
+
+        try:
+            with TestClient(app) as client:
+                response = client.get(f"/generate/document/jobs/{job_id}")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["success"] is True
+            assert data["data"]["status"] == "done"
+            assert data["data"]["download_url"].endswith("sig=fresh")
+            assert data["data"]["pages"] == 12
+        finally:
+            _cleanup_overrides()
+
+    def test_get_job_404_idor(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """GET /jobs/{id} d'un job non possédé → 404 IDOR-safe."""
+        _install_overrides(monkeypatch, _make_fake_user())
+
+        async def fake_get_owned(jid, u, db):
+            raise ResourceNotFoundException("Job de génération")
+
+        monkeypatch.setattr(DocumentJobService, "get_owned_job", fake_get_owned)
+
+        try:
+            with TestClient(app) as client:
+                response = client.get(f"/generate/document/jobs/{uuid.uuid4()}")
+            assert response.status_code == 404
+            assert response.json()["success"] is False
+        finally:
+            _cleanup_overrides()
+
+    def test_get_job_422_invalid_uuid(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_overrides(monkeypatch, _make_fake_user())
+        try:
+            with TestClient(app) as client:
+                response = client.get("/generate/document/jobs/not-a-uuid")
+            assert response.status_code == 422
         finally:
             _cleanup_overrides()
 
@@ -264,8 +350,6 @@ class TestGenerateDocumentValidation:
                     json={
                         "conversation_id": str(uuid.uuid4()),
                         "message_id": str(uuid.uuid4()),
-                        # C4.7c — sciences devenu VALIDE, on utilise
-                        # "business" comme slug invalide (V2 ou jamais).
                         "template": "business",
                     },
                 )
@@ -282,7 +366,7 @@ class TestGenerateDocumentValidation:
                     json={
                         "conversation_id": str(uuid.uuid4()),
                         "message_id": str(uuid.uuid4()),
-                        "format": "pptx",  # Pas dans Literal ['pdf','docx']
+                        "format": "pptx",
                     },
                 )
             assert response.status_code == 422
@@ -295,10 +379,7 @@ class TestGenerateDocumentValidation:
             with TestClient(app) as client:
                 response = client.post(
                     "/generate/document",
-                    json={
-                        "conversation_id": "not-a-uuid",
-                        "message_id": str(uuid.uuid4()),
-                    },
+                    json={"conversation_id": "not-a-uuid", "message_id": str(uuid.uuid4())},
                 )
             assert response.status_code == 422
         finally:
@@ -329,12 +410,7 @@ class TestGenerateDocumentValidation:
 class TestGenerateDocumentErrors:
     def test_413_on_source_too_long(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _install_overrides(monkeypatch, _make_fake_user())
-
-        async def fake_generate(*args, **kwargs):
-            raise DocumentSourceTooLongError("Source trop longue (300k > 200k)")
-
-        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
-
+        _patch_raises(monkeypatch, DocumentSourceTooLongError("Source trop longue"))
         try:
             with TestClient(app) as client:
                 response = client.post(
@@ -353,12 +429,7 @@ class TestGenerateDocumentErrors:
 
     def test_503_on_render_failed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _install_overrides(monkeypatch, _make_fake_user())
-
-        async def fake_generate(*args, **kwargs):
-            raise DocumentRenderFailedError("WeasyPrint timeout")
-
-        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
-
+        _patch_raises(monkeypatch, DocumentRenderFailedError("WeasyPrint timeout"))
         try:
             with TestClient(app) as client:
                 response = client.post(
@@ -382,9 +453,7 @@ class TestGenerateDocumentErrors:
 
 
 class TestGenerateDocumentRateLimit:
-    def test_free_user_rate_limit_60_per_hour(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Free user passe par check_user_rate_limit avec max=60."""
-        user = _make_fake_user(is_pro=False)
+    def _run_with_captured_max(self, monkeypatch, user):
         captured_max = {"value": None}
 
         async def fake_rate_limit(user_id, action, max_requests, window_seconds, **kwargs):
@@ -394,119 +463,56 @@ class TestGenerateDocumentRateLimit:
         monkeypatch.setattr(router_module, "check_user_rate_limit", fake_rate_limit)
         app.dependency_overrides[get_current_user] = lambda: user
         app.dependency_overrides[get_db] = lambda: MagicMock()
+        _patch_sync(monkeypatch, _fake_response(filename="x.pdf", pages=1))
 
-        now = datetime.now(timezone.utc)
-
-        async def fake_generate(*args, **kwargs):
-            return DocumentGenerateResponse(
-                library_id=uuid.uuid4(),
-                download_url="https://x/y",
-                filename="x.pdf",
-                size_bytes=1,
-                pages=1,
-                truncated=False,
-                expires_at=now,
-                generated_at=now,
+        with TestClient(app) as client:
+            response = client.post(
+                "/generate/document",
+                json={
+                    "conversation_id": str(uuid.uuid4()),
+                    "message_id": str(uuid.uuid4()),
+                },
             )
+        return response, captured_max["value"]
 
-        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
-
+    def test_free_user_rate_limit_60_per_hour(self, monkeypatch: pytest.MonkeyPatch) -> None:
         try:
-            with TestClient(app) as client:
-                response = client.post(
-                    "/generate/document",
-                    json={
-                        "conversation_id": str(uuid.uuid4()),
-                        "message_id": str(uuid.uuid4()),
-                    },
-                )
+            response, captured = self._run_with_captured_max(
+                monkeypatch, _make_fake_user(is_pro=False)
+            )
             assert response.status_code == 201
-            # Free user → 60/h dans settings par défaut
-            assert captured_max["value"] == 60
+            assert captured == 60
         finally:
             _cleanup_overrides()
 
     def test_pro_user_rate_limit_100_per_hour(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Pro user passe par check_user_rate_limit avec max=100."""
-        user = _make_fake_user(is_pro=True)
-        captured_max = {"value": None}
-
-        async def fake_rate_limit(user_id, action, max_requests, window_seconds, **kwargs):
-            captured_max["value"] = max_requests
-            return None
-
-        monkeypatch.setattr(router_module, "check_user_rate_limit", fake_rate_limit)
-        app.dependency_overrides[get_current_user] = lambda: user
-        app.dependency_overrides[get_db] = lambda: MagicMock()
-
-        now = datetime.now(timezone.utc)
-
-        async def fake_generate(*args, **kwargs):
-            return DocumentGenerateResponse(
-                library_id=uuid.uuid4(),
-                download_url="https://x/y",
-                filename="x.pdf",
-                size_bytes=1,
-                pages=1,
-                truncated=False,
-                expires_at=now,
-                generated_at=now,
-            )
-
-        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
-
         try:
-            with TestClient(app) as client:
-                response = client.post(
-                    "/generate/document",
-                    json={
-                        "conversation_id": str(uuid.uuid4()),
-                        "message_id": str(uuid.uuid4()),
-                    },
-                )
+            response, captured = self._run_with_captured_max(
+                monkeypatch, _make_fake_user(is_pro=True)
+            )
             assert response.status_code == 201
-            # Pro user → 100/h
-            assert captured_max["value"] == 100
+            assert captured == 100
         finally:
             _cleanup_overrides()
 
 
 # ──────────────────────────────────────────────────────────────────
-# C4.7c — 3 nouveaux templates (sciences/legal/medicine) bout-en-bout
+# C4.7c — 3 nouveaux templates bout-en-bout
 # ──────────────────────────────────────────────────────────────────
 
 
 class TestGenerateDocumentExtraTemplates:
-    @pytest.mark.parametrize(
-        "template_slug",
-        ["sciences", "legal", "medicine"],
-    )
+    @pytest.mark.parametrize("template_slug", ["sciences", "legal", "medicine"])
     def test_post_with_new_template_returns_201(
         self, template_slug: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """C4.7c — POST /generate/document accepte les 3 nouveaux templates."""
-        user = _make_fake_user()
-        _install_overrides(monkeypatch, user)
-
-        now = datetime.now(timezone.utc)
+        _install_overrides(monkeypatch, _make_fake_user())
         captured = {}
-
-        async def fake_generate(user_arg, body_arg, db_arg):
-            captured["template"] = body_arg.template
-            captured["format"] = body_arg.format
-            return DocumentGenerateResponse(
-                library_id=uuid.uuid4(),
-                download_url=f"https://x/y.pdf?t={template_slug}",
-                filename=f"doc_{template_slug}.pdf",
-                size_bytes=5000,
-                pages=3,
-                truncated=False,
-                expires_at=now,
-                generated_at=now,
-            )
-
-        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
-
+        _patch_sync(
+            monkeypatch,
+            _fake_response(filename=f"doc_{template_slug}.pdf", pages=3),
+            capture=captured,
+        )
         try:
             with TestClient(app) as client:
                 response = client.post(
@@ -515,10 +521,7 @@ class TestGenerateDocumentExtraTemplates:
                         "conversation_id": str(uuid.uuid4()),
                         "message_id": str(uuid.uuid4()),
                         "template": template_slug,
-                        "options": {
-                            "subject": "Test subject",
-                            "level": "Test level",
-                        },
+                        "options": {"subject": "Test subject", "level": "Test level"},
                     },
                 )
             assert response.status_code == 201
@@ -534,9 +537,6 @@ class TestGenerateDocumentExtraTemplates:
 
 class TestGenerateDocumentAuth:
     def test_401_or_403_without_auth(self) -> None:
-        """Sans override get_current_user, l'endpoint refuse."""
-        # Pas d'override : on garde le vrai guard get_current_user qui
-        # exige un JWT valide en header.
         with TestClient(app) as client:
             response = client.post(
                 "/generate/document",
@@ -545,100 +545,4 @@ class TestGenerateDocumentAuth:
                     "message_id": str(uuid.uuid4()),
                 },
             )
-        # 401 (token manquant) ou 403 (guard refuse)
         assert response.status_code in (401, 403)
-
-
-# ──────────────────────────────────────────────────────────────────
-# C4.7d — Gate Pro 403 PLAN_REQUIRED + Response shape enrichie
-# ──────────────────────────────────────────────────────────────────
-
-
-class TestC47dRouterWatermarkC2PA:
-    """C4.7d — Mapping router des 5 nouveaux champs + 403 paywall."""
-
-    def test_router_403_plan_required_on_remove_watermark_free(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """C4.7d — Free + remove_watermark=true → 403 PLAN_REQUIRED."""
-        from app.core.errors.exceptions import PlanRequiredException
-
-        user = _make_fake_user(is_pro=False)
-        _install_overrides(monkeypatch, user)
-
-        async def fake_generate(*args, **kwargs):
-            raise PlanRequiredException(feature="Document sans watermark")
-
-        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
-
-        try:
-            with TestClient(app) as client:
-                response = client.post(
-                    "/generate/document",
-                    json={
-                        "conversation_id": str(uuid.uuid4()),
-                        "message_id": str(uuid.uuid4()),
-                        "remove_watermark": True,
-                    },
-                )
-
-            assert response.status_code == 403
-            body = response.json()
-            assert body["success"] is False
-            assert body["code"] == "PLAN_REQUIRED"
-        finally:
-            _cleanup_overrides()
-
-    def test_router_201_with_watermark_and_c2pa_fields_in_response_pro_user(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """C4.7d — Pro + watermark défaut → response inclut les 5 champs."""
-        user = _make_fake_user(is_pro=True)
-        _install_overrides(monkeypatch, user)
-
-        now = datetime.now(timezone.utc)
-        fake_response = DocumentGenerateResponse(
-            library_id=uuid.uuid4(),
-            download_url="https://minio.local/foo.pdf?sig=abc",
-            filename="my_doc.pdf",
-            size_bytes=12345,
-            pages=10,
-            truncated=False,
-            expires_at=now,
-            generated_at=now,
-            # C4.7d champs enrichis
-            watermark_applied=True,
-            watermark_version="v1-doc-pdf-docx-2026-05",
-            c2pa_applied=True,
-            c2pa_manifest_id="mock-c2pa-000042",
-            c2pa_skip_reason=None,
-        )
-
-        async def fake_generate(*args, **kwargs):
-            return fake_response
-
-        monkeypatch.setattr(DocumentGeneratorService, "generate", fake_generate)
-
-        try:
-            with TestClient(app) as client:
-                response = client.post(
-                    "/generate/document",
-                    json={
-                        "conversation_id": str(uuid.uuid4()),
-                        "message_id": str(uuid.uuid4()),
-                        "template": "minimal",
-                        "format": "pdf",
-                    },
-                )
-
-            assert response.status_code == 201
-            body = response.json()
-            assert body["success"] is True
-            data = body["data"]
-            assert data["watermark_applied"] is True
-            assert data["watermark_version"] == "v1-doc-pdf-docx-2026-05"
-            assert data["c2pa_applied"] is True
-            assert data["c2pa_manifest_id"] == "mock-c2pa-000042"
-            assert data["c2pa_skip_reason"] is None
-        finally:
-            _cleanup_overrides()
