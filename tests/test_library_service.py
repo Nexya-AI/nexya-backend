@@ -228,6 +228,7 @@ async def test_create_from_bytes_happy_path() -> None:
     db = _mk_db(
         [
             _ScalarResult(scalar_one=0),  # count active
+            _ScalarResult(scalar_one=0),  # C4.11 — SUM storage_bytes (0 → sous cap)
             _ScalarResult(scalar_one_or_none=inserted),  # INSERT RETURNING
         ]
     )
@@ -311,11 +312,13 @@ async def test_create_from_bytes_dedup_returns_existing_on_conflict() -> None:
     existing = _make_item()
     store = MockObjectStore(bucket="test")
     # 1. count active → 0
-    # 2. INSERT ON CONFLICT DO NOTHING RETURNING → None (conflit déclenché)
-    # 3. SELECT existing → retourne l'item existant
+    # 2. C4.11 — SUM storage_bytes → 0 (sous cap)
+    # 3. INSERT ON CONFLICT DO NOTHING RETURNING → None (conflit déclenché)
+    # 4. SELECT existing → retourne l'item existant
     db = _mk_db(
         [
             _ScalarResult(scalar_one=0),
+            _ScalarResult(scalar_one=0),  # C4.11 — SUM storage_bytes
             _ScalarResult(scalar_one_or_none=None),  # RETURNING vide
             _ScalarResult(scalar_one_or_none=existing),  # SELECT existing
         ]
@@ -362,8 +365,9 @@ async def test_create_from_base64_decodes_and_delegates() -> None:
     store = MockObjectStore(bucket="test")
     db = _mk_db(
         [
-            _ScalarResult(scalar_one=0),
-            _ScalarResult(scalar_one_or_none=inserted),
+            _ScalarResult(scalar_one=0),  # count active
+            _ScalarResult(scalar_one=0),  # C4.11 — SUM storage_bytes (0 → sous cap)
+            _ScalarResult(scalar_one_or_none=inserted),  # INSERT RETURNING
         ]
     )
 
