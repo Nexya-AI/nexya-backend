@@ -382,11 +382,17 @@ class GeminiChatProvider(ChatProvider):
 
 
 class GeminiImageProvider(ImageProvider):
-    """Adaptateur Imagen 3 via Vertex AI. Supporte jusqu'à 4 images par appel."""
+    """Adaptateur Imagen 4 via Vertex AI. Supporte jusqu'à 4 images par appel.
+
+    Migration Imagen 3.0 → 4.0 (2026-06-06) : Google a déprécié `imagen-3.0-generate-002`
+    (404 NOT_FOUND sur API v1beta). Imagen 4 conserve la même structure de réponse
+    (response.generated_images, image_bytes) mais accepte `safetyFilterLevel` et
+    `personGeneration` pour relâcher les filtres par défaut trop stricts.
+    """
 
     name = "gemini-imagen"
-    default_model = "imagen-3.0-generate-002"
-    supported_models = frozenset({"imagen-3.0-generate-002"})
+    default_model = "imagen-4.0-generate-001"
+    supported_models = frozenset({"imagen-4.0-generate-001"})
     max_images_per_call = 4
 
     async def generate_images(self, request: ImageGenerationRequest) -> list[GeneratedImage]:
@@ -395,10 +401,19 @@ class GeminiImageProvider(ImageProvider):
         count = max(1, min(request.count, self.max_images_per_call))
         client = _get_client()
 
+        # Filtres relâchés au maximum (parité compétitive Midjourney/DALL-E/Gemini app) :
+        # - safetyFilterLevel=block_only_high : bloque uniquement contenus extrêmes
+        #   (violence graphique, sexuel explicite). Autorise art, créatif, descriptif.
+        # - personGeneration=allow_adult : autorise visages adultes anonymes.
+        # Note : la reconnaissance des célébrités nommées (politiciens, dirigeants)
+        # passe par une couche Trust & Safety séparée chez Google, indépendante
+        # de ces paramètres. Reformuler par description sans nom propre.
         config_kwargs: dict[str, Any] = {
             "numberOfImages": count,
             "aspectRatio": request.aspect_ratio,
             "outputMimeType": "image/jpeg",
+            "safetyFilterLevel": "block_only_high",
+            "personGeneration": "allow_adult",
         }
         if request.negative_prompt:
             config_kwargs["negativePrompt"] = request.negative_prompt
