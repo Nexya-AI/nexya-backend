@@ -29,7 +29,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.budget_tracker import get_budget_tracker
 from app.ai.fcm import get_fcm_provider
 from app.ai.moderation import close_moderation_service, get_moderation_service
-from app.ai.providers import ImageGenerationRequest, ProviderError
+from app.ai.providers import (
+    ImageGenerationRequest,
+    ProviderContentFilteredError,
+    ProviderError,
+)
 from app.ai.runtime import get_ai_router, get_stream_handler
 from app.ai.tools.planner_tools import register_planner_tools
 from app.config import settings
@@ -610,8 +614,69 @@ async def image_generate(
         count=body.count,
     )
 
+    # Tracking pour la response : si on a basculé sur Replicate, on
+    # surface l'info au client (provider + fallback_used) pour
+    # transparence + future analytics côté UX.
+    actual_provider_name = resolution.provider.name
+    actual_model = resolution.model
+    fallback_used = False
+
     try:
         images = await resolution.provider.generate_images(request)
+    except ProviderContentFilteredError as exc:
+        # Bug Image célébrités fix (2026-06-06) — fallback automatique
+        # vers Replicate Flux 1.1 Pro quand Imagen refuse via Trust &
+        # Safety. C'est le cas typique des célébrités nommées (Mark
+        # Zuckerberg, politiciens, etc.) où Google bloque au niveau
+        # infrastructure indépendamment des paramètres safety relâchés.
+        replicate_provider = get_ai_router()._image.get("replicate-flux")
+        if replicate_provider is None:
+            # Replicate non configuré (token vide ou kill-switch off)
+            # → propage le ContentFiltered original comme avant.
+            log.warning(
+                "image.generate.imagen_filtered_no_fallback",
+                user_id=user_id,
+                provider=resolution.provider.name,
+                reason="REPLICATE_API_TOKEN vide ou REPLICATE_ENABLED=false",
+            )
+            raise LlmUnavailableException() from exc
+
+        log.warning(
+            "image.generate.fallback_to_replicate",
+            user_id=user_id,
+            original_provider=resolution.provider.name,
+            fallback_provider=replicate_provider.name,
+            original_error=str(exc),
+        )
+
+        try:
+            # Re-issue la requête vers Replicate avec EXACTEMENT le même
+            # prompt + count + aspect_ratio. La structure ImageGenerationRequest
+            # est neutre côté provider — le request original est réutilisable
+            # tel quel.
+            images = await replicate_provider.generate_images(request)
+            actual_provider_name = replicate_provider.name
+            actual_model = replicate_provider.default_model
+            fallback_used = True
+            log.info(
+                "image.generate.fallback_success",
+                user_id=user_id,
+                provider=replicate_provider.name,
+                model=replicate_provider.default_model,
+            )
+        except ProviderError as fallback_exc:
+            # Replicate aussi refuse ou est down → on propage l'erreur
+            # ORIGINALE de Imagen (CONTENT_FILTERED 503) car l'user
+            # comprendra mieux « refusé » que « les 2 providers ont
+            # échoué ». Log les 2 erreurs pour debug.
+            log.error(
+                "image.generate.fallback_failed",
+                user_id=user_id,
+                imagen_error=str(exc),
+                replicate_error=str(fallback_exc),
+                replicate_error_type=type(fallback_exc).__name__,
+            )
+            raise LlmUnavailableException() from fallback_exc
     except ProviderError as exc:
         log.error(
             "image.generate.provider_error",
@@ -623,7 +688,13 @@ async def image_generate(
         )
         raise LlmUnavailableException()
 
-    log.info("image.generate.done", user_id=user_id, count=len(images))
+    log.info(
+        "image.generate.done",
+        user_id=user_id,
+        count=len(images),
+        provider=actual_provider_name,
+        fallback_used=fallback_used,
+    )
 
     # 4. E4 — Watermark + Auto-save Library (fail-safe jamais bloquant).
     # Si `remove_watermark=False` (défaut), chaque image reçoit le
@@ -740,8 +811,12 @@ async def image_generate(
                 }
                 for idx, img in enumerate(images)
             ],
-            "provider": resolution.provider.name,
-            "model": resolution.model,
+            # `provider` et `model` reflètent le provider RÉEL utilisé
+            # (Imagen ou Replicate Flux si fallback). `fallback_used`
+            # permet au client d'afficher un badge transparent si besoin.
+            "provider": actual_provider_name,
+            "model": actual_model,
+            "fallback_used": fallback_used,
             "library_ids": library_ids,
             "watermark_applied": apply_watermark,
             "watermark_version": (WATERMARK_VERSION if apply_watermark else None),

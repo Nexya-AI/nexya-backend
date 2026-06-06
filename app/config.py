@@ -68,6 +68,28 @@ class Settings(BaseSettings):
     gcp_project_id: str = "nexya-ai"
     gcp_location: str = "us-central1"
 
+    # ── IA — Replicate (fallback Flux 1.1 Pro pour célébrités) ──
+    # Activé en fallback automatique sur `ProviderContentFilteredError`
+    # de Imagen 4 (Google bloque les célébrités nommées au niveau
+    # infrastructure Trust & Safety, indépendamment des paramètres
+    # safety). Flux 1.1 Pro a des filtres plus permissifs.
+    #
+    # - `replicate_api_token` : format `r8_xxx` (32 chars hex), obtenu
+    #   sur https://replicate.com/account/api-tokens. Vide = fallback
+    #   désactivé (le 503 ContentFilteredError de Imagen est propagé tel
+    #   quel au client comme avant).
+    # - `replicate_default_model` : `flux-1.1-pro` (~$0.04/img qualité
+    #   premium) ou `flux-schnell` (~$0.003/img rapide budget Africa).
+    # - `replicate_enabled` : kill-switch hotfix prod sans toucher au
+    #   token (utile si Replicate facture trop ou si un incident UX).
+    # - `replicate_safety_tolerance` : 1-6 (6 = max permissif, défaut
+    #   du fallback puisque le but est précisément de débloquer les
+    #   prompts refusés par Imagen).
+    replicate_api_token: str = ""
+    replicate_default_model: str = "black-forest-labs/flux-1.1-pro"
+    replicate_enabled: bool = True
+    replicate_safety_tolerance: int = 6
+
     # ── IA — OpenAI ────────────────────────────────────────────
     openai_api_key: str = ""
 
