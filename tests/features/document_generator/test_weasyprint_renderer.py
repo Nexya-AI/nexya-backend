@@ -230,5 +230,13 @@ class TestSafeUrlFetcher:
         # Mini data URI valide (1px PNG transparent)
         data_uri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
         result = _safe_url_fetcher(data_uri)
-        # Default fetcher devrait décoder le data: URI
-        assert isinstance(result, dict)
+        # Default fetcher devrait décoder le data: URI. Selon la version
+        # weasyprint, le résultat est un dict (<69.0) OU un URLFetcherResponse
+        # object (>=69.0). On vérifie le duck-typing : accès au champ 'string'.
+        # Le anti-SSRF stub retournerait string=b"" (delegate marche = string
+        # non vide pour un data URI valide).
+        if isinstance(result, dict):
+            string_data = result["string"]
+        else:
+            string_data = result.string
+        assert string_data and len(string_data) > 0
