@@ -456,21 +456,15 @@ class TestCodeFileDraftData:
 
     def test_content_too_long_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            CodeFileDraftData(
-                filename="big.py", content="x" * 100_001, language="python"
-            )
+            CodeFileDraftData(filename="big.py", content="x" * 100_001, language="python")
 
     def test_filename_too_long_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            CodeFileDraftData(
-                filename="x" * 201 + ".py", content="hi", language="python"
-            )
+            CodeFileDraftData(filename="x" * 201 + ".py", content="hi", language="python")
 
     def test_language_too_long_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            CodeFileDraftData(
-                filename="foo.py", content="hi", language="x" * 33
-            )
+            CodeFileDraftData(filename="foo.py", content="hi", language="x" * 33)
 
     def test_language_invalid_chars_rejected(self) -> None:
         # Espace au milieu interdit
@@ -484,9 +478,7 @@ class TestCodeFileDraftData:
         # `c++`, `objective-c`, `f#` (sauf `#` interdit), test cas réels
         data = CodeFileDraftData(filename="main.cpp", content="int main(){}", language="c++")
         assert data.language == "c++"
-        data = CodeFileDraftData(
-            filename="foo.m", content="int main(){}", language="objective-c"
-        )
+        data = CodeFileDraftData(filename="foo.m", content="int main(){}", language="objective-c")
         assert data.language == "objective-c"
 
     def test_description_whitespace_normalized_to_none(self) -> None:
@@ -506,28 +498,20 @@ class TestCodeProjectFileItem:
     """Item fichier dans un Code Project (C4.6)."""
 
     def test_minimal_payload(self) -> None:
-        item = CodeProjectFileItem(
-            filename="main.py", content="print('hi')", language="python"
-        )
+        item = CodeProjectFileItem(filename="main.py", content="print('hi')", language="python")
         assert item.filename == "main.py"
         assert item.language == "python"
 
     def test_filename_path_traversal_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            CodeProjectFileItem(
-                filename="../etc/passwd", content="evil", language="bash"
-            )
+            CodeProjectFileItem(filename="../etc/passwd", content="evil", language="bash")
 
     def test_content_too_long_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            CodeProjectFileItem(
-                filename="foo.py", content="x" * 100_001, language="python"
-            )
+            CodeProjectFileItem(filename="foo.py", content="x" * 100_001, language="python")
 
     def test_language_normalized_lowercase(self) -> None:
-        item = CodeProjectFileItem(
-            filename="App.tsx", content="export {};", language="TypeScript"
-        )
+        item = CodeProjectFileItem(filename="App.tsx", content="export {};", language="TypeScript")
         assert item.language == "typescript"
 
 
@@ -593,9 +577,7 @@ class TestCodeProjectDraftData:
         # total-size reste comme défense en profondeur si on élargit
         # un jour les caps individuels.
         big_content = "x" * 100_000  # cap individuel max
-        files = [
-            self._make_file(f"f_{i}.py", big_content, "python") for i in range(50)
-        ]
+        files = [self._make_file(f"f_{i}.py", big_content, "python") for i in range(50)]
         data = CodeProjectDraftData(project_name="Max Legal", files=files)
         assert len(data.files) == 50
         # Total = 5 MB exact, donc <= cap 5_000_000.
@@ -678,9 +660,7 @@ class TestRichContentPayloadCodeFactories:
 
     def test_code_file_factory_validates_path_safe(self) -> None:
         with pytest.raises(ValidationError):
-            RichContentPayload.code_file(
-                filename="../etc/passwd", content="evil", language="bash"
-            )
+            RichContentPayload.code_file(filename="../etc/passwd", content="evil", language="bash")
 
     def test_code_file_factory_validates_content_cap(self) -> None:
         with pytest.raises(ValidationError):
@@ -724,8 +704,7 @@ class TestRichContentPayloadCodeFactories:
 
     def test_code_project_factory_validates_cap_max_50(self) -> None:
         files = [
-            {"filename": f"f_{i}.py", "content": f"# {i}", "language": "python"}
-            for i in range(51)
+            {"filename": f"f_{i}.py", "content": f"# {i}", "language": "python"} for i in range(51)
         ]
         with pytest.raises(ValidationError):
             RichContentPayload.code_project(project_name="Too Big", files=files)

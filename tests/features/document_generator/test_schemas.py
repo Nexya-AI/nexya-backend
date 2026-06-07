@@ -11,6 +11,7 @@ Couvre :
 from __future__ import annotations
 
 import uuid
+from datetime import UTC
 
 import pytest
 from pydantic import ValidationError
@@ -20,7 +21,6 @@ from app.features.document_generator.schemas import (
     DocumentGenerateRequest,
     DocumentGenerateResponse,
 )
-
 
 # ──────────────────────────────────────────────────────────────────
 # DocumentGenerateRequest
@@ -101,9 +101,7 @@ class TestDocumentGenerateRequestSchema:
             ("docx", "medicine"),
         ],
     )
-    def test_accepts_6_new_template_format_combinations(
-        self, fmt: str, tmpl: str
-    ) -> None:
+    def test_accepts_6_new_template_format_combinations(self, fmt: str, tmpl: str) -> None:
         """C4.7c — Les 6 nouvelles combinaisons (3 templates × 2 formats)
         sont toutes acceptées par Pydantic."""
         body = DocumentGenerateRequest(
@@ -236,9 +234,9 @@ class TestDocumentGenerateOptionsSchema:
 
 class TestDocumentGenerateResponseSchema:
     def test_response_round_trip(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         lib_id = uuid.uuid4()
         resp = DocumentGenerateResponse(
             library_id=lib_id,
@@ -257,9 +255,9 @@ class TestDocumentGenerateResponseSchema:
         assert resp.truncated is False
 
     def test_response_with_truncated_flag(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         resp = DocumentGenerateResponse(
             library_id=uuid.uuid4(),
             download_url="https://example.com/x.pdf",
@@ -274,9 +272,9 @@ class TestDocumentGenerateResponseSchema:
         assert resp.pages == 50
 
     def test_negative_size_or_pages_rejected(self) -> None:
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         with pytest.raises(ValidationError):
             DocumentGenerateResponse(
                 library_id=uuid.uuid4(),
@@ -329,9 +327,9 @@ class TestC47dWatermarkC2PASchemas:
     def test_response_includes_watermark_and_c2pa_fields_defaults(self) -> None:
         """C4.7d — DocumentGenerateResponse expose les 5 nouveaux champs
         avec defaults sécurisés (False / None)."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         resp = DocumentGenerateResponse(
             library_id=uuid.uuid4(),
             download_url="https://example.com/x.pdf",
@@ -350,9 +348,9 @@ class TestC47dWatermarkC2PASchemas:
 
     def test_response_watermark_and_c2pa_applied_populated(self) -> None:
         """C4.7d — Round-trip avec toutes les protections actives."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         resp = DocumentGenerateResponse(
             library_id=uuid.uuid4(),
             download_url="https://example.com/x.pdf",
@@ -376,9 +374,9 @@ class TestC47dWatermarkC2PASchemas:
 
     def test_response_c2pa_skip_reason_for_docx(self) -> None:
         """C4.7d — DOCX V1 → c2pa_applied=False + skip_reason informatif."""
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         resp = DocumentGenerateResponse(
             library_id=uuid.uuid4(),
             download_url="https://example.com/x.docx",

@@ -175,11 +175,13 @@ class TestDetectRichContentCodeProject:
         return "\n".join(parts)
 
     def test_python_project_3_files_with_explicit_names(self) -> None:
-        assistant_text = self._build_assistant_text([
-            ("main.py", "from fastapi import FastAPI\napp = FastAPI()", "python"),
-            ("routes.py", "from fastapi import APIRouter\nrouter = APIRouter()", "python"),
-            ("requirements.txt", "fastapi==0.100.0\nuvicorn==0.20.0", "text"),
-        ])
+        assistant_text = self._build_assistant_text(
+            [
+                ("main.py", "from fastapi import FastAPI\napp = FastAPI()", "python"),
+                ("routes.py", "from fastapi import APIRouter\nrouter = APIRouter()", "python"),
+                ("requirements.txt", "fastapi==0.100.0\nuvicorn==0.20.0", "text"),
+            ]
+        )
         result = detect_rich_content_code_project(
             user_message="écris-moi une API FastAPI complète pour gérer des tâches",
             assistant_text=assistant_text,
@@ -194,11 +196,21 @@ class TestDetectRichContentCodeProject:
         )
 
     def test_flutter_project_with_pubspec(self) -> None:
-        assistant_text = self._build_assistant_text([
-            ("pubspec.yaml", "name: my_app\nversion: 1.0.0\ndependencies:\n  flutter:\n    sdk: flutter", "yaml"),
-            ("lib/main.dart", "import 'package:flutter/material.dart';\nvoid main() => runApp(MyApp());", "dart"),
-            ("lib/widgets/login.dart", "class LoginScreen extends StatelessWidget {}", "dart"),
-        ])
+        assistant_text = self._build_assistant_text(
+            [
+                (
+                    "pubspec.yaml",
+                    "name: my_app\nversion: 1.0.0\ndependencies:\n  flutter:\n    sdk: flutter",
+                    "yaml",
+                ),
+                (
+                    "lib/main.dart",
+                    "import 'package:flutter/material.dart';\nvoid main() => runApp(MyApp());",
+                    "dart",
+                ),
+                ("lib/widgets/login.dart", "class LoginScreen extends StatelessWidget {}", "dart"),
+            ]
+        )
         result = detect_rich_content_code_project(
             user_message="génère un projet Flutter complet avec login",
             assistant_text=assistant_text,
@@ -207,11 +219,21 @@ class TestDetectRichContentCodeProject:
         assert result["data"]["project_type"] == "flutter"
 
     def test_nodejs_project_with_package_json(self) -> None:
-        assistant_text = self._build_assistant_text([
-            ("package.json", '{"name": "my-app", "version": "1.0.0"}', "json"),
-            ("index.js", "const express = require('express');\nconst app = express();", "javascript"),
-            ("src/routes.js", "module.exports = (app) => { app.get('/', (req, res) => res.send('hi')); };", "javascript"),
-        ])
+        assistant_text = self._build_assistant_text(
+            [
+                ("package.json", '{"name": "my-app", "version": "1.0.0"}', "json"),
+                (
+                    "index.js",
+                    "const express = require('express');\nconst app = express();",
+                    "javascript",
+                ),
+                (
+                    "src/routes.js",
+                    "module.exports = (app) => { app.get('/', (req, res) => res.send('hi')); };",
+                    "javascript",
+                ),
+            ]
+        )
         result = detect_rich_content_code_project(
             user_message="build me a full-stack Node.js app",
             assistant_text=assistant_text,
@@ -221,10 +243,12 @@ class TestDetectRichContentCodeProject:
 
     def test_two_files_minimum_accepted(self) -> None:
         # Cap min 2 fichiers.
-        assistant_text = self._build_assistant_text([
-            ("main.py", "from fastapi import FastAPI\napp = FastAPI()", "python"),
-            ("requirements.txt", "fastapi==0.100.0", "text"),
-        ])
+        assistant_text = self._build_assistant_text(
+            [
+                ("main.py", "from fastapi import FastAPI\napp = FastAPI()", "python"),
+                ("requirements.txt", "fastapi==0.100.0", "text"),
+            ]
+        )
         result = detect_rich_content_code_project(
             user_message="écris une API Python complète",
             assistant_text=assistant_text,
@@ -251,8 +275,7 @@ class TestDetectRichContentCodeProject:
         # 2 blocs sans filenames explicites + sans intent → false positive
         # potentiel (snippets orphelins ≠ projet). Skip.
         assistant_text = (
-            "```python\nprint('one example')\n```\n\n"
-            "```python\nprint('another example')\n```"
+            "```python\nprint('one example')\n```\n\n```python\nprint('another example')\n```"
         )
         result = detect_rich_content_code_project(
             user_message="give me some Python examples",
@@ -294,9 +317,7 @@ class TestDetectRichContentCodeProject:
 
     def test_cap_max_50_files_truncated(self) -> None:
         # 51 fichiers → tronqué à 50.
-        files = [
-            (f"file_{i}.py", f"# file {i}\nprint({i})", "python") for i in range(51)
-        ]
+        files = [(f"file_{i}.py", f"# file {i}\nprint({i})", "python") for i in range(51)]
         assistant_text = self._build_assistant_text(files)
         result = detect_rich_content_code_project(
             user_message="écris un projet Python complet",
@@ -346,11 +367,13 @@ class TestDetectRichContentCodeProject:
         assert "routes.py" in filenames
 
     def test_filename_with_subdir(self) -> None:
-        assistant_text = self._build_assistant_text([
-            ("src/main.py", "from app import app\napp.run()", "python"),
-            ("src/app.py", "from flask import Flask\napp = Flask(__name__)", "python"),
-            ("requirements.txt", "flask==3.0.0", "text"),
-        ])
+        assistant_text = self._build_assistant_text(
+            [
+                ("src/main.py", "from app import app\napp.run()", "python"),
+                ("src/app.py", "from flask import Flask\napp = Flask(__name__)", "python"),
+                ("requirements.txt", "flask==3.0.0", "text"),
+            ]
+        )
         result = detect_rich_content_code_project(
             user_message="écris une API Flask complète",
             assistant_text=assistant_text,
@@ -360,10 +383,12 @@ class TestDetectRichContentCodeProject:
         assert "src/main.py" in filenames
 
     def test_project_type_none_when_no_manifest(self) -> None:
-        assistant_text = self._build_assistant_text([
-            ("file1.py", "print('hello')", "python"),
-            ("file2.py", "print('world')", "python"),
-        ])
+        assistant_text = self._build_assistant_text(
+            [
+                ("file1.py", "print('hello')", "python"),
+                ("file2.py", "print('world')", "python"),
+            ]
+        )
         result = detect_rich_content_code_project(
             user_message="écris un projet Python complet",
             assistant_text=assistant_text,
@@ -395,10 +420,12 @@ class TestDetectRichContentCodeProject:
         assert result is None
 
     def test_project_name_inferred_from_user_message(self) -> None:
-        assistant_text = self._build_assistant_text([
-            ("main.py", "from fastapi import FastAPI\napp = FastAPI()", "python"),
-            ("models.py", "class Task: pass", "python"),
-        ])
+        assistant_text = self._build_assistant_text(
+            [
+                ("main.py", "from fastapi import FastAPI\napp = FastAPI()", "python"),
+                ("models.py", "class Task: pass", "python"),
+            ]
+        )
         result = detect_rich_content_code_project(
             user_message="écris-moi une API tâches complète",
             assistant_text=assistant_text,
@@ -407,10 +434,12 @@ class TestDetectRichContentCodeProject:
         assert result["data"]["project_name"]  # non-vide
 
     def test_project_name_fallback_when_no_hint(self) -> None:
-        assistant_text = self._build_assistant_text([
-            ("main.py", "from fastapi import FastAPI\napp = FastAPI()", "python"),
-            ("requirements.txt", "fastapi==0.100.0", "text"),
-        ])
+        assistant_text = self._build_assistant_text(
+            [
+                ("main.py", "from fastapi import FastAPI\napp = FastAPI()", "python"),
+                ("requirements.txt", "fastapi==0.100.0", "text"),
+            ]
+        )
         result = detect_rich_content_code_project(
             user_message="",  # pas d'indication mais cap min 2 fichiers
             assistant_text=assistant_text,
@@ -422,10 +451,12 @@ class TestDetectRichContentCodeProject:
         assert result["data"]["project_name"] == "Python Project"
 
     def test_payload_dict_structure_complete(self) -> None:
-        assistant_text = self._build_assistant_text([
-            ("a.py", "print('a')\n# some content", "python"),
-            ("b.py", "print('b')\n# some other content", "python"),
-        ])
+        assistant_text = self._build_assistant_text(
+            [
+                ("a.py", "print('a')\n# some content", "python"),
+                ("b.py", "print('b')\n# some other content", "python"),
+            ]
+        )
         result = detect_rich_content_code_project(
             user_message="écris-moi un projet Python complet",
             assistant_text=assistant_text,
@@ -444,8 +475,7 @@ class TestDetectRichContentCodeProject:
         # Files : liste de dicts avec {filename, content, language}.
         assert isinstance(result["data"]["files"], list)
         assert all(
-            set(f.keys()) == {"filename", "content", "language"}
-            for f in result["data"]["files"]
+            set(f.keys()) == {"filename", "content", "language"} for f in result["data"]["files"]
         )
 
     def test_empty_inputs_return_none(self) -> None:

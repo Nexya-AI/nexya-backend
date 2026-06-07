@@ -497,6 +497,33 @@
         ]
       }
     },
+    "/user/quotas": {
+      "get": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Get User Quotas",
+        "description": "C4.11 — Snapshot quotas user pour Settings > Mon compte dashboard.\n\nRetourne :\n  - `docs_generated_this_month` + `docs_max_month` (compteur PDF+DOCX\n    ce mois UTC vs cap selon plan)\n  - `voice_minutes_today` + `voice_minutes_max_day` (Pro only,\n    `null` pour Free — UX cache la carte côté Flutter)\n  - `library_storage_bytes` + `library_storage_max_bytes` (SOMME\n    size_bytes actifs vs cap Free 100MB / Pro 10GB)\n  - `reset_at` (prochain 1er du mois UTC minuit)\n  - `plan` ('free' ou 'pro')\n\nPas de rate limit V1 (lecture O(1) Postgres + Redis, ~5 calls/day/user).\nFail-safe absolu côté service : Redis down → voice_minutes_today=0\nsilencieux pour Pro (l'écran reste consultable).",
+        "operationId": "get_user_quotas_user_quotas_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NexyaResponse_UserQuotasResponse_"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
     "/chat/conversations": {
       "post": {
         "tags": [
@@ -2110,7 +2137,7 @@
           "library"
         ],
         "summary": "Get Library Item",
-        "description": "Détail d'un média — 404 IDOR-safe si pas propriétaire.",
+        "description": "Détail d'un média — 404 IDOR-safe si pas propriétaire.\n\nC4.11 — enrichi avec version_number + versions_count séparés (au lieu\nd'un seul `get_with_versions` qui bypasse `LibraryService.get` mocked\npar les tests legacy). `LibraryService.get` reste la méthode mockable\ncanonique pour le owner-check, `count_versions_for_lineage` enveloppé\nfail-safe pour ne pas casser le 200 si la queue mock test est limitée.",
         "operationId": "get_library_item_library__item_id__get",
         "security": [
           {
@@ -2193,6 +2220,55 @@
         }
       }
     },
+    "/library/{item_id}/versions": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "summary": "Get Library Item Versions",
+        "description": "C4.11 — Liste toutes les versions actives du lineage de l'item.\n\nPattern: le frontend appelle au tap du dropdown « Voir v1 / v2 / v3 »\npour récupérer tous les siblings ordonnés version_number ASC (racine\nv1 → dernière version). Lazy-load au tap user (économie 2G/3G).\n\nSi `item_id` est la racine du lineage → retourne `[racine, v2, v3, ...]`.\nSi `item_id` est une descendante → résout la racine via `parent_library_id`\npuis retourne `[racine, ..., item_id, ..., dernière]`.\n\nErreurs :\n  - **404** `RESOURCE_NOT_FOUND` si pas propriétaire (IDOR-safe).\n\nNote: items sans lineage (parent NULL ET 0 descendants) → retourne `[item]`\nseul (l'item est sa propre version unique).",
+        "operationId": "get_library_item_versions_library__item_id__versions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NexyaResponse_list_LibraryItemListItem__"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/files/upload": {
       "post": {
         "tags": [
@@ -2252,6 +2328,63 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/{upload_id}/preview": {
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "summary": "Get File Preview",
+        "description": "Génère un PDF preview du fichier uploadé (C4.10).\n\nPipeline :\n- PDF natif → passthrough strict (RGPD : pas de re-render, métadonnées\n  XMP de l'original intactes).\n- DOCX → conversion mammoth (HTML) → weasyprint (PDF) → pikepdf (cap pages).\n  AUCUN branding NEXYA (RGPD : fichiers uploadés user intouchables —\n  le branding est RÉSERVÉ aux documents GÉNÉRÉS par NEXYA via\n  `/generate/document`).\n\nCache MinIO 30j sur hash content — un même fichier ré-prévisualisé\nretourne le PDF cached en ~50ms (vs ~1-2s de génération DOCX).\n\nFail-safe : si mammoth crash sur DOCX exotique → fallback texte brut\n(extracted_text E3 → PDF minimaliste 1 page). L'user voit AU MOINS le\ntexte au lieu d'une erreur 503.\n\nCodes d'erreur :\n- **404** `RESOURCE_NOT_FOUND` si upload n'existe pas / soft-deleted /\n  n'appartient pas à l'user courant (IDOR-safe).\n- **415** `FILE_TYPE_NOT_PREVIEWABLE` si MIME hors {`application/pdf`,\n  `application/vnd.openxmlformats-officedocument.wordprocessingml.document`}.\n  XLSX/PPTX/TXT/MD différés V2.\n- **429** `RATE_LIMIT_ABUSE` si > 60 previews/heure/user.\n- **503** `FILE_PREVIEW_UNAVAILABLE` si kill-switch\n  `documents_generator_preview_enabled=False` OU pipeline crash\n  (mammoth + fallback texte échouent tous les 2).\n\nHeaders réponse :\n- `Content-Type: application/pdf`\n- `Cache-Control: private, max-age=86400` (cache navigateur client 1h)\n- `X-Preview-Cache: hit|miss` (info debug pour le client)\n- `X-Preview-Truncated: true` si le DOCX a été tronqué au cap pages",
+        "operationId": "get_file_preview_files__upload_id__preview_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "upload_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Upload Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "PDF preview du fichier uploadé (passthrough si PDF natif, conversion mammoth+weasyprint si DOCX).",
+            "content": {
+              "application/pdf": {}
+            }
+          },
+          "404": {
+            "description": "Upload introuvable ou non possédé par l'user (IDOR-safe)."
+          },
+          "415": {
+            "description": "FILE_TYPE_NOT_PREVIEWABLE — MIME hors {pdf, docx}."
+          },
+          "429": {
+            "description": "RATE_LIMIT_ABUSE — > 60 previews/heure/user."
+          },
+          "503": {
+            "description": "FILE_PREVIEW_UNAVAILABLE — kill-switch off ou pipeline crash."
           },
           "422": {
             "description": "Validation Error",
@@ -4047,6 +4180,112 @@
         ]
       }
     },
+    "/generate/document": {
+      "post": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Generate Document",
+        "description": "Génère un document à partir d'un message conversation + template.\n\nRenvoie **201** + `DocumentGenerateResponse` (rendu synchrone, petit doc)\nOU **202** + `DocumentGenerateAcceptedResponse` (doc lourd > seuil → job\nasync, push FCM au résultat — C4.12).\n\nCodes erreur :\n    404 RESOURCE_NOT_FOUND : message inexistant ou pas owned\n    403 PLAN_REQUIRED      : Free tente remove_watermark=true\n    413 DOCUMENT_SOURCE_TOO_LONG : content > cap chars\n    422 TEMPLATE_NOT_FOUND : template slug invalide\n    429 RATE_LIMIT_ABUSE   : quota par heure atteint\n    503 DOCUMENT_RENDER_FAILED / DOCUMENT_STORAGE_UNAVAILABLE\n\nRate limits : Free 60/h, Pro 100/h.",
+        "operationId": "generate_document_generate_document_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentGenerateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NexyaResponse_DocumentGenerateResponse_"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Document lourd — rendu déporté sur le worker arq. Le client est prévenu par push FCM « 📄 doc prêt » + deep link vers la conversation. Peut poller GET /generate/document/jobs/{id}.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NexyaResponse_DocumentGenerateAcceptedResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/generate/document/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Get Document Job",
+        "description": "Polling d'un job de génération asynchrone (C4.12).\n\nFilet de secours si le push FCM est manqué (réseau 2G/3G, app killed).\nQuand `status='done'`, `download_url` est un presigned MinIO FRAIS\n(TTL 30 min, régénéré à chaque appel). 404 IDOR-safe.\n\nLecture O(1) sur PK indexée — non rate-limité (polling client borné).",
+        "operationId": "get_document_job_generate_document_jobs__job_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NexyaResponse_DocumentJobResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/healthz": {
       "get": {
         "tags": [
@@ -5222,6 +5461,454 @@
         "title": "DeviceTokenRequest",
         "description": "Enregistrement d'un token FCM pour les notifications push."
       },
+      "DocumentGenerateAcceptedResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id",
+            "description": "UUID du job de génération asynchrone (à poller)."
+          },
+          "status": {
+            "type": "string",
+            "const": "processing",
+            "title": "Status",
+            "description": "Statut initial exposé au client (toujours 'processing').",
+            "default": "processing"
+          },
+          "conversation_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Conversation Id",
+            "description": "UUID de la conversation source (deep link de la notif)."
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Message Id",
+            "description": "UUID du message source."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "pdf",
+              "docx"
+            ],
+            "title": "Format",
+            "description": "Format demandé (pdf | docx)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "conversation_id",
+          "message_id",
+          "format"
+        ],
+        "title": "DocumentGenerateAcceptedResponse",
+        "description": "Réponse **202 Accepted** de `POST /generate/document` (chemin async C4.12).\n\nRenvoyée à la place de `DocumentGenerateResponse` quand le document est\njugé lourd (`len(markdown_source) > documents_generator_async_threshold_chars`).\nLe rendu est déporté sur le worker arq ; le client est prévenu via push\nFCM « 📄 doc prêt » + deep link vers la conversation.\n\nLe client peut poller `GET /generate/document/jobs/{job_id}` en filet de\nsecours si le push est manqué (réseau 2G/3G, app killed)."
+      },
+      "DocumentGenerateOptions": {
+        "properties": {
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject",
+            "description": "Matière scolaire affichée dans l'entête (template `school`)."
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level",
+            "description": "Niveau scolaire affiché dans l'entête (template `school`)."
+          },
+          "date_iso": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Iso",
+            "description": "Date ISO 8601 (YYYY-MM-DD) affichée. Défaut = aujourd'hui UTC."
+          },
+          "include_toc": {
+            "type": "boolean",
+            "title": "Include Toc",
+            "description": "Table des matières auto. V2 — ignoré V1.",
+            "default": false
+          },
+          "page_numbers": {
+            "type": "boolean",
+            "title": "Page Numbers",
+            "description": "Numérotation bas de page « N / Total ». Défaut True.",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "DocumentGenerateOptions",
+        "description": "Options de génération (toutes optionnelles).\n\nChamps `school` :\n    subject : matière (ex: « Mathématiques », « SVT »)\n    level : niveau scolaire (ex: « Terminale S », « Master 1 »)\n    date_iso : date affichée dans l'entête (défaut = aujourd'hui)\n\nChamps communs :\n    include_toc : table des matières auto (V2, ignoré V1)\n    page_numbers : numérotation bas de page (défaut True)"
+      },
+      "DocumentGenerateRequest": {
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Conversation Id",
+            "description": "UUID de la conversation source (ownership check IDOR-safe)."
+          },
+          "message_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Message Id",
+            "description": "UUID du message assistant dont le content est la source markdown."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "pdf",
+              "docx"
+            ],
+            "title": "Format",
+            "description": "Format de sortie. V1 = PDF seul. DOCX en C4.7b.",
+            "default": "pdf"
+          },
+          "template": {
+            "type": "string",
+            "enum": [
+              "school",
+              "minimal",
+              "sciences",
+              "legal",
+              "medicine"
+            ],
+            "title": "Template",
+            "description": "Template Jinja2 à appliquer. V1 : `school` ou `minimal`.",
+            "default": "minimal"
+          },
+          "options": {
+            "$ref": "#/components/schemas/DocumentGenerateOptions",
+            "description": "Options de personnalisation par template."
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Titre principal du document (sert aussi de titre Library + filename PDF). Défaut = dérivé du contenu via title_generator."
+          },
+          "remove_watermark": {
+            "type": "boolean",
+            "title": "Remove Watermark",
+            "description": "Retirer le watermark NEXYA (logo bleu bottom-right PDF + footer DOCX). **Pro only** — Free qui tente `True` → 403 PLAN_REQUIRED. Pattern aligné `/image/generate` E4. C4.7d.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "conversation_id",
+          "message_id"
+        ],
+        "title": "DocumentGenerateRequest",
+        "description": "Body de `POST /generate/document`.\n\nLe backend récupère le contenu markdown source depuis la table\n`messages` via `(conversation_id, message_id)` (ownership check\nautomatique via le `JOIN messages-conversations` standard NEXYA\n— pattern aligné C2 feedback + C1 reports).\n\nPourquoi pas envoyer le markdown directement dans le body ?\n    - Évite la duplication réseau (le LLM a déjà produit le texte,\n      il est en DB).\n    - Anti tampering : l'user ne peut pas modifier le contenu IA\n      avant de le rendre (sécurité brand NEXYA).\n    - Cap source côté backend = config setting, pas négociable."
+      },
+      "DocumentGenerateResponse": {
+        "properties": {
+          "library_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Library Id",
+            "description": "UUID de l'item Library créé (type=document, file_type=pdf)."
+          },
+          "download_url": {
+            "type": "string",
+            "title": "Download Url",
+            "description": "Presigned URL MinIO TTL 30 min pour download direct."
+          },
+          "filename": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Filename",
+            "description": "Nom de fichier suggéré pour le download (ex: `document_2026-05-30.pdf`)."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Size Bytes",
+            "description": "Taille du PDF en bytes APRÈS compression pikepdf."
+          },
+          "pages": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Pages",
+            "description": "Nombre de pages rendues (cap à max_pages, voir truncated)."
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "description": "True si le PDF a été tronqué au cap pages."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At",
+            "description": "ISO datetime UTC d'expiration de `download_url` (TTL 30 min)."
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At",
+            "description": "ISO datetime UTC de fin de rendu PDF."
+          },
+          "watermark_applied": {
+            "type": "boolean",
+            "title": "Watermark Applied",
+            "description": "True si le watermark NEXYA visuel a été appliqué (logo PDF bottom-right ou footer DOCX). False si remove_watermark=True, kill-switch off, ou fail-safe sur erreur Pillow/WeasyPrint.",
+            "default": false
+          },
+          "watermark_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Watermark Version",
+            "description": "Version du watermark appliqué (ex: `v1-doc-pdf-docx-2026-05`). Null si applied=False. Permet de tracer l'historique sans casser les anciens documents si on change de logo plus tard."
+          },
+          "c2pa_applied": {
+            "type": "boolean",
+            "title": "C2Pa Applied",
+            "description": "True si le manifest C2PA signé cryptographiquement a été embarqué dans les métadonnées du document (PDF uniquement V1, DOCX différé V2 — c2pa-rs ne supporte pas OOXML natif). Conformité AI Act UE août 2026.",
+            "default": false
+          },
+          "c2pa_manifest_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "C2Pa Manifest Id",
+            "description": "Identifiant du manifest C2PA embarqué. Null si applied=False. Utile pour audit + vérification cross-tool via Content Credentials Adobe https://contentcredentials.org/verify."
+          },
+          "c2pa_skip_reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "C2Pa Skip Reason",
+            "description": "Raison du skip C2PA si applied=False (informatif audit). Valeurs : `unsupported_format_docx`, `disabled_by_killswitch`, `sign_error`, `c2pa_lib_unavailable`. Null si applied=True."
+          }
+        },
+        "type": "object",
+        "required": [
+          "library_id",
+          "download_url",
+          "filename",
+          "size_bytes",
+          "pages",
+          "truncated",
+          "expires_at",
+          "generated_at"
+        ],
+        "title": "DocumentGenerateResponse",
+        "description": "Réponse de `POST /generate/document`.\n\nLe client (Flutter) consomme :\n    - `download_url` : presigned URL MinIO TTL 30 min (le client\n      peut télécharger directement sans repasser par l'API)\n    - `library_id` : pour deep link futur « voir dans bibliothèque »\n    - `truncated` : si True, afficher badge « tronqué à N pages »\n    - `pages` : nombre réel de pages rendues (≤ max_pages cap)"
+      },
+      "DocumentJobResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Job Id",
+            "description": "UUID du job."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "processing",
+              "done",
+              "failed"
+            ],
+            "title": "Status",
+            "description": "Statut courant du job."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "pdf",
+              "docx"
+            ],
+            "title": "Format",
+            "description": "Format demandé."
+          },
+          "template": {
+            "type": "string",
+            "enum": [
+              "school",
+              "minimal",
+              "sciences",
+              "legal",
+              "medicine"
+            ],
+            "title": "Template",
+            "description": "Template demandé."
+          },
+          "library_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library Id",
+            "description": "UUID de l'item Library créé (null tant que pas done)."
+          },
+          "download_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Url",
+            "description": "Presigned URL MinIO FRAÎCHE TTL 30 min (régénérée à chaque poll). Null si pas done."
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename",
+            "description": "Nom de fichier du document (null si pas done)."
+          },
+          "pages": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pages",
+            "description": "Nombre de pages rendues (null si pas done)."
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes",
+            "description": "Taille du document en bytes (null si pas done)."
+          },
+          "truncated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Truncated",
+            "description": "True si tronqué au cap pages (null si pas done)."
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code",
+            "description": "Code d'erreur si status='failed' (ex: DOCUMENT_RENDER_FAILED)."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "ISO datetime UTC de création du job."
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At",
+            "description": "ISO datetime UTC de fin (done ou failed). Null si en cours."
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "format",
+          "template",
+          "created_at"
+        ],
+        "title": "DocumentJobResponse",
+        "description": "Réponse de `GET /generate/document/jobs/{job_id}` (polling C4.12).\n\nReflète l'état courant du job. Quand `status='done'`, les champs résultat\n(`library_id`, `download_url` presigné frais, `filename`, `pages`, ...)\nsont peuplés. Quand `status='failed'`, `error_code` est renseigné."
+      },
       "FeedbackCreate": {
         "properties": {
           "rating": {
@@ -5621,6 +6308,18 @@
             ],
             "title": "Source Message Id"
           },
+          "parent_library_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Library Id"
+          },
           "width_px": {
             "anyOf": [
               {
@@ -5694,7 +6393,7 @@
           "mime_type"
         ],
         "title": "LibraryItemCreate",
-        "description": "Création d'un item de biblio avec le binaire en base64.\n\nSession C3 livre l'upload base64 (suffit pour images générées,\nscreenshots, petits fichiers). L'upload multipart streaming arrive\nen E3 (`POST /files/upload`) — on gardera la sémantique `type` +\n`file_type` identique."
+        "description": "Création d'un item de biblio avec le binaire en base64.\n\nSession C3 livre l'upload base64 (suffit pour images générées,\nscreenshots, petits fichiers). L'upload multipart streaming arrive\nen E3 (`POST /files/upload`) — on gardera la sémantique `type` +\n`file_type` identique.\n\nC4.11 (2026-06-04) — `parent_library_id` optionnel : pointe vers\nle doc RACINE du lineage si l'item est une version descendante.\nNULL = doc racine (version 1, comportement legacy). Non-NULL =\n`version_number = MAX(siblings.version_number) + 1` calculé\ncôté service (transparent client)."
       },
       "LibraryItemListItem": {
         "properties": {
@@ -5836,6 +6535,28 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "parent_library_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Library Id"
+          },
+          "version_number": {
+            "type": "integer",
+            "title": "Version Number",
+            "default": 1
+          },
+          "versions_count": {
+            "type": "integer",
+            "title": "Versions Count",
+            "default": 1
           }
         },
         "type": "object",
@@ -5857,7 +6578,7 @@
           "created_at"
         ],
         "title": "LibraryItemListItem",
-        "description": "Item allégé pour `GET /library` (grille Flutter masonry).\n\nOmet `prompt`, `metadata_json`, `description` (rarement affichés en\ngrille). Garde `url` pour la vignette directe."
+        "description": "Item allégé pour `GET /library` (grille Flutter masonry).\n\nOmet `prompt`, `metadata_json`, `description` (rarement affichés en\ngrille). Garde `url` pour la vignette directe.\n\nC4.11 — Champs versioning ajoutés pour permettre au client de :\n- Filtrer les vues parent uniquement (`parent_library_id IS NULL`)\n- Afficher badge \"+N versions\" sur les docs racines (`versions_count > 1`)\n- Cacher les versions descendantes dans la grille principale."
       },
       "LibraryItemResponse": {
         "properties": {
@@ -6089,6 +6810,28 @@
               }
             ],
             "title": "Deleted At"
+          },
+          "parent_library_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Library Id"
+          },
+          "version_number": {
+            "type": "integer",
+            "title": "Version Number",
+            "default": 1
+          },
+          "versions_count": {
+            "type": "integer",
+            "title": "Versions Count",
+            "default": 1
           }
         },
         "type": "object",
@@ -7248,6 +7991,156 @@
           "success"
         ],
         "title": "NexyaResponse[DeletionRequestResponse]"
+      },
+      "NexyaResponse_DocumentGenerateAcceptedResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentGenerateAcceptedResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "NexyaResponse[DocumentGenerateAcceptedResponse]"
+      },
+      "NexyaResponse_DocumentGenerateResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentGenerateResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "NexyaResponse[DocumentGenerateResponse]"
+      },
+      "NexyaResponse_DocumentJobResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocumentJobResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "NexyaResponse[DocumentJobResponse]"
       },
       "NexyaResponse_FeedbackResponse_": {
         "properties": {
@@ -8799,6 +9692,56 @@
         ],
         "title": "NexyaResponse[UserProfile]"
       },
+      "NexyaResponse_UserQuotasResponse_": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserQuotasResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "NexyaResponse[UserQuotasResponse]"
+      },
       "NexyaResponse_VisionAnalysisResponse_": {
         "properties": {
           "success": {
@@ -8950,6 +9893,60 @@
           "success"
         ],
         "title": "NexyaResponse[dict]"
+      },
+      "NexyaResponse_list_LibraryItemListItem__": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/LibraryItemListItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "NexyaResponse[list[LibraryItemListItem]]"
       },
       "NotificationListItem": {
         "properties": {
@@ -11415,6 +12412,84 @@
         ],
         "title": "UserProfile",
         "description": "Profil utilisateur retourné par GET /user/profile."
+      },
+      "UserQuotasResponse": {
+        "properties": {
+          "docs_generated_this_month": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Docs Generated This Month",
+            "description": "Nombre de docs PDF+DOCX générés ce mois UTC."
+          },
+          "docs_max_month": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Docs Max Month",
+            "description": "Cap mensuel selon le plan (Free=5, Pro=100, TODO Ivan)."
+          },
+          "voice_minutes_today": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice Minutes Today",
+            "description": "Minutes Whisper consommées today UTC. Null pour Free."
+          },
+          "voice_minutes_max_day": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice Minutes Max Day",
+            "description": "Cap journalier Pro (120 min). Null pour Free."
+          },
+          "library_storage_bytes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Library Storage Bytes",
+            "description": "SOMME des size_bytes des items actifs (bytes)."
+          },
+          "library_storage_max_bytes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Library Storage Max Bytes",
+            "description": "Cap selon le plan (Free 100 MB, Pro 10 GB)."
+          },
+          "reset_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Reset At",
+            "description": "Prochain reset mensuel UTC (1er du mois suivant minuit)."
+          },
+          "plan": {
+            "type": "string",
+            "maxLength": 16,
+            "minLength": 1,
+            "title": "Plan",
+            "description": "Plan actif user : 'free' ou 'pro'."
+          }
+        },
+        "type": "object",
+        "required": [
+          "docs_generated_this_month",
+          "docs_max_month",
+          "library_storage_bytes",
+          "library_storage_max_bytes",
+          "reset_at",
+          "plan"
+        ],
+        "title": "UserQuotasResponse",
+        "description": "Snapshot complet des quotas user pour le dashboard Account.\n\nTous les compteurs sont `int >= 0`. Les caps `*_max_*` reflètent le\nplan actif (Free vs Pro). `reset_at` = prochain reset mensuel UTC\npour les compteurs docs/storage. Les compteurs voice resettent à\nminuit UTC (pas exposé V1)."
       },
       "ValidationError": {
         "properties": {

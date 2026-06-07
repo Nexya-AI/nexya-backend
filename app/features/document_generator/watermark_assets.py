@@ -45,9 +45,7 @@ pour audit historique (anciens documents gardent leur version)."""
 # `app/`. `__file__` pointe vers ce module donc on remonte de 3 niveaux
 # (document_generator → features → app).
 _WATERMARK_PATH: Final[Path] = (
-    Path(__file__).resolve().parent.parent.parent
-    / "static"
-    / "nexya_watermark.png"
+    Path(__file__).resolve().parent.parent.parent / "static" / "nexya_watermark.png"
 )
 
 

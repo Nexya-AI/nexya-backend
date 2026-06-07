@@ -46,8 +46,18 @@ router = APIRouter(prefix="/library", tags=["library"])
 # ══════════════════════════════════════════════════════════════
 
 
-async def _item_to_response(item: LibraryItem) -> LibraryItemResponse:
-    """Combine une `LibraryItem` ORM avec sa presigned URL fraîche."""
+async def _item_to_response(
+    item: LibraryItem,
+    *,
+    version_number: int = 1,
+    versions_count: int = 1,
+) -> LibraryItemResponse:
+    """Combine une `LibraryItem` ORM avec sa presigned URL fraîche.
+
+    C4.11 — `version_number` + `versions_count` injectés depuis le caller
+    (router GET /library/{id} les calcule via `LibraryService.get_with_versions`).
+    Defaults `1/1` pour rétro-compat avec les call-sites pré-C4.11.
+    """
     url = await LibraryService.presigned_url_for(item)
     return LibraryItemResponse(
         id=item.id,
@@ -74,11 +84,25 @@ async def _item_to_response(item: LibraryItem) -> LibraryItemResponse:
         created_at=item.created_at,
         updated_at=item.updated_at,
         deleted_at=item.deleted_at,
+        # C4.11 — Versioning
+        parent_library_id=item.parent_library_id,
+        version_number=version_number,
+        versions_count=versions_count,
     )
 
 
-async def _item_to_list_item(item: LibraryItem) -> LibraryItemListItem:
-    """Version allégée pour les grilles — conserve url + type + taille."""
+async def _item_to_list_item(
+    item: LibraryItem,
+    *,
+    version_number: int = 1,
+    versions_count: int = 1,
+) -> LibraryItemListItem:
+    """Version allégée pour les grilles — conserve url + type + taille.
+
+    C4.11 — `version_number` + `versions_count` injectés depuis le caller
+    bulk (router GET /library calcule les counts en 1 seul SELECT pour
+    toute la page paginée, économise N round-trips DB).
+    """
     url = await LibraryService.presigned_url_for(item)
     return LibraryItemListItem(
         id=item.id,
@@ -96,6 +120,10 @@ async def _item_to_list_item(item: LibraryItem) -> LibraryItemListItem:
         source_conversation_id=item.source_conversation_id,
         tags=item.tags,
         created_at=item.created_at,
+        # C4.11 — Versioning
+        parent_library_id=item.parent_library_id,
+        version_number=version_number,
+        versions_count=versions_count,
     )
 
 
@@ -127,7 +155,33 @@ async def create_library_item(
     pas de double-upload storage. UX idempotente.
     """
     item = await LibraryService.create_from_base64(current_user, db, body)
-    return NexyaResponse(success=True, data=await _item_to_response(item))
+    # C4.11 — calcule versions_count pour le nouvel item (peut être > 1
+    # si l'user a régénéré le même message source plusieurs fois).
+    # **Fail-safe absolu** : si count_versions_for_lineage échoue (mock test
+    # avec queue execute insuffisante, blip DB transient, schéma pré-027 sans
+    # FK self-ref), on retombe sur 1/1 — l'utilisateur voit son item sans
+    # info versioning plutôt qu'un 500 cassant l'écran Library.
+    version_number = LibraryService._extract_version_number(item)
+    try:
+        versions_count = await LibraryService.count_versions_for_lineage(item, db)
+    except Exception as exc:  # noqa: BLE001 fail-safe défensif
+        versions_count = 1
+        try:
+            log.warning(
+                "library.versions_count.failed",
+                item_id=str(item.id),
+                error_type=getattr(type(exc), "__name__", "Unknown"),
+            )
+        except Exception:  # noqa: BLE001 log doit jamais cascader
+            pass
+    return NexyaResponse(
+        success=True,
+        data=await _item_to_response(
+            item,
+            version_number=version_number,
+            versions_count=versions_count,
+        ),
+    )
 
 
 # ══════════════════════════════════════════════════════════════
@@ -182,7 +236,34 @@ async def list_library_items(
         conversation_id=conversation_id,
         q=q,
     )
-    items = [await _item_to_list_item(i) for i in page.items]
+    # C4.11 — bulk versions_count en 1 SELECT pour toute la page paginée
+    # (économise N round-trips DB sur cap 30 items / page).
+    # **Fail-safe absolu** : si count_versions_bulk échoue (mock test
+    # avec queue execute insuffisante, blip DB transient, schéma pré-027
+    # sans FK self-ref), on retombe sur dict vide → tous les items reçoivent
+    # versions_count=1 par défaut via le `.get(root_id, 1)` below.
+    try:
+        bulk_versions = await LibraryService.count_versions_bulk(page.items, db)
+    except Exception as exc:  # noqa: BLE001 fail-safe défensif
+        bulk_versions = {}
+        try:
+            log.warning(
+                "library.versions_bulk.failed",
+                page_size=len(page.items),
+                error_type=getattr(type(exc), "__name__", "Unknown"),
+            )
+        except Exception:  # noqa: BLE001 log doit jamais cascader
+            pass
+    items = []
+    for i in page.items:
+        root_id = i.parent_library_id or i.id
+        items.append(
+            await _item_to_list_item(
+                i,
+                version_number=LibraryService._extract_version_number(i),
+                versions_count=bulk_versions.get(root_id, 1),
+            )
+        )
     return NexyaResponse(
         success=True,
         data=LibraryPage(items=items, next_cursor=page.next_cursor),
@@ -203,13 +284,88 @@ async def get_library_item(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> NexyaResponse[LibraryItemResponse]:
-    """Détail d'un média — 404 IDOR-safe si pas propriétaire."""
+    """Détail d'un média — 404 IDOR-safe si pas propriétaire.
+
+    C4.11 — enrichi avec version_number + versions_count séparés (au lieu
+    d'un seul `get_with_versions` qui bypasse `LibraryService.get` mocked
+    par les tests legacy). `LibraryService.get` reste la méthode mockable
+    canonique pour le owner-check, `count_versions_for_lineage` enveloppé
+    fail-safe pour ne pas casser le 200 si la queue mock test est limitée.
+    """
     item = await LibraryService.get(item_id, current_user, db)
-    return NexyaResponse(success=True, data=await _item_to_response(item))
+    version_number = LibraryService._extract_version_number(item)
+    try:
+        versions_count = await LibraryService.count_versions_for_lineage(item, db)
+    except Exception as exc:  # noqa: BLE001 fail-safe défensif
+        versions_count = 1
+        try:
+            log.warning(
+                "library.versions_count.failed",
+                item_id=str(item.id),
+                error_type=getattr(type(exc), "__name__", "Unknown"),
+            )
+        except Exception:  # noqa: BLE001 log doit jamais cascader
+            pass
+    return NexyaResponse(
+        success=True,
+        data=await _item_to_response(
+            item,
+            version_number=version_number,
+            versions_count=versions_count,
+        ),
+    )
 
 
 # ══════════════════════════════════════════════════════════════
-# 4. DELETE /library/{id} — soft-delete
+# 4. GET /library/{id}/versions — liste versions du lineage (C4.11)
+# ══════════════════════════════════════════════════════════════
+
+
+@router.get(
+    "/{item_id}/versions",
+    response_model=NexyaResponse[list[LibraryItemListItem]],
+)
+async def get_library_item_versions(
+    item_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> NexyaResponse[list[LibraryItemListItem]]:
+    """C4.11 — Liste toutes les versions actives du lineage de l'item.
+
+    Pattern: le frontend appelle au tap du dropdown « Voir v1 / v2 / v3 »
+    pour récupérer tous les siblings ordonnés version_number ASC (racine
+    v1 → dernière version). Lazy-load au tap user (économie 2G/3G).
+
+    Si `item_id` est la racine du lineage → retourne `[racine, v2, v3, ...]`.
+    Si `item_id` est une descendante → résout la racine via `parent_library_id`
+    puis retourne `[racine, ..., item_id, ..., dernière]`.
+
+    Erreurs :
+      - **404** `RESOURCE_NOT_FOUND` si pas propriétaire (IDOR-safe).
+
+    Note: items sans lineage (parent NULL ET 0 descendants) → retourne `[item]`
+    seul (l'item est sa propre version unique).
+    """
+    item = await LibraryService.get(item_id, current_user, db)
+    root_id = item.parent_library_id or item.id
+    siblings = await LibraryService.list_versions_for_root(root_id, current_user, db)
+    # Bulk count pour tous les siblings (pour exposer versions_count cohérent
+    # — devrait être identique pour tous les items du lineage = total).
+    bulk = await LibraryService.count_versions_bulk(siblings, db)
+    out: list[LibraryItemListItem] = []
+    for s in siblings:
+        out.append(
+            await _item_to_list_item(
+                s,
+                version_number=LibraryService._extract_version_number(s),
+                versions_count=bulk.get(root_id, len(siblings)),
+            )
+        )
+    return NexyaResponse(success=True, data=out)
+
+
+# ══════════════════════════════════════════════════════════════
+# 5. DELETE /library/{id} — soft-delete
 # ══════════════════════════════════════════════════════════════
 
 

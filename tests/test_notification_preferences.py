@@ -67,18 +67,20 @@ def test_default_channel_for_unknown_returns_none():
 
 
 @pytest.mark.asyncio
-async def test_get_for_user_returns_all_5_categories_with_defaults():
+async def test_get_for_user_returns_all_categories_with_defaults():
     user_id = uuid.uuid4()
     # DB vide → toutes les defaults doivent apparaître.
     db = _mk_db(execute_results=[_ScalarResult(rows=[])])
     entries = await NotificationPreferencesService.get_for_user(user_id, db)
 
-    assert len(entries) == 5
+    # 6 catégories depuis C4.12 (5 RGPD + 'documents').
+    assert len(entries) == len(CATEGORIES)
     cats = {e.category for e in entries}
     assert cats == set(CATEGORIES)
     by_cat = {e.category: e.channel for e in entries}
     assert by_cat["tasks"] == "push"
     assert by_cat["payments"] == "email"
+    assert by_cat["documents"] == "push"  # C4.12 — doc prêt = push
 
 
 @pytest.mark.asyncio

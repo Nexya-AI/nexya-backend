@@ -17,7 +17,7 @@ pour pikepdf/python-docx in-memory).
 from __future__ import annotations
 
 import io
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -27,7 +27,6 @@ from app.features.document_generator.branding import (
     BRAND_COMPANY,
     BRAND_NAME,
     BRANDING_VERSION,
-    BrandingContext,
     _slugify,
     apply_docx_branding_header,
     apply_docx_core_properties,
@@ -40,7 +39,6 @@ from app.features.document_generator.branding import (
     enrich_docx_footer_with_branding,
     generate_intelligent_filename,
 )
-
 
 # ══════════════════════════════════════════════════════════════
 # 1. Constantes brand exposées
@@ -82,10 +80,8 @@ def test_branding_context_is_frozen() -> None:
 
 def test_build_branding_context_fr_default() -> None:
     """`build_branding_context` défaut locale=fr."""
-    fixed_now = datetime(2026, 5, 31, 12, 0, 0, tzinfo=timezone.utc)
-    ctx = build_branding_context(
-        template="school", title="Devoir Maths", now=fixed_now
-    )
+    fixed_now = datetime(2026, 5, 31, 12, 0, 0, tzinfo=UTC)
+    ctx = build_branding_context(template="school", title="Devoir Maths", now=fixed_now)
     assert ctx.version == BRANDING_VERSION
     assert ctx.brand_name == BRAND_NAME
     assert ctx.brand_company == BRAND_COMPANY
@@ -136,9 +132,7 @@ def test_build_branding_context_now_uses_utc_when_omitted() -> None:
         ("école française", "ecole-francaise"),
     ],
 )
-def test_slugify_handles_unicode_and_special_chars(
-    raw: str, expected_substr: str
-) -> None:
+def test_slugify_handles_unicode_and_special_chars(raw: str, expected_substr: str) -> None:
     """`_slugify` doit normaliser NFKD + lowercase + ASCII-only."""
     result = _slugify(raw)
     assert result == expected_substr
@@ -165,27 +159,23 @@ def test_slugify_max_len_truncates() -> None:
 
 def test_generate_intelligent_filename_pdf_with_title() -> None:
     """Filename format `nexya_<template>_<slug>_<date>.pdf`."""
-    fixed_now = datetime(2026, 5, 31, 12, 0, 0, tzinfo=timezone.utc)
-    ctx = build_branding_context(
-        template="minimal", title="Cours photosynthèse", now=fixed_now
-    )
+    fixed_now = datetime(2026, 5, 31, 12, 0, 0, tzinfo=UTC)
+    ctx = build_branding_context(template="minimal", title="Cours photosynthèse", now=fixed_now)
     filename = generate_intelligent_filename(ctx, extension="pdf")
     assert filename == "nexya_minimal_cours-photosynthese_2026-05-31.pdf"
 
 
 def test_generate_intelligent_filename_docx_school_template() -> None:
     """Filename DOCX cohérent avec template school."""
-    fixed_now = datetime(2026, 5, 31, 0, 0, 0, tzinfo=timezone.utc)
-    ctx = build_branding_context(
-        template="school", title="Devoir Math", now=fixed_now
-    )
+    fixed_now = datetime(2026, 5, 31, 0, 0, 0, tzinfo=UTC)
+    ctx = build_branding_context(template="school", title="Devoir Math", now=fixed_now)
     filename = generate_intelligent_filename(ctx, extension="docx")
     assert filename == "nexya_school_devoir-math_2026-05-31.docx"
 
 
 def test_generate_intelligent_filename_no_title_uses_fallback() -> None:
     """Title=None → fallback `document` dans le slug."""
-    fixed_now = datetime(2026, 5, 31, 0, 0, 0, tzinfo=timezone.utc)
+    fixed_now = datetime(2026, 5, 31, 0, 0, 0, tzinfo=UTC)
     ctx = build_branding_context(template="minimal", title=None, now=fixed_now)
     filename = generate_intelligent_filename(ctx, extension="pdf")
     assert filename == "nexya_minimal_document_2026-05-31.pdf"
@@ -193,10 +183,8 @@ def test_generate_intelligent_filename_no_title_uses_fallback() -> None:
 
 def test_generate_intelligent_filename_strips_accents() -> None:
     """Slug ASCII-safe (no accents, no special chars)."""
-    fixed_now = datetime(2026, 5, 31, 0, 0, 0, tzinfo=timezone.utc)
-    ctx = build_branding_context(
-        template="medicine", title="Diabète Type 2", now=fixed_now
-    )
+    fixed_now = datetime(2026, 5, 31, 0, 0, 0, tzinfo=UTC)
+    ctx = build_branding_context(template="medicine", title="Diabète Type 2", now=fixed_now)
     filename = generate_intelligent_filename(ctx, extension="pdf")
     # NFKD strip accents : « Diabète » → « diabete »
     assert "diabete" in filename
@@ -221,7 +209,7 @@ def test_build_pdf_branding_header_css_contains_brand_name() -> None:
 
 def test_build_pdf_branding_footer_css_contains_brand_and_date() -> None:
     """Footer CSS doit contenir brand_name + company + date_iso."""
-    fixed_now = datetime(2026, 5, 31, 0, 0, 0, tzinfo=timezone.utc)
+    fixed_now = datetime(2026, 5, 31, 0, 0, 0, tzinfo=UTC)
     ctx = build_branding_context(template="minimal", title="X", now=fixed_now)
     css = build_pdf_branding_footer_css(ctx)
     assert "@bottom-center" in css
@@ -246,10 +234,8 @@ def test_build_pdf_branding_footer_css_en_locale() -> None:
 
 def test_build_invisible_html_marker_format() -> None:
     """Marker = `<!-- NEXYA-DOC-BRANDING version=... template=... -->`."""
-    fixed_now = datetime(2026, 5, 31, 12, 0, 0, tzinfo=timezone.utc)
-    ctx = build_branding_context(
-        template="legal", title="Bail", now=fixed_now
-    )
+    fixed_now = datetime(2026, 5, 31, 12, 0, 0, tzinfo=UTC)
+    ctx = build_branding_context(template="legal", title="Bail", now=fixed_now)
     marker = build_invisible_html_marker(ctx)
     assert marker.startswith("<!--")
     assert marker.endswith("-->")
@@ -397,10 +383,8 @@ def test_enrich_docx_footer_includes_company_and_date() -> None:
     from docx import Document
 
     doc = Document()
-    fixed_now = datetime(2026, 5, 31, 0, 0, 0, tzinfo=timezone.utc)
-    ctx = build_branding_context(
-        template="minimal", title="X", now=fixed_now
-    )
+    fixed_now = datetime(2026, 5, 31, 0, 0, 0, tzinfo=UTC)
+    ctx = build_branding_context(template="minimal", title="X", now=fixed_now)
 
     enrich_docx_footer_with_branding(doc, ctx)
 
@@ -420,10 +404,8 @@ def test_apply_docx_core_properties_sets_all_fields() -> None:
     from docx import Document
 
     doc = Document()
-    fixed_now = datetime(2026, 5, 31, 12, 0, 0, tzinfo=timezone.utc)
-    ctx = build_branding_context(
-        template="legal", title="Contrat OHADA", now=fixed_now
-    )
+    fixed_now = datetime(2026, 5, 31, 12, 0, 0, tzinfo=UTC)
+    ctx = build_branding_context(template="legal", title="Contrat OHADA", now=fixed_now)
 
     result = apply_docx_core_properties(doc, ctx)
     assert result is True
@@ -494,9 +476,7 @@ def test_full_docx_branding_pipeline_all_helpers_succeed() -> None:
     from docx import Document
 
     doc = Document()
-    ctx = build_branding_context(
-        template="minimal", title="Test Pipeline Complet"
-    )
+    ctx = build_branding_context(template="minimal", title="Test Pipeline Complet")
 
     # Ordre identique à _render_docx_sync
     header_ok = apply_docx_branding_header(doc, ctx)

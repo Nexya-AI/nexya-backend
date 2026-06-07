@@ -333,10 +333,7 @@ class CodeFileDraftData(BaseModel):
         if not cleaned:
             raise ValueError("language ne peut pas être vide.")
         if not re.fullmatch(r"[a-z0-9+_\-]+", cleaned):
-            raise ValueError(
-                f"language doit être alphanumérique + `_-+` "
-                f"(reçu : {v!r})"
-            )
+            raise ValueError(f"language doit être alphanumérique + `_-+` (reçu : {v!r})")
         return cleaned
 
     @field_validator("description")
@@ -375,10 +372,7 @@ class CodeProjectFileItem(BaseModel):
         if not cleaned:
             raise ValueError("language ne peut pas être vide.")
         if not re.fullmatch(r"[a-z0-9+_\-]+", cleaned):
-            raise ValueError(
-                f"language doit être alphanumérique + `_-+` "
-                f"(reçu : {v!r})"
-            )
+            raise ValueError(f"language doit être alphanumérique + `_-+` (reçu : {v!r})")
         return cleaned
 
 
@@ -485,7 +479,7 @@ class RichContentPayload(BaseModel):
         subject: str | None,
         body: str,
         to: str | None = None,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload email avec validation Pydantic stricte.
 
         Lève `ValidationError` si `body` vide ou trop long, `subject`/`to`
@@ -501,7 +495,7 @@ class RichContentPayload(BaseModel):
         *,
         phone: str | None,
         body: str,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload WhatsApp avec validation Pydantic stricte."""
         data = WhatsAppDraftData(phone=phone, body=body)
         return cls(kind="whatsapp_draft", data=data.model_dump())
@@ -512,7 +506,7 @@ class RichContentPayload(BaseModel):
         *,
         phone: str | None,
         body: str,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload SMS avec validation Pydantic stricte (C4.5).
 
         Lève `ValidationError` si `body` vide ou > 1600 chars.
@@ -525,7 +519,7 @@ class RichContentPayload(BaseModel):
         cls,
         *,
         body: str,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload LinkedIn post avec validation stricte (C4.5).
 
         Lève `ValidationError` si `body` vide ou > 3000 chars.
@@ -538,7 +532,7 @@ class RichContentPayload(BaseModel):
         cls,
         *,
         body: str,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload Tweet/X avec validation stricte (C4.5).
 
         Lève `ValidationError` si `body` vide ou > 280 chars.
@@ -553,7 +547,7 @@ class RichContentPayload(BaseModel):
         title: str | None,
         body: str,
         recipient: str | None = None,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload document long avec validation stricte (C4.5).
 
         Lève `ValidationError` si `body` vide ou > 50 000 chars, `title`/
@@ -570,7 +564,7 @@ class RichContentPayload(BaseModel):
         content: str,
         language: str,
         description: str | None = None,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload UN SEUL fichier de code avec validation
         stricte (C4.6).
 
@@ -597,7 +591,7 @@ class RichContentPayload(BaseModel):
         files: list[dict] | list[CodeProjectFileItem],
         description: str | None = None,
         project_type: str | None = None,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload projet code multi-fichiers avec validation
         stricte (C4.6).
 
@@ -613,8 +607,7 @@ class RichContentPayload(BaseModel):
         """
         # Auto-parse les dicts en CodeProjectFileItem si fourni en raw.
         parsed_files: list[CodeProjectFileItem] = [
-            f if isinstance(f, CodeProjectFileItem) else CodeProjectFileItem(**f)
-            for f in files
+            f if isinstance(f, CodeProjectFileItem) else CodeProjectFileItem(**f) for f in files
         ]
         data = CodeProjectDraftData(
             project_name=project_name,

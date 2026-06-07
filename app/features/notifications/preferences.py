@@ -41,6 +41,7 @@ CATEGORIES: tuple[str, ...] = (
     "security",
     "digest",
     "product",
+    "documents",
 )
 
 CHANNELS: frozenset[str] = frozenset({"push", "email", "both", "none"})
@@ -52,12 +53,15 @@ CHANNELS: frozenset[str] = frozenset({"push", "email", "both", "none"})
 # - `security=email` : trace écrite obligatoire pour audit forensic.
 # - `digest=email`   : volume modéré, lecture asynchrone, email.
 # - `product=email`  : annonces produit, volume faible, pas bloquant.
+# - `documents=push` : un doc lourd généré en background = notif temps-réel
+#                      « 📄 Ton doc est prêt » + deep link vers la conv (C4.12).
 _DEFAULT_CHANNELS: dict[str, str] = {
     "tasks": "push",
     "payments": "email",
     "security": "email",
     "digest": "email",
     "product": "email",
+    "documents": "push",
 }
 
 
