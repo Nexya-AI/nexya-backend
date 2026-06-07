@@ -100,7 +100,8 @@ class TestCodeProjectServiceBuildZip:
     def _make_payload(self, files: list | None = None, **kwargs):
         defaults = {
             "project_name": "FastAPI Tasks",
-            "files": files or [
+            "files": files
+            or [
                 CodeProjectFileItem(
                     filename="main.py",
                     content="from fastapi import FastAPI\napp = FastAPI()",

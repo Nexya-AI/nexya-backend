@@ -25,7 +25,6 @@ from app.features.document_generator.weasyprint_renderer import (
     render_html_to_pdf,
 )
 
-
 # Mock PDF bytes minimaux (header PDF valide pour pikepdf)
 _FAKE_PDF_BYTES = b"%PDF-1.4\nfake content\n%%EOF\n"
 
@@ -37,9 +36,7 @@ _FAKE_PDF_BYTES = b"%PDF-1.4\nfake content\n%%EOF\n"
 
 class TestRenderHappy:
     @pytest.mark.asyncio
-    async def test_happy_path_returns_rendered_pdf(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_happy_path_returns_rendered_pdf(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Render HTML → PDF avec mock complet."""
 
         def fake_render_sync(html_content: str) -> bytes:
@@ -131,7 +128,10 @@ class TestRenderExceptions:
 
         with pytest.raises(DocumentRenderFailedError) as exc_info:
             await render_html_to_pdf("<html><body>x</body></html>")
-        assert "compression" in str(exc_info.value).lower() or exc_info.value.code == "DOCUMENT_RENDER_FAILED"
+        assert (
+            "compression" in str(exc_info.value).lower()
+            or exc_info.value.code == "DOCUMENT_RENDER_FAILED"
+        )
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -141,9 +141,7 @@ class TestRenderExceptions:
 
 class TestRenderTruncation:
     @pytest.mark.asyncio
-    async def test_pdf_truncated_flag_propagated(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_pdf_truncated_flag_propagated(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Si pikepdf tronque les pages, truncated=True dans le résultat."""
 
         def fake_render_sync(html_content: str) -> bytes:
@@ -180,7 +178,9 @@ class TestRenderEdgeCases:
     async def test_empty_html_rejected(self) -> None:
         with pytest.raises(DocumentRenderFailedError) as exc_info:
             await render_html_to_pdf("")
-        assert "vide" in str(exc_info.value).lower() or exc_info.value.code == "DOCUMENT_RENDER_FAILED"
+        assert (
+            "vide" in str(exc_info.value).lower() or exc_info.value.code == "DOCUMENT_RENDER_FAILED"
+        )
 
     @pytest.mark.asyncio
     async def test_whitespace_only_html_rejected(self) -> None:
@@ -213,9 +213,7 @@ class TestSafeUrlFetcher:
         result = _safe_url_fetcher("http://169.254.169.254/latest/meta-data/")
         assert result["string"] == b""
 
-    def test_data_uri_is_delegated_to_weasyprint(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_data_uri_is_delegated_to_weasyprint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """data: URIs sont délégués au default_url_fetcher WeasyPrint.
 
         Skip si WeasyPrint runtime KO (binaires cairo/pango manquants
@@ -232,5 +230,20 @@ class TestSafeUrlFetcher:
         # Mini data URI valide (1px PNG transparent)
         data_uri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
         result = _safe_url_fetcher(data_uri)
-        # Default fetcher devrait décoder le data: URI
-        assert isinstance(result, dict)
+        # Default fetcher devrait décoder le data: URI. Selon la version
+        # weasyprint, le résultat est un dict {"string": b"..."} (<69.0)
+        # OU un URLFetcherResponse object avec .read() (>=69.0). On vérifie
+        # défensivement les deux APIs : le anti-SSRF stub retourne
+        # {"string": b""} (delegate KO) donc on vérifie que ce N'EST PAS ce
+        # cas-là.
+        assert result is not None
+        if isinstance(result, dict):
+            # API ancienne weasyprint < 69.0 : dict avec champ "string"
+            assert result.get("string"), "anti-SSRF stub déclenché à tort sur data: URI"
+        else:
+            # API nouvelle weasyprint >= 69.0 : URLFetcherResponse object
+            # avec méthode .read() qui retourne les bytes du body. Le delegate
+            # a marché s'il retourne un object non-None avec read().
+            assert hasattr(result, "read"), f"type inattendu : {type(result).__name__}"
+            body_bytes = result.read()
+            assert body_bytes and len(body_bytes) > 0, "body vide = anti-SSRF stub"

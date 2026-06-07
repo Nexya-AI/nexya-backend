@@ -17,9 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # ── Enums Literal (anti-injection + Pydantic strict) ─────────────────
 
-DocumentTemplate = Literal[
-    "school", "minimal", "sciences", "legal", "medicine"
-]
+DocumentTemplate = Literal["school", "minimal", "sciences", "legal", "medicine"]
 """Templates disponibles (C4.7a + C4.7c).
 
 Templates V1 (C4.7a) :
@@ -258,4 +256,108 @@ class DocumentGenerateResponse(BaseModel):
             "Valeurs : `unsupported_format_docx`, `disabled_by_killswitch`, "
             "`sign_error`, `c2pa_lib_unavailable`. Null si applied=True."
         ),
+    )
+
+
+# ── C4.12 : génération asynchrone (docs lourds) ──────────────────────
+
+DocumentJobStatus = Literal["queued", "processing", "done", "failed"]
+"""Cycle de vie d'un job de génération asynchrone (C4.12).
+
+- `queued`     : row créée par le router, job enqueué sur arq.
+- `processing` : worker a pris le job, rendu en cours.
+- `done`       : document généré + sauvé en Library, push FCM envoyé.
+- `failed`     : render/storage KO, push FCM d'échec envoyé.
+"""
+
+
+class DocumentGenerateAcceptedResponse(BaseModel):
+    """Réponse **202 Accepted** de `POST /generate/document` (chemin async C4.12).
+
+    Renvoyée à la place de `DocumentGenerateResponse` quand le document est
+    jugé lourd (`len(markdown_source) > documents_generator_async_threshold_chars`).
+    Le rendu est déporté sur le worker arq ; le client est prévenu via push
+    FCM « 📄 doc prêt » + deep link vers la conversation.
+
+    Le client peut poller `GET /generate/document/jobs/{job_id}` en filet de
+    secours si le push est manqué (réseau 2G/3G, app killed).
+    """
+
+    job_id: UUID = Field(
+        ...,
+        description="UUID du job de génération asynchrone (à poller).",
+    )
+    status: Literal["processing"] = Field(
+        default="processing",
+        description="Statut initial exposé au client (toujours 'processing').",
+    )
+    conversation_id: UUID = Field(
+        ...,
+        description="UUID de la conversation source (deep link de la notif).",
+    )
+    message_id: UUID = Field(
+        ...,
+        description="UUID du message source.",
+    )
+    format: DocumentFormat = Field(
+        ...,
+        description="Format demandé (pdf | docx).",
+    )
+
+
+class DocumentJobResponse(BaseModel):
+    """Réponse de `GET /generate/document/jobs/{job_id}` (polling C4.12).
+
+    Reflète l'état courant du job. Quand `status='done'`, les champs résultat
+    (`library_id`, `download_url` presigné frais, `filename`, `pages`, ...)
+    sont peuplés. Quand `status='failed'`, `error_code` est renseigné.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    job_id: UUID = Field(..., description="UUID du job.")
+    status: DocumentJobStatus = Field(..., description="Statut courant du job.")
+    format: DocumentFormat = Field(..., description="Format demandé.")
+    template: DocumentTemplate = Field(..., description="Template demandé.")
+
+    # ── Résultat (peuplé si status='done') ─────────────────────────
+    library_id: UUID | None = Field(
+        default=None,
+        description="UUID de l'item Library créé (null tant que pas done).",
+    )
+    download_url: str | None = Field(
+        default=None,
+        description="Presigned URL MinIO FRAÎCHE TTL 30 min (régénérée à chaque poll). Null si pas done.",
+    )
+    filename: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Nom de fichier du document (null si pas done).",
+    )
+    pages: int | None = Field(
+        default=None,
+        ge=0,
+        description="Nombre de pages rendues (null si pas done).",
+    )
+    size_bytes: int | None = Field(
+        default=None,
+        ge=0,
+        description="Taille du document en bytes (null si pas done).",
+    )
+    truncated: bool | None = Field(
+        default=None,
+        description="True si tronqué au cap pages (null si pas done).",
+    )
+
+    # ── Erreur (peuplée si status='failed') ────────────────────────
+    error_code: str | None = Field(
+        default=None,
+        max_length=64,
+        description="Code d'erreur si status='failed' (ex: DOCUMENT_RENDER_FAILED).",
+    )
+
+    created_at: datetime = Field(..., description="ISO datetime UTC de création du job.")
+    completed_at: datetime | None = Field(
+        default=None,
+        description="ISO datetime UTC de fin (done ou failed). Null si en cours.",
     )

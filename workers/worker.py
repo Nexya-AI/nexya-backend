@@ -49,6 +49,7 @@ from workers.ai_tasks import flush_ai_sessions
 from workers.auth_tasks import cleanup_refresh_tokens
 from workers.chat_tasks import generate_conversation_title
 from workers.chunk_tasks import index_document_chunks
+from workers.document_tasks import generate_document_async
 from workers.memory_tasks import extract_durable_facts
 from workers.rgpd_tasks import purge_deleted_accounts
 from workers.scheduler_tasks import (
@@ -171,6 +172,10 @@ class WorkerSettings:
         # Enqueue depuis `FileUploadService.upload` après succès pipeline.
         # Idempotent via sentinelle `uploaded_files.chunks_indexed_at`.
         index_document_chunks,
+        # C4.12 — génération asynchrone des docs lourds (> seuil chars).
+        # Enqueue depuis `DocumentGeneratorService.generate_or_enqueue`.
+        # Idempotent via transition `queued → processing`. Push FCM au résultat.
+        generate_document_async,
         # F1 — exécution d'une tâche planifiée (Planner). Enqueue par
         # `dispatch_due_tasks` (cron chaque minute) qui scan les tâches
         # dues via `SELECT FOR UPDATE SKIP LOCKED`.

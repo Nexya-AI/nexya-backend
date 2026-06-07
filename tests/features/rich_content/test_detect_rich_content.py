@@ -59,9 +59,7 @@ class TestDetectRichContent:
         """Le retour doit être un dict directement insérable dans metadata_json JSONB."""
         result = detect_rich_content(
             user_message="Rédige un mail à Marie",
-            assistant_text=(
-                "Sujet : Bonjour\n\nBonjour Marie,\n\nÇa va ?\n\nCordialement,\nIvan"
-            ),
+            assistant_text=("Sujet : Bonjour\n\nBonjour Marie,\n\nÇa va ?\n\nCordialement,\nIvan"),
         )
         assert isinstance(result, dict)
         assert "kind" in result
@@ -259,10 +257,7 @@ class TestDetectRichContentCascadeC46:
     def test_code_file_with_subdir_filename(self) -> None:
         # Filename avec sous-dossier `src/utils/parser.py` → préservé.
         assistant_text = (
-            "src/utils/parser.py\n"
-            "```python\n"
-            "def parse(s):\n    return s.strip().lower()\n"
-            "```"
+            "src/utils/parser.py\n```python\ndef parse(s):\n    return s.strip().lower()\n```"
         )
         result = detect_rich_content(
             user_message="parse helper",
@@ -279,9 +274,7 @@ class TestDetectRichContentCascadeC46:
         cf = detect_rich_content(
             user_message="code",
             assistant_text=(
-                "**main.py**\n```python\n"
-                "def hello():\n    print('hello world from NEXYA')\n"
-                "```"
+                "**main.py**\n```python\ndef hello():\n    print('hello world from NEXYA')\n```"
             ),
         )
         assert cf is not None

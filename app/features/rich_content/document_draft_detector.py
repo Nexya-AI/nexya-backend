@@ -34,7 +34,7 @@ le PDF.
 from __future__ import annotations
 
 import re
-from typing import Pattern
+from re import Pattern
 
 from app.features.rich_content.schemas import RichContentPayload
 
@@ -70,10 +70,8 @@ def _is_meta_question(user_message: str) -> bool:
     text = user_message.strip()
     if not text:
         return False
-    for pattern in _META_QUESTION_PATTERNS:
-        if pattern.search(text):
-            return True
-    return False
+    return any(pattern.search(text) for pattern in _META_QUESTION_PATTERNS)
+
 
 # ── INTENT — message user upstream ────────────────────────────────────
 

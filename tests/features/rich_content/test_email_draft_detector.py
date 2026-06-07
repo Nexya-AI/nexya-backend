@@ -162,10 +162,7 @@ class TestDetectEmailBody:
         # Build a > 10k chars email with structure
         long_paragraph = "Lorem ipsum dolor sit amet. " * 500  # ~14k chars
         text = (
-            "Sujet : Test long body\n\n"
-            "Bonjour Marie,\n\n"
-            f"{long_paragraph}\n\n"
-            "Cordialement,\nIvan"
+            f"Sujet : Test long body\n\nBonjour Marie,\n\n{long_paragraph}\n\nCordialement,\nIvan"
         )
         is_email, payload = detect_email_body(text)
         assert is_email is True

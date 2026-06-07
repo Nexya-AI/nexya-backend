@@ -1,19 +1,28 @@
-"""Router Document Generator — `POST /generate/document` (Session C4.7a).
+"""Router Document Generator — `POST /generate/document` (C4.7a + C4.12).
 
-Endpoint principal pour la génération PDF premium via WeasyPrint.
+Endpoints :
+    POST /generate/document            — génère (sync 201 OU async 202, C4.12)
+    GET  /generate/document/jobs/{id}  — polling d'un job async (C4.12)
 
-Pipeline :
+Pipeline POST :
     1. Auth via JWT (Depends get_current_user)
     2. Rate limit user-scoped (60/h Free, 100/h Pro)
     3. Body Pydantic validation (template ∈ Literal anti-injection)
-    4. Délégation `DocumentGeneratorService.generate` qui orchestre
-       tout (récup message + render Jinja2 + WeasyPrint + Library)
+    4. `DocumentGeneratorService.generate_or_enqueue` décide sync vs async
+       selon la taille du markdown source (C4.12) :
+         - sync (≤ seuil)  → rendu immédiat, 201 + DocumentGenerateResponse
+         - async (> seuil) → job enqueué arq, 202 + DocumentGenerateAcceptedResponse,
+                             push FCM « 📄 doc prêt » au résultat
     5. Mapping erreurs typées → HTTP codes propres
 """
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -33,8 +42,17 @@ from .exceptions import (
     DocumentStorageUnavailableError,
     TemplateNotFoundError,
 )
-from .schemas import DocumentGenerateRequest, DocumentGenerateResponse
-from .service import DocumentGeneratorService
+from .job_service import DocumentJobService
+from .schemas import (
+    DocumentGenerateAcceptedResponse,
+    DocumentGenerateRequest,
+    DocumentGenerateResponse,
+    DocumentJobResponse,
+)
+from .service import (
+    DocumentAsyncResult,
+    DocumentGeneratorService,
+)
 
 router = APIRouter(prefix="/generate", tags=["documents"])
 
@@ -43,40 +61,39 @@ router = APIRouter(prefix="/generate", tags=["documents"])
     "/document",
     response_model=NexyaResponse[DocumentGenerateResponse],
     status_code=status.HTTP_201_CREATED,
+    responses={
+        202: {
+            "model": NexyaResponse[DocumentGenerateAcceptedResponse],
+            "description": (
+                "Document lourd — rendu déporté sur le worker arq. Le client "
+                "est prévenu par push FCM « 📄 doc prêt » + deep link vers la "
+                "conversation. Peut poller GET /generate/document/jobs/{id}."
+            ),
+        },
+    },
 )
 async def generate_document(
     body: DocumentGenerateRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> NexyaResponse[DocumentGenerateResponse]:
-    """Génère un PDF à partir d'un message conversation + template.
+):
+    """Génère un document à partir d'un message conversation + template.
 
-    Body :
-        conversation_id : UUID conversation source
-        message_id : UUID message assistant dont content = source markdown
-        format : 'pdf' (V1 seul)
-        template : 'school' | 'minimal'
-        options : { subject?, level?, date_iso?, page_numbers? }
-        title? : titre principal (optional, dérivé sinon)
-
-    Returns :
-        DocumentGenerateResponse avec library_id + download_url presigned
-        TTL 30 min + metadata pages/size/truncated/expires_at.
+    Renvoie **201** + `DocumentGenerateResponse` (rendu synchrone, petit doc)
+    OU **202** + `DocumentGenerateAcceptedResponse` (doc lourd > seuil → job
+    async, push FCM au résultat — C4.12).
 
     Codes erreur :
         404 RESOURCE_NOT_FOUND : message inexistant ou pas owned
-        413 DOCUMENT_SOURCE_TOO_LONG : content > 200k chars
-        422 TEMPLATE_NOT_FOUND : template slug invalide (rare, Pydantic
-            Literal devrait empêcher en amont)
-        429 RATE_LIMIT_ABUSE : quota par heure atteint
-        503 DOCUMENT_RENDER_FAILED : WeasyPrint timeout/crash
-        503 DOCUMENT_STORAGE_UNAVAILABLE : MinIO down
+        403 PLAN_REQUIRED      : Free tente remove_watermark=true
+        413 DOCUMENT_SOURCE_TOO_LONG : content > cap chars
+        422 TEMPLATE_NOT_FOUND : template slug invalide
+        429 RATE_LIMIT_ABUSE   : quota par heure atteint
+        503 DOCUMENT_RENDER_FAILED / DOCUMENT_STORAGE_UNAVAILABLE
 
-    Rate limits :
-        Free : 60/h (cf. settings.documents_generator_rate_limit_free_per_hour)
-        Pro  : 100/h (cf. settings.documents_generator_rate_limit_pro_per_hour)
+    Rate limits : Free 60/h, Pro 100/h.
     """
-    # Rate limit user-scoped — Pro a plus de budget
+    # Rate limit user-scoped — Pro a plus de budget.
     max_requests = (
         settings.documents_generator_rate_limit_pro_per_hour
         if current_user.is_pro
@@ -90,32 +107,53 @@ async def generate_document(
         on_exceeded=RateLimitAbuseException,
     )
 
-    # Délégation au service (orchestrateur)
+    # Délégation à l'orchestrateur (décide sync vs async — C4.12).
     try:
-        result = await DocumentGeneratorService.generate(current_user, body, db)
+        outcome = await DocumentGeneratorService.generate_or_enqueue(current_user, body, db)
     except TemplateNotFoundError as exc:
-        raise NexYaException(
-            code=exc.code,
-            message=str(exc),
-            status_code=422,
-        ) from exc
+        raise NexYaException(code=exc.code, message=str(exc), status_code=422) from exc
     except DocumentSourceTooLongError as exc:
-        raise NexYaException(
-            code=exc.code,
-            message=str(exc),
-            status_code=413,
-        ) from exc
+        raise NexYaException(code=exc.code, message=str(exc), status_code=413) from exc
     except DocumentRenderFailedError as exc:
-        raise NexYaException(
-            code=exc.code,
-            message=str(exc),
-            status_code=503,
-        ) from exc
+        raise NexYaException(code=exc.code, message=str(exc), status_code=503) from exc
     except DocumentStorageUnavailableError as exc:
-        raise NexYaException(
-            code=exc.code,
-            message=str(exc),
-            status_code=503,
-        ) from exc
+        raise NexYaException(code=exc.code, message=str(exc), status_code=503) from exc
 
-    return NexyaResponse(success=True, data=result)
+    # ── Async (202) : job enqueué, push FCM au résultat ─────────────
+    if isinstance(outcome, DocumentAsyncResult):
+        job = outcome.job
+        accepted = DocumentGenerateAcceptedResponse(
+            job_id=job.id,
+            conversation_id=job.conversation_id,
+            message_id=job.message_id,
+            format=job.format,  # type: ignore[arg-type]
+        )
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content=jsonable_encoder(NexyaResponse(success=True, data=accepted)),
+        )
+
+    # ── Sync (201) : rendu immédiat (chemin C4.7 inchangé) ──────────
+    return NexyaResponse(success=True, data=outcome.response)
+
+
+@router.get(
+    "/document/jobs/{job_id}",
+    response_model=NexyaResponse[DocumentJobResponse],
+)
+async def get_document_job(
+    job_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> NexyaResponse[DocumentJobResponse]:
+    """Polling d'un job de génération asynchrone (C4.12).
+
+    Filet de secours si le push FCM est manqué (réseau 2G/3G, app killed).
+    Quand `status='done'`, `download_url` est un presigned MinIO FRAIS
+    (TTL 30 min, régénéré à chaque appel). 404 IDOR-safe.
+
+    Lecture O(1) sur PK indexée — non rate-limité (polling client borné).
+    """
+    job = await DocumentJobService.get_owned_job(job_id, current_user, db)
+    response = await DocumentJobService.to_response(job, current_user, db)
+    return NexyaResponse(success=True, data=response)

@@ -24,7 +24,7 @@ Cap body 3000 chars (limite officielle LinkedIn 2026).
 from __future__ import annotations
 
 import re
-from typing import Pattern
+from re import Pattern
 
 from app.features.rich_content.schemas import RichContentPayload
 

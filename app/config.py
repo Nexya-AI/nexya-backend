@@ -68,6 +68,28 @@ class Settings(BaseSettings):
     gcp_project_id: str = "nexya-ai"
     gcp_location: str = "us-central1"
 
+    # ── IA — Replicate (fallback Flux 1.1 Pro pour célébrités) ──
+    # Activé en fallback automatique sur `ProviderContentFilteredError`
+    # de Imagen 4 (Google bloque les célébrités nommées au niveau
+    # infrastructure Trust & Safety, indépendamment des paramètres
+    # safety). Flux 1.1 Pro a des filtres plus permissifs.
+    #
+    # - `replicate_api_token` : format `r8_xxx` (32 chars hex), obtenu
+    #   sur https://replicate.com/account/api-tokens. Vide = fallback
+    #   désactivé (le 503 ContentFilteredError de Imagen est propagé tel
+    #   quel au client comme avant).
+    # - `replicate_default_model` : `flux-1.1-pro` (~$0.04/img qualité
+    #   premium) ou `flux-schnell` (~$0.003/img rapide budget Africa).
+    # - `replicate_enabled` : kill-switch hotfix prod sans toucher au
+    #   token (utile si Replicate facture trop ou si un incident UX).
+    # - `replicate_safety_tolerance` : 1-6 (6 = max permissif, défaut
+    #   du fallback puisque le but est précisément de débloquer les
+    #   prompts refusés par Imagen).
+    replicate_api_token: str = ""
+    replicate_default_model: str = "black-forest-labs/flux-1.1-pro"
+    replicate_enabled: bool = True
+    replicate_safety_tolerance: int = 6
+
     # ── IA — OpenAI ────────────────────────────────────────────
     openai_api_key: str = ""
 
@@ -122,6 +144,25 @@ class Settings(BaseSettings):
     # Dépassement → 402 `LIBRARY_QUOTA_EXCEEDED` avec jauge en data.
     library_max_free: int = Field(default=50, ge=1)
     library_max_pro: int = Field(default=1000, ge=1)
+
+    # ── Library storage cap (Session C4.11 — 2026-06-04) ────────
+    # Plafond sur la SOMME des `size_bytes` des items actifs (sans
+    # compter les soft-deleted, ils seront purgés Phase 12). Dépassement
+    # → 402 `LIBRARY_STORAGE_EXCEEDED` avec data {current_bytes, max_bytes, plan}.
+    # Free 100 MB couvre largement les usages texte/petites images.
+    # Pro 10 GB couvre les power users (PDFs scannés enterprise, archives
+    # projets multi-fichiers). Au-delà, V2 si signal user (Pro Premium
+    # 100 GB add-on payant).
+    library_storage_max_bytes_free: int = 100 * 1024 * 1024  # 100 MB
+    library_storage_max_bytes_pro: int = 10 * 1024 * 1024 * 1024  # 10 GB
+
+    # ── Documents quotas mensuels (C4.11 dashboard) ─────────────
+    # Plafond mensuel de docs PDF+DOCX générés via /generate/document.
+    # Compteur reset 1er du mois UTC. Dépassement → 402
+    # DOCUMENTS_QUOTA_EXCEEDED (déjà géré par DocumentGeneratorService).
+    # Affiché dans le dashboard quotas user `GET /user/quotas`.
+    documents_quota_max_free: int = Field(default=5, ge=1)
+    documents_quota_max_pro: int = Field(default=100, ge=1)
 
     # ── Files (upload, extraction, virus scan) — Session E3 ─────
     # Cap dur applicatif pour un upload unitaire. Les PDFs enterprise
@@ -435,9 +476,7 @@ class Settings(BaseSettings):
     code_projects_max_files: int = Field(default=50, ge=2, le=200)
     # Presigned URL TTL côté MinIO. 24h car le user peut télécharger
     # plus tard (cas typique : ouvrir un email avec lien plus tard).
-    code_projects_zip_presigned_ttl_seconds: int = Field(
-        default=24 * 3600, ge=60, le=7 * 24 * 3600
-    )
+    code_projects_zip_presigned_ttl_seconds: int = Field(default=24 * 3600, ge=60, le=7 * 24 * 3600)
     # Rate limit user-scope sur POST /code-projects/build-zip.
     # 10/jour suffisant pour un dev intensif (1 projet généré toutes
     # les ~2h de session active). Au-delà = script abusif.
@@ -499,6 +538,22 @@ class Settings(BaseSettings):
     # False → endpoint retourne 503 immédiat sans tenter le render.
     documents_generator_enabled: bool = True
 
+    # ── Génération asynchrone des docs lourds (C4.12) ──────────────
+    # Le backend ne peut PAS chronométrer le rendu WeasyPrint à l'avance —
+    # il ESTIME la durée depuis la taille du markdown source. Si le source
+    # dépasse le seuil, on déporte le rendu sur le worker arq et on renvoie
+    # 202 {job_id, status:"processing"} au lieu de bloquer la requête HTTP
+    # 10-30s. Le worker génère en background puis push FCM « 📄 doc prêt »
+    # + deep link vers la conversation (Africa-first 2G/3G : l'user pose le
+    # téléphone, le worker bosse, le push le rappelle).
+    documents_generator_async_enabled: bool = True
+
+    # Seuil de bascule sync → async (caractères du markdown source).
+    # 8000 chars ≈ ~10-15s de rendu WeasyPrint sur HW modeste (le point où
+    # bloquer le SSE devient inconfortable). En-dessous, rendu synchrone
+    # immédiat (UX instantanée préservée pour les petits docs). Tunable.
+    documents_generator_async_threshold_chars: int = Field(default=8000, ge=1_000, le=200_000)
+
     # Kill-switch watermark documents (C4.7d).
     # True → logo NEXYA bleu en bas à droite du PDF (via WeasyPrint @page CSS)
     # + footer python-docx avec logo + texte « Généré par NEXYA AI ».
@@ -508,9 +563,7 @@ class Settings(BaseSettings):
     # Ratio prix document Pro sans watermark vs avec (C4.7d, # TODO Ivan provisoire).
     # 1.5 = un export sans watermark coûte 1.5× plus que la version avec.
     # V1 informatif uniquement (wallet v2 facturera selon ce ratio).
-    documents_generator_no_watermark_price_multiplier: float = Field(
-        default=1.5, ge=1.0, le=10.0
-    )
+    documents_generator_no_watermark_price_multiplier: float = Field(default=1.5, ge=1.0, le=10.0)
 
     # Kill-switch branding documents (C4.8 + C4.9).
     # True → header [NEXYA AI] coin haut-gauche + footer center « Généré
@@ -529,18 +582,10 @@ class Settings(BaseSettings):
     # strict — fichiers user intouchables, branding réservé aux documents
     # GÉNÉRÉS par NEXYA via /generate/document).
     documents_generator_preview_enabled: bool = True
-    documents_generator_preview_cache_ttl_days: int = Field(
-        default=30, ge=1, le=365
-    )
-    documents_generator_preview_timeout_seconds: float = Field(
-        default=15.0, ge=5.0, le=60.0
-    )
-    documents_generator_preview_max_pages: int = Field(
-        default=50, ge=1, le=200
-    )
-    documents_generator_preview_rate_limit_per_hour: int = Field(
-        default=60, ge=1, le=1_000
-    )
+    documents_generator_preview_cache_ttl_days: int = Field(default=30, ge=1, le=365)
+    documents_generator_preview_timeout_seconds: float = Field(default=15.0, ge=5.0, le=60.0)
+    documents_generator_preview_max_pages: int = Field(default=50, ge=1, le=200)
+    documents_generator_preview_rate_limit_per_hour: int = Field(default=60, ge=1, le=1_000)
 
     # ── Paiements ──────────────────────────────────────────────
     cinetpay_api_key: str = ""

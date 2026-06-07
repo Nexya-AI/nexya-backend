@@ -29,7 +29,8 @@ from __future__ import annotations
 
 import re
 import uuid
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Final
 
 import structlog
@@ -46,6 +47,7 @@ from app.features.images.c2pa import (
     C2PASignResult,
     get_manifest_provider,
 )
+from app.features.library.models import LibraryItem  # C4.11 detection régénération
 from app.features.library.service import LibraryService
 
 from .branding import (
@@ -59,6 +61,8 @@ from .exceptions import (
     DocumentStorageUnavailableError,
     DocumentTruncatedError,  # exporté pour info, pas raise
 )
+from .job_models import DocumentJob
+from .job_service import DocumentJobService
 from .schemas import (
     DocumentGenerateOptions,
     DocumentGenerateRequest,
@@ -73,6 +77,24 @@ log = structlog.get_logger(__name__)
 
 # Suppress F401 — utilisé dans le pipeline indirect via library
 _ = DocumentTruncatedError
+
+
+# ── C4.12 : résultat scellé sync vs async ────────────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentSyncResult:
+    """Rendu synchrone réussi — le router renvoie 201 + cette réponse."""
+
+    response: DocumentGenerateResponse
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentAsyncResult:
+    """Rendu déporté sur le worker — le router renvoie 202 + le job."""
+
+    job: DocumentJob
+
 
 # ── Constantes filename sanitization ─────────────────────────────────
 
@@ -163,6 +185,71 @@ class DocumentGeneratorService:
         return message.content
 
     @staticmethod
+    async def _resolve_versioning_root(
+        user_id: uuid.UUID,
+        source_message_id: uuid.UUID,
+        db: AsyncSession,
+    ) -> uuid.UUID | None:
+        """C4.11 — Détecte si un doc existe déjà pour ce message source.
+
+        **Detection SOUPLE** (décision Ivan C4.11) : on cherche un item
+        `source='generated'` ET `source_message_id == ?` ET non soft-deleted
+        ET `parent_library_id IS NULL` (racine du lineage). Le `file_type`
+        est **IGNORÉ** : un user qui régénère le même message en PDF
+        puis DOCX obtient v1+v2 du même « doc logique » (UX intuitive).
+
+        Retourne :
+        - `None` si aucun doc existant pour ce message → c'est la première
+          génération, l'item à créer sera la racine v1 (parent_library_id=NULL).
+        - UUID de la racine du lineage si un doc existe déjà → le nouvel
+          item à créer sera une version descendante (v2, v3, ...) qui
+          pointera vers cette racine.
+
+        Edge cases :
+        - Si plusieurs racines existent (cas pathologique post-bug ou
+          migration cross-feature future), on prend la plus ancienne
+          (ORDER BY created_at ASC + LIMIT 1) — déterministe et stable.
+        - Si la racine a été soft-deleted, on l'ignore (filtre
+          `deleted_at IS NULL`) — un user qui supprime sa racine
+          recommence un lineage propre v1.
+
+        Pattern aligné `MemoryStore.search` D1 (SQL scalar_one_or_none
+        sans charger l'item entier — juste l'ID pour économie réseau).
+        """
+        stmt = (
+            select(LibraryItem.id)
+            .where(
+                LibraryItem.user_id == user_id,
+                LibraryItem.source_message_id == source_message_id,
+                LibraryItem.source == "generated",
+                LibraryItem.deleted_at.is_(None),
+                LibraryItem.parent_library_id.is_(None),  # racine seulement
+            )
+            .order_by(LibraryItem.created_at.asc())
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    def _assert_watermark_allowed(user: User, body: DocumentGenerateRequest) -> None:
+        """Gate Pro pré-flight pour `remove_watermark` (C4.7d).
+
+        Free qui tente `remove_watermark=True` → `PlanRequiredException` (403).
+        Pattern strict aligné `/image/generate` E4 — ne JAMAIS facturer une
+        feature Pro à un Free. Extrait pour réutilisation par `generate` ET
+        `generate_or_enqueue` (le chemin async doit gater AVANT d'enqueue).
+        """
+        if body.remove_watermark and not user.is_pro:
+            log.info(
+                "documents.remove_watermark.plan_required",
+                user_id=str(user.id),
+                template=body.template,
+                format=body.format,
+            )
+            raise PlanRequiredException(feature="Document sans watermark")
+
+    @staticmethod
     async def generate(
         user: User,
         body: DocumentGenerateRequest,
@@ -192,14 +279,7 @@ class DocumentGeneratorService:
         # tente remove_watermark=True). Pattern strict aligné `/image/generate`
         # E4 — paywall pre-flight pour ne JAMAIS facturer une feature Pro à un
         # Free qui n'a pas le plan.
-        if body.remove_watermark and not user.is_pro:
-            log.info(
-                "documents.remove_watermark.plan_required",
-                user_id=str(user.id),
-                template=body.template,
-                format=body.format,
-            )
-            raise PlanRequiredException(feature="Document sans watermark")
+        DocumentGeneratorService._assert_watermark_allowed(user, body)
 
         # 1. Récupération source markdown (avec owner-check IDOR-safe)
         markdown_source = await DocumentGeneratorService._get_owned_message_content(
@@ -229,8 +309,7 @@ class DocumentGeneratorService:
         # final dépend de la dispo de l'asset PNG, fail-safe absolu côté
         # renderer si OOM/Pillow crash).
         apply_watermark = (
-            settings.documents_generator_watermark_enabled
-            and not body.remove_watermark
+            settings.documents_generator_watermark_enabled and not body.remove_watermark
         )
 
         # C4.8 + C4.9 : construit le BrandingContext UNE FOIS pour toute
@@ -281,9 +360,7 @@ class DocumentGeneratorService:
             # `get_watermark_data_url()` qui est cached singleton.
             from .watermark_assets import get_watermark_data_url
 
-            watermark_applied = apply_watermark and (
-                get_watermark_data_url() is not None
-            )
+            watermark_applied = apply_watermark and (get_watermark_data_url() is not None)
         else:  # body.format == "docx"
             # DOCX pipeline (C4.7b + C4.7d watermark footer + C4.8 + C4.9
             # branding) : markdown-it AST → python-docx natif + footer
@@ -337,11 +414,9 @@ class DocumentGeneratorService:
                     prompt=f"NEXYA document template={body.template}",
                     provider=provider_name,
                     model=f"template_{body.template}",
-                    generation_timestamp=datetime.now(timezone.utc),
+                    generation_timestamp=datetime.now(UTC),
                     watermark_applied=watermark_applied,
-                    watermark_version=(
-                        WATERMARK_VERSION if watermark_applied else None
-                    ),
+                    watermark_version=(WATERMARK_VERSION if watermark_applied else None),
                 )
                 c2pa_result: C2PASignResult = await manifest_provider.sign_image(
                     image_bytes=output_bytes,
@@ -385,18 +460,23 @@ class DocumentGeneratorService:
         # branding actif, sinon fallback legacy C4.7a.
         # `safe_basename` reste calculé dans les 2 branches car utilisé
         # comme fallback pour `library_item.title` plus bas.
-        title_for_filename = body.title or (
-            f"document_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
-        )
-        safe_basename = _sanitize_filename(
-            title_for_filename, fallback="document"
-        )
+        title_for_filename = body.title or (f"document_{datetime.now(UTC).strftime('%Y-%m-%d')}")
+        safe_basename = _sanitize_filename(title_for_filename, fallback="document")
         if branding_context is not None:
-            filename = generate_intelligent_filename(
-                branding_context, extension=file_extension
-            )
+            filename = generate_intelligent_filename(branding_context, extension=file_extension)
         else:
             filename = f"{safe_basename}.{file_extension}"
+
+        # 4.5 C4.11 — Detection régénération SOUPLE (user, source_message_id)
+        # Si un doc existe déjà pour ce message, on l'attache comme version
+        # descendante du lineage (parent_library_id = racine). Sinon, NULL =
+        # ce nouvel item est la racine v1. La detection ignore le file_type
+        # (PDF v1 + DOCX v2 du même message = même lineage UX-wise).
+        parent_root_id = await DocumentGeneratorService._resolve_versioning_root(
+            user_id=user.id,
+            source_message_id=body.message_id,
+            db=db,
+        )
 
         # 5. Persistance Library (MinIO upload + DB INSERT)
         try:
@@ -414,6 +494,7 @@ class DocumentGeneratorService:
                 prompt=None,  # Pas de prompt LLM ici, source = message direct
                 source_conversation_id=body.conversation_id,
                 source_message_id=body.message_id,
+                parent_library_id=parent_root_id,  # C4.11 versioning lineage
                 metadata_json={
                     "template": body.template,
                     "pages": output_pages,
@@ -423,21 +504,15 @@ class DocumentGeneratorService:
                     "options": body.options.model_dump(exclude_none=True),
                     # C4.7d — watermark tracking
                     "has_watermark": watermark_applied,
-                    "watermark_version": (
-                        WATERMARK_VERSION if watermark_applied else None
-                    ),
+                    "watermark_version": (WATERMARK_VERSION if watermark_applied else None),
                     # Tracé pour future facturation différentielle wallet V2
                     # (pattern aligné E4 image — Pro qui retire le watermark
                     # paiera +50% via wallet v2 selon `no_watermark_price_multiplier`).
-                    "no_watermark_was_requested": bool(
-                        body.remove_watermark and user.is_pro
-                    ),
+                    "no_watermark_was_requested": bool(body.remove_watermark and user.is_pro),
                     # C4.7d — C2PA AI Act tracking
                     "has_c2pa": c2pa_applied,
                     "c2pa_manifest_id": c2pa_manifest_id,
-                    "c2pa_signed_at": (
-                        c2pa_signed_at.isoformat() if c2pa_signed_at else None
-                    ),
+                    "c2pa_signed_at": (c2pa_signed_at.isoformat() if c2pa_signed_at else None),
                     "c2pa_skip_reason": c2pa_skip_reason,
                     # C4.8 + C4.9 — Branding NEXYA tracking
                     "branding_version": (
@@ -478,10 +553,10 @@ class DocumentGeneratorService:
             ) from exc
 
         # 7. Construction response
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires_at = datetime.fromtimestamp(
             now.timestamp() + settings.documents_generator_presigned_ttl_seconds,
-            tz=timezone.utc,
+            tz=UTC,
         )
 
         log.info(
@@ -501,9 +576,7 @@ class DocumentGeneratorService:
             remove_watermark_requested=body.remove_watermark,
             # C4.8 branding forensic logging
             branding_applied=branding_context is not None,
-            branding_version=(
-                BRANDING_VERSION if branding_context is not None else None
-            ),
+            branding_version=(BRANDING_VERSION if branding_context is not None else None),
             filename=filename,
         )
 
@@ -518,13 +591,99 @@ class DocumentGeneratorService:
             generated_at=now,
             # C4.7d — Watermark + C2PA enrichissement réponse client
             watermark_applied=watermark_applied,
-            watermark_version=(
-                WATERMARK_VERSION if watermark_applied else None
-            ),
+            watermark_version=(WATERMARK_VERSION if watermark_applied else None),
             c2pa_applied=c2pa_applied,
             c2pa_manifest_id=c2pa_manifest_id,
             c2pa_skip_reason=c2pa_skip_reason,
         )
+
+    @staticmethod
+    async def generate_or_enqueue(
+        user: User,
+        body: DocumentGenerateRequest,
+        db: AsyncSession,
+    ) -> DocumentSyncResult | DocumentAsyncResult:
+        """Décide sync vs async selon la taille du markdown source (C4.12).
+
+        Le backend ne peut PAS chronométrer le rendu WeasyPrint à l'avance ;
+        il ESTIME depuis `len(markdown_source)`. Si la source dépasse le seuil
+        `documents_generator_async_threshold_chars` (et que l'async est
+        activé), le rendu est déporté sur le worker arq — on renvoie un job
+        `queued` et le client est prévenu par push FCM.
+
+        Pipeline pré-flight (ordre = du moins coûteux au plus coûteux) :
+            1. Gate Pro watermark (403 avant toute écriture).
+            2. Fetch source (1 SELECT, owner-check IDOR-safe → 404).
+            3. Cap source chars (413 si > max — rejet synchrone, pas un job
+               qui échouera dans le worker).
+            4. Décision sync (≤ seuil OU async désactivé) → `generate` direct.
+               Sinon async → INSERT job + enqueue arq.
+
+        Le worker re-fetch la source depuis la DB (anti-tampering préservé —
+        on ne stocke jamais le markdown dans le job).
+
+        Returns:
+            DocumentSyncResult (→ router 201) | DocumentAsyncResult (→ 202).
+
+        Raises:
+            PlanRequiredException: 403 (Free tente remove_watermark).
+            ResourceNotFoundException: 404 (message/conv KO).
+            DocumentSourceTooLongError: 413 (source > cap).
+        """
+        # 1. Gate Pro watermark (pré-flight, avant toute écriture/enqueue).
+        DocumentGeneratorService._assert_watermark_allowed(user, body)
+
+        # 2. Fetch source (owner-check IDOR-safe) — sert à mesurer la taille.
+        markdown_source = await DocumentGeneratorService._get_owned_message_content(
+            conversation_id=body.conversation_id,
+            message_id=body.message_id,
+            user_id=user.id,
+            db=db,
+        )
+
+        # 3. Cap source chars : rejet 413 SYNCHRONE (ne pas enqueue un job
+        # voué à l'échec dans le worker).
+        max_chars = settings.documents_generator_max_source_chars
+        if len(markdown_source) > max_chars:
+            log.warning(
+                "documents.source_too_long",
+                source_chars=len(markdown_source),
+                max_chars=max_chars,
+                user_id=str(user.id),
+            )
+            raise DocumentSourceTooLongError(
+                f"Le contenu source dépasse {max_chars} caractères "
+                f"(actuel : {len(markdown_source)}). Scinde le document "
+                "en plusieurs parties plus courtes."
+            )
+
+        # 4. Décision sync vs async sur le seuil de taille.
+        threshold = settings.documents_generator_async_threshold_chars
+        go_sync = (
+            not settings.documents_generator_async_enabled or len(markdown_source) <= threshold
+        )
+
+        if go_sync:
+            response = await DocumentGeneratorService.generate(user, body, db)
+            return DocumentSyncResult(response=response)
+
+        # Chemin async : créer le job + enqueue arq. Import paresseux de
+        # l'enqueue helper (évite la dépendance arq à l'import du module +
+        # casse le cycle workers ↔ service).
+        job = await DocumentJobService.create_job(user, body, db)
+        from workers.document_tasks import enqueue_document_generation
+
+        await enqueue_document_generation(job.id)
+        log.info(
+            "documents.async.enqueued",
+            job_id=str(job.id),
+            user_id=str(user.id),
+            source_chars=len(markdown_source),
+            threshold=threshold,
+            format=body.format,
+            template=body.template,
+        )
+        return DocumentAsyncResult(job=job)
 
 
 # Aliases pour test/mock
@@ -534,5 +693,7 @@ __all__ = [
     "DocumentGenerateResponse",
     "DocumentGenerateOptions",
     "DocumentTemplate",
+    "DocumentSyncResult",
+    "DocumentAsyncResult",
     "_sanitize_filename",
 ]

@@ -23,7 +23,7 @@ Pipeline cascade :
 from __future__ import annotations
 
 import re
-from typing import Pattern
+from re import Pattern
 
 from app.features.rich_content.schemas import RichContentPayload
 

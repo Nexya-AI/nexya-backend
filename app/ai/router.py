@@ -45,6 +45,7 @@ from app.ai.providers import (
     OpenRouterChatProvider,
     QwenChatProvider,
 )
+from app.ai.providers.replicate_provider import ReplicateImageProvider
 from app.config import settings
 
 log = structlog.get_logger(__name__)
@@ -266,6 +267,27 @@ def build_default_router() -> LlmRouter:
         log.warning(
             "ai.router.image_provider_disabled",
             reason="GEMINI_API_KEY vide — Imagen désactivé",
+        )
+
+    # Fallback Replicate Flux 1.1 Pro pour les prompts refusés par Imagen
+    # via Trust & Safety (célébrités nommées, etc.). Enregistré uniquement
+    # si token + kill-switch OK. Le caller `/image/generate` checke
+    # `replicate_enabled` AVANT de basculer, donc la présence dans le
+    # dict ne suffit pas à déclencher le fallback — c'est explicite.
+    if settings.replicate_enabled and settings.replicate_api_token:
+        image_providers["replicate-flux"] = ReplicateImageProvider()
+        log.info(
+            "ai.router.replicate_fallback_enabled",
+            model=settings.replicate_default_model,
+        )
+    else:
+        log.info(
+            "ai.router.replicate_fallback_disabled",
+            reason=(
+                "REPLICATE_API_TOKEN vide"
+                if not settings.replicate_api_token
+                else "REPLICATE_ENABLED=false (kill-switch)"
+            ),
         )
 
     for name, provider in chat_providers.items():

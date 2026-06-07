@@ -59,7 +59,7 @@ class NotificationPreference(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "category IN ('tasks','payments','security','digest','product')",
+            "category IN ('tasks','payments','security','digest','product','documents')",
             name="ck_notification_prefs_category",
         ),
         CheckConstraint(
@@ -121,7 +121,7 @@ class Notification(Base, UUIDMixin):
 
     __table_args__ = (
         CheckConstraint(
-            "category IN ('tasks','payments','security','digest','product')",
+            "category IN ('tasks','payments','security','digest','product','documents')",
             name="ck_notifications_category",
         ),
         CheckConstraint(
@@ -137,7 +137,8 @@ class Notification(Base, UUIDMixin):
             name="ck_notifications_attempts_non_neg",
         ),
         CheckConstraint(
-            "source_kind IN ('scheduled_task','payment','security','digest','product','manual')",
+            "source_kind IN "
+            "('scheduled_task','payment','security','digest','product','manual','document_generator')",
             name="ck_notifications_source_kind",
         ),
         Index(
