@@ -84,12 +84,14 @@ class ReplicateImageProvider(ImageProvider):
     # de l'init pour permettre le swap `flux-1.1-pro` → `flux-schnell`
     # via env var sans redéploiement code.
     default_model = "black-forest-labs/flux-1.1-pro"
-    supported_models = frozenset({
-        "black-forest-labs/flux-1.1-pro",
-        "black-forest-labs/flux-1.1-pro-ultra",
-        "black-forest-labs/flux-schnell",
-        "black-forest-labs/flux-dev",
-    })
+    supported_models = frozenset(
+        {
+            "black-forest-labs/flux-1.1-pro",
+            "black-forest-labs/flux-1.1-pro-ultra",
+            "black-forest-labs/flux-schnell",
+            "black-forest-labs/flux-dev",
+        }
+    )
     max_images_per_call = 4
 
     def __init__(
@@ -169,8 +171,7 @@ class ReplicateImageProvider(ImageProvider):
         # asyncio.gather avec return_exceptions=False : si UNE prediction
         # échoue, on propage l'erreur (les autres sont annulées).
         tasks = [
-            self._generate_one_image(token, model, request, image_index=i)
-            for i in range(count)
+            self._generate_one_image(token, model, request, image_index=i) for i in range(count)
         ]
 
         try:
@@ -327,8 +328,7 @@ class ReplicateImageProvider(ImageProvider):
             # le fallback Replicate a aussi refusé (vraie limite ultime).
             error_lower = str(error_msg).lower()
             if any(
-                kw in error_lower
-                for kw in ("safety", "policy", "nsfw", "content", "moderation")
+                kw in error_lower for kw in ("safety", "policy", "nsfw", "content", "moderation")
             ):
                 raise ProviderContentFilteredError(
                     f"Replicate a aussi refusé via safety filter: {error_msg}",

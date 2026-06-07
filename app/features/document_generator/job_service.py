@@ -38,9 +38,7 @@ class DocumentJobService:
 
     # ── Lecture IDOR-safe ─────────────────────────────────────────
     @staticmethod
-    async def _get_owned(
-        job_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession
-    ) -> DocumentJob:
+    async def _get_owned(job_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession) -> DocumentJob:
         """Charge un job possédé par l'user. 404 si absent / pas owned /
         soft-deleted (jamais 403 — anti-énumération UUID, pattern NEXYA)."""
         result = await db.execute(
@@ -56,9 +54,7 @@ class DocumentJobService:
         return job
 
     @staticmethod
-    async def get_owned_job(
-        job_id: uuid.UUID, user: User, db: AsyncSession
-    ) -> DocumentJob:
+    async def get_owned_job(job_id: uuid.UUID, user: User, db: AsyncSession) -> DocumentJob:
         """Wrapper public pour le router de polling."""
         return await DocumentJobService._get_owned(job_id, user.id, db)
 
@@ -176,9 +172,7 @@ class DocumentJobService:
 
     # ── Sérialisation (polling) ───────────────────────────────────
     @staticmethod
-    async def to_response(
-        job: DocumentJob, user: User, db: AsyncSession
-    ) -> DocumentJobResponse:
+    async def to_response(job: DocumentJob, user: User, db: AsyncSession) -> DocumentJobResponse:
         """Construit la réponse de polling.
 
         Si `done` + `library_id`, régénère un presigned URL FRAIS (TTL 30 min)

@@ -57,7 +57,7 @@ from sqlalchemy.dialects.postgresql import UUID
 
 # revision identifiers, used by Alembic.
 revision = "027_library_parent_id_self_ref"
-down_revision = "026_library_code_type"
+down_revision = "026_library_code"
 branch_labels = None
 depends_on = None
 
@@ -88,9 +88,7 @@ def upgrade() -> None:
         "idx_library_versions",
         "library_items",
         ["user_id", "parent_library_id"],
-        postgresql_where=sa.text(
-            "deleted_at IS NULL AND parent_library_id IS NOT NULL"
-        ),
+        postgresql_where=sa.text("deleted_at IS NULL AND parent_library_id IS NOT NULL"),
     )
 
 

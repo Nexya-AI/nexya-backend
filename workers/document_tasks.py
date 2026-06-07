@@ -159,8 +159,8 @@ async def generate_document_async(ctx: dict[str, Any], job_id: str) -> dict[str,
             body = DocumentGenerateRequest(
                 conversation_id=conversation_id,
                 message_id=message_id,
-                format=fmt,  # type: ignore[arg-type]
-                template=template,  # type: ignore[arg-type]
+                format=fmt,
+                template=template,
                 options=options,
                 title=params.get("title"),
                 remove_watermark=bool(params.get("remove_watermark", False)),
@@ -204,16 +204,18 @@ async def generate_document_async(ctx: dict[str, Any], job_id: str) -> dict[str,
                 error_message=str(exc),
                 db=db,
             )
-            await _dispatch_failure(
-                user, conversation_id, "DOCUMENT_GENERATION_FAILED", db
-            )
+            await _dispatch_failure(user, conversation_id, "DOCUMENT_GENERATION_FAILED", db)
             log.error(
                 "documents.async.unexpected_error",
                 job_id=job_id,
                 error=str(exc),
                 error_type=type(exc).__name__,
             )
-            return {"skipped": False, "status": "failed", "error_code": "DOCUMENT_GENERATION_FAILED"}
+            return {
+                "skipped": False,
+                "status": "failed",
+                "error_code": "DOCUMENT_GENERATION_FAILED",
+            }
 
         # ── 6. Succès → mark_done + push FCM ──────────────────
         await DocumentJobService.mark_done(

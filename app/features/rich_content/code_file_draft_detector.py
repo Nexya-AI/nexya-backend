@@ -225,9 +225,7 @@ _LANGUAGE_TO_EXTENSION: dict[str, str] = {
 _FILENAME_LINE_RE = re.compile(r"^[\w/.\-]+\.\w+$")
 
 # Regex markdown bold autour d'un filename : `**main.py**` ou `__app.dart__`
-_FILENAME_MARKDOWN_BOLD_RE = re.compile(
-    r"(?:\*\*|__)([\w/.\-]+\.\w+)(?:\*\*|__)"
-)
+_FILENAME_MARKDOWN_BOLD_RE = re.compile(r"(?:\*\*|__)([\w/.\-]+\.\w+)(?:\*\*|__)")
 
 # Regex commentaires en TÊTE de bloc pour extraire filename inline.
 # - Python : `# filename.py` (1ère ligne du bloc)
@@ -363,11 +361,7 @@ def detect_rich_content_code_file(
     if block_start_idx == -1:
         # Cas rare : language vide → cherche "```\n"
         block_start_idx = assistant_text.find("```")
-    preceding_text = (
-        assistant_text[:block_start_idx]
-        if block_start_idx > 0
-        else ""
-    )
+    preceding_text = assistant_text[:block_start_idx] if block_start_idx > 0 else ""
 
     # Extract filename via 4 stratégies fallback.
     filename = _extract_filename(

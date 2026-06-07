@@ -101,9 +101,7 @@ class TestDocumentGenerateRequestSchema:
             ("docx", "medicine"),
         ],
     )
-    def test_accepts_6_new_template_format_combinations(
-        self, fmt: str, tmpl: str
-    ) -> None:
+    def test_accepts_6_new_template_format_combinations(self, fmt: str, tmpl: str) -> None:
         """C4.7c — Les 6 nouvelles combinaisons (3 templates × 2 formats)
         sont toutes acceptées par Pydantic."""
         body = DocumentGenerateRequest(

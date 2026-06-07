@@ -63,9 +63,7 @@ class TestExtractFilename:
 
     def test_strategy_b_takes_last_bold_match(self) -> None:
         # Plusieurs `**filename**` → prend le dernier (le plus proche du bloc).
-        preceding = (
-            "Voici **first.py** mais en fait on va utiliser **second.py** :"
-        )
+        preceding = "Voici **first.py** mais en fait on va utiliser **second.py** :"
         result = _extract_filename(
             block_content="x = 1",
             block_language="python",
@@ -76,9 +74,7 @@ class TestExtractFilename:
     def test_strategy_c_python_comment_at_top(self) -> None:
         # `# filename.py` en tête du bloc Python.
         block = "# fibonacci.py\ndef fib(n): pass"
-        result = _extract_filename(
-            block_content=block, block_language="python", preceding_text=""
-        )
+        result = _extract_filename(block_content=block, block_language="python", preceding_text="")
         assert result == "fibonacci.py"
 
     def test_strategy_c_js_comment_at_top(self) -> None:
@@ -90,16 +86,12 @@ class TestExtractFilename:
 
     def test_strategy_c_html_comment_at_top(self) -> None:
         block = "<!-- index.html -->\n<html></html>"
-        result = _extract_filename(
-            block_content=block, block_language="html", preceding_text=""
-        )
+        result = _extract_filename(block_content=block, block_language="html", preceding_text="")
         assert result == "index.html"
 
     def test_strategy_c_css_comment_at_top(self) -> None:
         block = "/* style.css */\nbody { margin: 0; }"
-        result = _extract_filename(
-            block_content=block, block_language="css", preceding_text=""
-        )
+        result = _extract_filename(block_content=block, block_language="css", preceding_text="")
         assert result == "style.css"
 
     def test_strategy_d_fallback_python(self) -> None:
@@ -200,10 +192,7 @@ class TestDetectRichContentCodeFile:
 
     def test_two_blocks_returns_none_for_code_project_to_handle(self) -> None:
         # 2 blocs → Code File skip, Code Project tentera ensuite.
-        assistant_text = (
-            "```python\nprint('a')\n```\n"
-            "```python\nprint('b')\n```"
-        )
+        assistant_text = "```python\nprint('a')\n```\n```python\nprint('b')\n```"
         result = detect_rich_content_code_file(
             user_message="give me code",
             assistant_text=assistant_text,
@@ -212,9 +201,7 @@ class TestDetectRichContentCodeFile:
 
     def test_three_blocks_returns_none(self) -> None:
         assistant_text = (
-            "```python\nprint('a')\n```\n"
-            "```python\nprint('b')\n```\n"
-            "```python\nprint('c')\n```"
+            "```python\nprint('a')\n```\n```python\nprint('b')\n```\n```python\nprint('c')\n```"
         )
         result = detect_rich_content_code_file(
             user_message="code",
@@ -275,12 +262,7 @@ class TestDetectRichContentCodeFile:
         assert result["data"]["language"] == "python"
 
     def test_filename_with_subdir_extracted(self) -> None:
-        assistant_text = (
-            "src/utils/parser.py\n"
-            "```python\n"
-            "def parse(s): return s.upper()\n"
-            "```"
-        )
+        assistant_text = "src/utils/parser.py\n```python\ndef parse(s): return s.upper()\n```"
         result = detect_rich_content_code_file(
             user_message="code",
             assistant_text=assistant_text,
@@ -308,11 +290,7 @@ class TestDetectRichContentCodeFile:
     def test_filename_fallback_main_when_no_hint(self) -> None:
         # Pas de filename indiqué nulle part → fallback main.{ext}.
         assistant_text = (
-            "Voici une fonction simple :\n"
-            "```python\n"
-            "def hello():\n"
-            "    print('hello world')\n"
-            "```"
+            "Voici une fonction simple :\n```python\ndef hello():\n    print('hello world')\n```"
         )
         result = detect_rich_content_code_file(
             user_message="code",
@@ -323,10 +301,7 @@ class TestDetectRichContentCodeFile:
 
     def test_typescript_tsx_extension(self) -> None:
         assistant_text = (
-            "```tsx\n"
-            "import React from 'react';\n"
-            "export const App = () => <div>Hello</div>;\n"
-            "```"
+            "```tsx\nimport React from 'react';\nexport const App = () => <div>Hello</div>;\n```"
         )
         result = detect_rich_content_code_file(
             user_message="code",
@@ -386,11 +361,7 @@ class TestDetectRichContentCodeFile:
         # Vérifie la shape exacte du payload retourné pour le contrat
         # Flutter `DraftPayload.tryFromMetadata`. Content >= 30 chars.
         assistant_text = (
-            "```python\n"
-            "# main.py\n"
-            "def hello():\n"
-            "    print('hello world from NEXYA')\n"
-            "```"
+            "```python\n# main.py\ndef hello():\n    print('hello world from NEXYA')\n```"
         )
         result = detect_rich_content_code_file(
             user_message="code",
@@ -429,10 +400,7 @@ class TestDetectRichContentCodeFile:
         # Même avec un intent FORT « code-moi un script » mais l'IA
         # produit 2 blocs → Code File skip (intent NE force pas
         # l'extraction du 1er bloc, le détecteur est body-driven strict).
-        assistant_text = (
-            "```python\nprint(1)\n```\n"
-            "```python\nprint(2)\n```"
-        )
+        assistant_text = "```python\nprint(1)\n```\n```python\nprint(2)\n```"
         result = detect_rich_content_code_file(
             user_message="code-moi un script Python",
             assistant_text=assistant_text,

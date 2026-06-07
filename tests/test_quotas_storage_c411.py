@@ -111,9 +111,7 @@ async def test_compute_pro_user_returns_voice_120() -> None:
     )
 
     # Mock Redis voice minutes today = 35
-    with patch(
-        "app.features.account.service.get_redis"
-    ) as mock_get_redis:
+    with patch("app.features.account.service.get_redis") as mock_get_redis:
         mock_redis = MagicMock()
         mock_redis.get = AsyncMock(return_value=b"35")
         mock_get_redis.return_value = mock_redis
@@ -129,9 +127,7 @@ async def test_compute_pro_user_returns_voice_120() -> None:
 def test_next_month_utc_midnight_normal_month() -> None:
     """Helper : juin → 1er juillet UTC minuit (mois standard)."""
     fixed_now = datetime(2026, 6, 15, 14, 32, 0, tzinfo=UTC)
-    with patch(
-        "app.features.account.service.datetime"
-    ) as mock_dt:
+    with patch("app.features.account.service.datetime") as mock_dt:
         mock_dt.now.return_value = fixed_now
         # Permet aux constructeurs de fonctionner normalement
         mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
@@ -147,9 +143,7 @@ def test_next_month_utc_midnight_normal_month() -> None:
 def test_next_month_utc_midnight_december_rollover() -> None:
     """Helper : décembre 2026 → 1er janvier 2027 (rollover année)."""
     fixed_now = datetime(2026, 12, 28, 23, 59, 59, tzinfo=UTC)
-    with patch(
-        "app.features.account.service.datetime"
-    ) as mock_dt:
+    with patch("app.features.account.service.datetime") as mock_dt:
         mock_dt.now.return_value = fixed_now
         mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
 
@@ -165,9 +159,7 @@ async def test_get_voice_minutes_today_redis_down_fallback_zero() -> None:
     """Fail-safe absolu : Redis exception → return 0 (pas de 5xx)."""
     user_id = uuid.UUID("c4a2b9a6-0f01-4a0e-9f3f-0d1b8e3c5a77")
 
-    with patch(
-        "app.features.account.service.get_redis"
-    ) as mock_get_redis:
+    with patch("app.features.account.service.get_redis") as mock_get_redis:
         mock_redis = MagicMock()
         mock_redis.get = AsyncMock(side_effect=ConnectionError("Redis down"))
         mock_get_redis.return_value = mock_redis
@@ -302,9 +294,7 @@ async def test_storage_pre_flight_pro_allows_under_cap() -> None:
 def test_start_of_current_month_utc_returns_first_day_midnight() -> None:
     """Helper : retourne 1er du mois courant UTC 00h00."""
     fixed_now = datetime(2026, 6, 15, 14, 32, 0, tzinfo=UTC)
-    with patch(
-        "app.features.account.service.datetime"
-    ) as mock_dt:
+    with patch("app.features.account.service.datetime") as mock_dt:
         mock_dt.now.return_value = fixed_now
         mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
 

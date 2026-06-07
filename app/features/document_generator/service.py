@@ -95,6 +95,7 @@ class DocumentAsyncResult:
 
     job: DocumentJob
 
+
 # ── Constantes filename sanitization ─────────────────────────────────
 
 _FILENAME_SAFE_PATTERN: Final[re.Pattern[str]] = re.compile(r"[^a-zA-Z0-9_\-\.]+")
@@ -308,8 +309,7 @@ class DocumentGeneratorService:
         # final dépend de la dispo de l'asset PNG, fail-safe absolu côté
         # renderer si OOM/Pillow crash).
         apply_watermark = (
-            settings.documents_generator_watermark_enabled
-            and not body.remove_watermark
+            settings.documents_generator_watermark_enabled and not body.remove_watermark
         )
 
         # C4.8 + C4.9 : construit le BrandingContext UNE FOIS pour toute
@@ -360,9 +360,7 @@ class DocumentGeneratorService:
             # `get_watermark_data_url()` qui est cached singleton.
             from .watermark_assets import get_watermark_data_url
 
-            watermark_applied = apply_watermark and (
-                get_watermark_data_url() is not None
-            )
+            watermark_applied = apply_watermark and (get_watermark_data_url() is not None)
         else:  # body.format == "docx"
             # DOCX pipeline (C4.7b + C4.7d watermark footer + C4.8 + C4.9
             # branding) : markdown-it AST → python-docx natif + footer
@@ -418,9 +416,7 @@ class DocumentGeneratorService:
                     model=f"template_{body.template}",
                     generation_timestamp=datetime.now(UTC),
                     watermark_applied=watermark_applied,
-                    watermark_version=(
-                        WATERMARK_VERSION if watermark_applied else None
-                    ),
+                    watermark_version=(WATERMARK_VERSION if watermark_applied else None),
                 )
                 c2pa_result: C2PASignResult = await manifest_provider.sign_image(
                     image_bytes=output_bytes,
@@ -464,16 +460,10 @@ class DocumentGeneratorService:
         # branding actif, sinon fallback legacy C4.7a.
         # `safe_basename` reste calculé dans les 2 branches car utilisé
         # comme fallback pour `library_item.title` plus bas.
-        title_for_filename = body.title or (
-            f"document_{datetime.now(UTC).strftime('%Y-%m-%d')}"
-        )
-        safe_basename = _sanitize_filename(
-            title_for_filename, fallback="document"
-        )
+        title_for_filename = body.title or (f"document_{datetime.now(UTC).strftime('%Y-%m-%d')}")
+        safe_basename = _sanitize_filename(title_for_filename, fallback="document")
         if branding_context is not None:
-            filename = generate_intelligent_filename(
-                branding_context, extension=file_extension
-            )
+            filename = generate_intelligent_filename(branding_context, extension=file_extension)
         else:
             filename = f"{safe_basename}.{file_extension}"
 
@@ -514,21 +504,15 @@ class DocumentGeneratorService:
                     "options": body.options.model_dump(exclude_none=True),
                     # C4.7d — watermark tracking
                     "has_watermark": watermark_applied,
-                    "watermark_version": (
-                        WATERMARK_VERSION if watermark_applied else None
-                    ),
+                    "watermark_version": (WATERMARK_VERSION if watermark_applied else None),
                     # Tracé pour future facturation différentielle wallet V2
                     # (pattern aligné E4 image — Pro qui retire le watermark
                     # paiera +50% via wallet v2 selon `no_watermark_price_multiplier`).
-                    "no_watermark_was_requested": bool(
-                        body.remove_watermark and user.is_pro
-                    ),
+                    "no_watermark_was_requested": bool(body.remove_watermark and user.is_pro),
                     # C4.7d — C2PA AI Act tracking
                     "has_c2pa": c2pa_applied,
                     "c2pa_manifest_id": c2pa_manifest_id,
-                    "c2pa_signed_at": (
-                        c2pa_signed_at.isoformat() if c2pa_signed_at else None
-                    ),
+                    "c2pa_signed_at": (c2pa_signed_at.isoformat() if c2pa_signed_at else None),
                     "c2pa_skip_reason": c2pa_skip_reason,
                     # C4.8 + C4.9 — Branding NEXYA tracking
                     "branding_version": (
@@ -592,9 +576,7 @@ class DocumentGeneratorService:
             remove_watermark_requested=body.remove_watermark,
             # C4.8 branding forensic logging
             branding_applied=branding_context is not None,
-            branding_version=(
-                BRANDING_VERSION if branding_context is not None else None
-            ),
+            branding_version=(BRANDING_VERSION if branding_context is not None else None),
             filename=filename,
         )
 
@@ -609,9 +591,7 @@ class DocumentGeneratorService:
             generated_at=now,
             # C4.7d — Watermark + C2PA enrichissement réponse client
             watermark_applied=watermark_applied,
-            watermark_version=(
-                WATERMARK_VERSION if watermark_applied else None
-            ),
+            watermark_version=(WATERMARK_VERSION if watermark_applied else None),
             c2pa_applied=c2pa_applied,
             c2pa_manifest_id=c2pa_manifest_id,
             c2pa_skip_reason=c2pa_skip_reason,
@@ -680,8 +660,7 @@ class DocumentGeneratorService:
         # 4. Décision sync vs async sur le seuil de taille.
         threshold = settings.documents_generator_async_threshold_chars
         go_sync = (
-            not settings.documents_generator_async_enabled
-            or len(markdown_source) <= threshold
+            not settings.documents_generator_async_enabled or len(markdown_source) <= threshold
         )
 
         if go_sync:

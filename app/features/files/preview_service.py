@@ -82,9 +82,7 @@ _PREVIEW_BUCKET_PREFIX: Final[str] = "previews/"
 sans collision possible."""
 
 _PDF_MIME: Final[str] = "application/pdf"
-_DOCX_MIME: Final[str] = (
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-)
+_DOCX_MIME: Final[str] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 _PREVIEWABLE_MIMES: Final[frozenset[str]] = frozenset({_PDF_MIME, _DOCX_MIME})
 """MIMEs supportés pour génération preview V1. XLSX/PPTX/TXT/MD différés V2
@@ -320,18 +318,14 @@ class PreviewService:
                 upload_id=str(upload_id),
                 storage_key=upload.storage_key,
             )
-            raise FilePreviewUnavailableException(
-                reason="original_storage_missing"
-            ) from exc
+            raise FilePreviewUnavailableException(reason="original_storage_missing") from exc
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "files.preview.original_download_failed",
                 upload_id=str(upload_id),
                 error=str(exc),
             )
-            raise FilePreviewUnavailableException(
-                reason="storage_download_failed"
-            ) from exc
+            raise FilePreviewUnavailableException(reason="storage_download_failed") from exc
 
         # Étape 5 + 6 : génération selon MIME.
         result_pdf_bytes: bytes
@@ -355,9 +349,7 @@ class PreviewService:
                     error=str(exc),
                     error_type=type(exc).__name__,
                 )
-                raise FilePreviewUnavailableException(
-                    reason="docx_render_failed"
-                ) from exc
+                raise FilePreviewUnavailableException(reason="docx_render_failed") from exc
 
         # Étape 7. Cache write fire-and-forget (l'user reçoit le PDF sans
         # attendre le cache write). Si le cache write rate, ce n'est pas
@@ -447,9 +439,7 @@ class PreviewService:
         """
         # Conversion DOCX → HTML via mammoth (pure Python, ~50 KB dep).
         try:
-            html_body = await asyncio.to_thread(
-                PreviewService._mammoth_convert_sync, docx_bytes
-            )
+            html_body = await asyncio.to_thread(PreviewService._mammoth_convert_sync, docx_bytes)
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "files.preview.mammoth_failed",
@@ -459,12 +449,8 @@ class PreviewService:
             # Fallback : utiliser extracted_text si dispo, sinon 503.
             if extracted_text_fallback and extracted_text_fallback.strip():
                 log.info("files.preview.fallback_to_extracted_text")
-                return await PreviewService._render_text_fallback_to_pdf(
-                    extracted_text_fallback
-                )
-            raise FilePreviewUnavailableException(
-                reason="docx_mammoth_failed_no_fallback"
-            ) from exc
+                return await PreviewService._render_text_fallback_to_pdf(extracted_text_fallback)
+            raise FilePreviewUnavailableException(reason="docx_mammoth_failed_no_fallback") from exc
 
         # Wrapper HTML minimaliste (PAS de branding NEXYA — RGPD).
         full_html = _HTML_WRAPPER_TEMPLATE.format(body_html=html_body)
@@ -480,18 +466,14 @@ class PreviewService:
                 "files.preview.weasyprint_timeout",
                 timeout=settings.documents_generator_preview_timeout_seconds,
             )
-            raise FilePreviewUnavailableException(
-                reason="weasyprint_timeout"
-            ) from exc
+            raise FilePreviewUnavailableException(reason="weasyprint_timeout") from exc
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "files.preview.weasyprint_failed",
                 error=str(exc),
                 error_type=type(exc).__name__,
             )
-            raise FilePreviewUnavailableException(
-                reason="weasyprint_failed"
-            ) from exc
+            raise FilePreviewUnavailableException(reason="weasyprint_failed") from exc
 
         # Cap pages via pikepdf (anti-DOCX géant). AUCUN branding NEXYA
         # appliqué — on utilise UNIQUEMENT pikepdf pour la troncature
@@ -600,23 +582,15 @@ class PreviewService:
         # Échappement HTML basique pour éviter injection (le texte vient de
         # extracted_text qui est déjà sanitisé par pypdf/python-docx, mais
         # défense en profondeur).
-        safe_text = (
-            text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-        )
+        safe_text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         # Cap 50 000 chars pour éviter PDF géant en cas d'extracted_text
         # pathologique (le cap E3 est à 500k, mais 500k chars en PDF
         # texte brut = ~150 pages, trop pour un preview).
         if len(safe_text) > 50_000:
             safe_text = safe_text[:50_000] + "\n\n[... texte tronqué pour le preview ...]"
 
-        notice = (
-            "Aperçu visuel non disponible — voici le texte extrait du document."
-        )
-        full_html = _FALLBACK_TEXT_HTML_TEMPLATE.format(
-            notice=notice, text=safe_text
-        )
+        notice = "Aperçu visuel non disponible — voici le texte extrait du document."
+        full_html = _FALLBACK_TEXT_HTML_TEMPLATE.format(notice=notice, text=safe_text)
 
         try:
             raw_pdf = await asyncio.wait_for(
@@ -629,9 +603,7 @@ class PreviewService:
                 error=str(exc),
                 error_type=type(exc).__name__,
             )
-            raise FilePreviewUnavailableException(
-                reason="fallback_text_render_failed"
-            ) from exc
+            raise FilePreviewUnavailableException(reason="fallback_text_render_failed") from exc
 
         # Cap pages (le texte peut être long).
         try:

@@ -214,9 +214,7 @@ async def get_file_preview(
     # Pipeline strict via PreviewService (cache-first → MinIO → générer →
     # cache async). Les 3 exceptions typées (404 / 415 / 503) sont
     # propagées telles quelles vers le handler global NEXYA.
-    result = await PreviewService.get_cached_or_generate(
-        upload_id, current_user, db
-    )
+    result = await PreviewService.get_cached_or_generate(upload_id, current_user, db)
 
     # StreamingResponse en mode proxy bytes (le PDF tient en RAM, cap
     # `documents_generator_preview_max_pages=50` borne la taille).

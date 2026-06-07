@@ -92,7 +92,9 @@ class RenderedDocx:
 # ── Helpers sync (appelés dans to_thread) ────────────────────────────
 
 
-def _add_styled_run(paragraph: Any, text: str, *, bold: bool = False, italic: bool = False, code: bool = False) -> None:
+def _add_styled_run(
+    paragraph: Any, text: str, *, bold: bool = False, italic: bool = False, code: bool = False
+) -> None:
     """Ajoute un run de texte avec styles inline."""
     if not text:
         return
@@ -145,7 +147,9 @@ def _render_inline_tokens(paragraph: Any, tokens: list[Any]) -> None:
         # Autres tokens (image, html_inline) silencieusement ignorés V1
 
 
-def _render_tokens_to_docx(document: Any, tokens: list[Any], *, max_paragraphs: int) -> tuple[int, bool]:
+def _render_tokens_to_docx(
+    document: Any, tokens: list[Any], *, max_paragraphs: int
+) -> tuple[int, bool]:
     """Traverse les tokens markdown-it et écrit dans le document python-docx.
 
     Returns:
@@ -260,7 +264,9 @@ def _render_tokens_to_docx(document: Any, tokens: list[Any], *, max_paragraphs: 
     return paragraphs_written, truncated
 
 
-def _build_school_header(document: Any, *, title: str | None, options: DocumentGenerateOptions, today_iso: str) -> None:
+def _build_school_header(
+    document: Any, *, title: str | None, options: DocumentGenerateOptions, today_iso: str
+) -> None:
     """Ajoute l'en-tête School (titre centré + métadonnées italique)."""
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
@@ -564,7 +570,9 @@ def _render_docx_sync(
     # Body : parse markdown → tokens → traversal
     tokens = _MD.parse(markdown_source or "")
     max_paragraphs = max_pages * _PARAGRAPHS_PER_PAGE_ESTIMATE
-    paragraphs_written, truncated = _render_tokens_to_docx(doc, tokens, max_paragraphs=max_paragraphs)
+    paragraphs_written, truncated = _render_tokens_to_docx(
+        doc, tokens, max_paragraphs=max_paragraphs
+    )
 
     # Note de troncature si applicable
     if truncated:
@@ -592,15 +600,9 @@ def _render_docx_sync(
     branding_applied_core = False
     branding_applied_marker = False
     if branding_context is not None:
-        branding_applied_footer = enrich_docx_footer_with_branding(
-            doc, branding_context
-        )
-        branding_applied_core = apply_docx_core_properties(
-            doc, branding_context
-        )
-        branding_applied_marker = apply_docx_invisible_marker(
-            doc, branding_context
-        )
+        branding_applied_footer = enrich_docx_footer_with_branding(doc, branding_context)
+        branding_applied_core = apply_docx_core_properties(doc, branding_context)
+        branding_applied_marker = apply_docx_invisible_marker(doc, branding_context)
 
     # C4.8 — branding_applied agrégé : True si au moins 1 des 4 helpers
     # (header + footer + core_properties + marker) a réussi. Tracé dans
@@ -676,9 +678,7 @@ async def render_markdown_to_docx(
             ou markdown source vide.
     """
     if not markdown_source or not markdown_source.strip():
-        raise DocumentRenderFailedError(
-            "Contenu source vide — impossible de rendre un DOCX."
-        )
+        raise DocumentRenderFailedError("Contenu source vide — impossible de rendre un DOCX.")
 
     try:
         result = await asyncio.wait_for(

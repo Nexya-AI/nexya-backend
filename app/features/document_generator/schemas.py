@@ -17,9 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # ── Enums Literal (anti-injection + Pydantic strict) ─────────────────
 
-DocumentTemplate = Literal[
-    "school", "minimal", "sciences", "legal", "medicine"
-]
+DocumentTemplate = Literal["school", "minimal", "sciences", "legal", "medicine"]
 """Templates disponibles (C4.7a + C4.7c).
 
 Templates V1 (C4.7a) :

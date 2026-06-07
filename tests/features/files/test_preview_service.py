@@ -176,9 +176,7 @@ async def test_owner_check_404_propagated(monkeypatch: pytest.MonkeyPatch) -> No
 async def test_non_previewable_mime_raises_415(monkeypatch: pytest.MonkeyPatch) -> None:
     """MIME hors {pdf, docx} → 415 FilePreviewNotPreviewableException."""
     upload = _make_fake_upload(mime_type="text/plain")
-    monkeypatch.setattr(
-        FileUploadService, "get_for_user", AsyncMock(return_value=upload)
-    )
+    monkeypatch.setattr(FileUploadService, "get_for_user", AsyncMock(return_value=upload))
     store = _FakeObjectStore()
 
     with pytest.raises(FilePreviewNotPreviewableException) as exc_info:
@@ -199,9 +197,7 @@ async def test_various_non_previewable_mimes_rejected(
 ) -> None:
     """Plusieurs MIMEs non-previewable rejetés uniformément."""
     upload = _make_fake_upload(mime_type=mime)
-    monkeypatch.setattr(
-        FileUploadService, "get_for_user", AsyncMock(return_value=upload)
-    )
+    monkeypatch.setattr(FileUploadService, "get_for_user", AsyncMock(return_value=upload))
 
     with pytest.raises(FilePreviewNotPreviewableException):
         await PreviewService.get_cached_or_generate(
@@ -218,9 +214,7 @@ async def test_various_non_previewable_mimes_rejected(
 async def test_cache_hit_returns_cached_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
     """Si le preview existe déjà dans MinIO, retour direct sans génération."""
     upload = _make_fake_upload(mime_type=_PDF_MIME)
-    monkeypatch.setattr(
-        FileUploadService, "get_for_user", AsyncMock(return_value=upload)
-    )
+    monkeypatch.setattr(FileUploadService, "get_for_user", AsyncMock(return_value=upload))
     cached_bytes = b"CACHED_PDF_CONTENT_FAKE"
     store = _FakeObjectStore()
     cache_key = PreviewService._preview_key(_FAKE_SHA)
@@ -249,9 +243,7 @@ async def test_pdf_native_passthrough_no_modification(
 ) -> None:
     """PDF natif → bytes inchangés, AUCUN re-render (RGPD)."""
     upload = _make_fake_upload(mime_type=_PDF_MIME)
-    monkeypatch.setattr(
-        FileUploadService, "get_for_user", AsyncMock(return_value=upload)
-    )
+    monkeypatch.setattr(FileUploadService, "get_for_user", AsyncMock(return_value=upload))
 
     original_pdf = _minimal_pdf_bytes()
     store = _FakeObjectStore()
@@ -284,9 +276,7 @@ async def test_docx_renders_to_pdf_via_mammoth_weasyprint(
     dépendance système (le test prod réel se fait via la CI Linux).
     """
     upload = _make_fake_upload(mime_type=_DOCX_MIME)
-    monkeypatch.setattr(
-        FileUploadService, "get_for_user", AsyncMock(return_value=upload)
-    )
+    monkeypatch.setattr(FileUploadService, "get_for_user", AsyncMock(return_value=upload))
 
     # Mammoth mock : retourne du HTML simulé (évite parser un vrai DOCX).
     monkeypatch.setattr(
@@ -330,9 +320,7 @@ async def test_docx_mammoth_crash_falls_back_to_text(
         mime_type=_DOCX_MIME,
         extracted_text="Voici le texte extrait du DOCX corrompu.",
     )
-    monkeypatch.setattr(
-        FileUploadService, "get_for_user", AsyncMock(return_value=upload)
-    )
+    monkeypatch.setattr(FileUploadService, "get_for_user", AsyncMock(return_value=upload))
 
     def _crash_mammoth(_bytes: bytes) -> str:
         raise RuntimeError("Simulated mammoth crash on exotic DOCX")
@@ -369,9 +357,7 @@ async def test_docx_mammoth_crash_no_fallback_raises_503(
 ) -> None:
     """Si mammoth crash ET pas d'extracted_text → 503 FilePreviewUnavailable."""
     upload = _make_fake_upload(mime_type=_DOCX_MIME, extracted_text=None)
-    monkeypatch.setattr(
-        FileUploadService, "get_for_user", AsyncMock(return_value=upload)
-    )
+    monkeypatch.setattr(FileUploadService, "get_for_user", AsyncMock(return_value=upload))
 
     def _crash_mammoth(_bytes: bytes) -> str:
         raise RuntimeError("Simulated mammoth crash")
@@ -397,9 +383,7 @@ async def test_docx_mammoth_crash_no_fallback_raises_503(
 async def test_original_missing_raises_503(monkeypatch: pytest.MonkeyPatch) -> None:
     """Si l'original n'est pas dans MinIO (orphan storage) → 503."""
     upload = _make_fake_upload(mime_type=_PDF_MIME)
-    monkeypatch.setattr(
-        FileUploadService, "get_for_user", AsyncMock(return_value=upload)
-    )
+    monkeypatch.setattr(FileUploadService, "get_for_user", AsyncMock(return_value=upload))
     store = _FakeObjectStore()  # vide — storage_key inexistant
 
     with pytest.raises(FilePreviewUnavailableException):
@@ -466,9 +450,7 @@ async def test_rgpd_pdf_passthrough_preserves_original_metadata(
     régression accidentelle de la contrainte RGPD.
     """
     upload = _make_fake_upload(mime_type=_PDF_MIME)
-    monkeypatch.setattr(
-        FileUploadService, "get_for_user", AsyncMock(return_value=upload)
-    )
+    monkeypatch.setattr(FileUploadService, "get_for_user", AsyncMock(return_value=upload))
 
     # PDF original avec metadata user (Author = "Loth Ivan", Producer = "WordPad")
     import pikepdf
@@ -515,9 +497,7 @@ async def test_rgpd_docx_preview_no_nexya_branding_in_metadata(
     `apply_pdf_native_metadata` C4.8 sur les previews.
     """
     upload = _make_fake_upload(mime_type=_DOCX_MIME)
-    monkeypatch.setattr(
-        FileUploadService, "get_for_user", AsyncMock(return_value=upload)
-    )
+    monkeypatch.setattr(FileUploadService, "get_for_user", AsyncMock(return_value=upload))
     monkeypatch.setattr(
         PreviewService,
         "_mammoth_convert_sync",
@@ -575,9 +555,7 @@ async def test_cache_write_called_after_generation(
     import asyncio
 
     upload = _make_fake_upload(mime_type=_PDF_MIME)
-    monkeypatch.setattr(
-        FileUploadService, "get_for_user", AsyncMock(return_value=upload)
-    )
+    monkeypatch.setattr(FileUploadService, "get_for_user", AsyncMock(return_value=upload))
 
     original_pdf = _minimal_pdf_bytes()
     store = _FakeObjectStore()
@@ -603,9 +581,7 @@ async def test_cache_write_called_after_generation(
 
 def test_preview_result_dataclass_is_frozen() -> None:
     """`PreviewResult` est frozen (immutable)."""
-    result = PreviewResult(
-        pdf_bytes=b"test", from_cache=True, truncated=False, size_bytes=4
-    )
+    result = PreviewResult(pdf_bytes=b"test", from_cache=True, truncated=False, size_bytes=4)
     with pytest.raises(Exception):  # FrozenInstanceError
         result.from_cache = False  # type: ignore[misc]
 

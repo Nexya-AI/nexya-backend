@@ -45,7 +45,7 @@ dependencies = [
     #   apt install libcairo2 libpango-1.0-0 libpangocairo-1.0-0
     #               libgdk-pixbuf2.0-0 libffi-dev
     # Alpine : apk add cairo cairo-dev pango-dev gdk-pixbuf-dev libffi-dev
-    "weasyprint>=64.1,<65",
+    "weasyprint>=69.0,<70",
     # pikepdf = manipulation post-render (compression streams + metadata
     # + cap pages). Évite ré-écriture brutale via PyPDF2 obsolète.
     "pikepdf>=9.0,<10",

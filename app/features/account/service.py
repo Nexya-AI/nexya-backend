@@ -113,18 +113,14 @@ class QuotasService:
         # 1. Docs PDF/DOCX générés ce mois UTC
         docs_count = await QuotasService._count_docs_this_month(user.id, db)
         docs_max = (
-            settings.documents_quota_max_pro
-            if user.is_pro
-            else settings.documents_quota_max_free
+            settings.documents_quota_max_pro if user.is_pro else settings.documents_quota_max_free
         )
 
         # 2. Voice minutes today (Pro only — None pour Free, carte cachée)
         voice_minutes_today: int | None = None
         voice_minutes_max: int | None = None
         if user.is_pro:
-            voice_minutes_today = await QuotasService._get_voice_minutes_today(
-                user.id
-            )
+            voice_minutes_today = await QuotasService._get_voice_minutes_today(user.id)
             voice_minutes_max = settings.voice_minutes_pro_per_day
 
         # 3. Library storage cumulé (réutilise helper LibraryService C4.11)
@@ -147,9 +143,7 @@ class QuotasService:
         )
 
     @staticmethod
-    async def _count_docs_this_month(
-        user_id: uuid.UUID, db: AsyncSession
-    ) -> int:
+    async def _count_docs_this_month(user_id: uuid.UUID, db: AsyncSession) -> int:
         """SQL COUNT docs PDF+DOCX générés ce mois UTC (scope user)."""
         month_start = _start_of_current_month_utc()
         stmt = select(func.count(LibraryItem.id)).where(

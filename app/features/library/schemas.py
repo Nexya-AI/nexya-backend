@@ -38,9 +38,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # Types communs — miroirs des CHECK SQL
 # ══════════════════════════════════════════════════════════════
 
-LibraryItemType = Literal[
-    "image", "video", "gif", "audio", "document", "text", "code"
-]
+LibraryItemType = Literal["image", "video", "gif", "audio", "document", "text", "code"]
 LibraryFileType = Literal["pdf", "docx", "xlsx", "pptx", "other", "zip"]
 LibrarySource = Literal["generated", "uploaded", "imported", "shared"]
 
@@ -199,8 +197,7 @@ class LibraryItemCreate(BaseModel):
                 )
         elif self.file_type is not None:
             raise ValueError(
-                "Le champ file_type n'est autorisé que pour type='document' "
-                "ou type='code'."
+                "Le champ file_type n'est autorisé que pour type='document' ou type='code'."
             )
 
         # 2. mime_type doit correspondre au type déclaré.

@@ -614,8 +614,7 @@ class LibraryService:
             LibraryItem.deleted_at.is_(None),
             # Soit l'item est la racine elle-même, soit un descendant pointant
             # vers la racine.
-            (LibraryItem.id == root_id)
-            | (LibraryItem.parent_library_id == root_id),
+            (LibraryItem.id == root_id) | (LibraryItem.parent_library_id == root_id),
         )
         total = (await db.execute(stmt)).scalar_one() or 0
         return max(int(total), 1)
@@ -675,9 +674,7 @@ class LibraryService:
 
         stmt = (
             select(
-                func.coalesce(
-                    LibraryItem.parent_library_id, LibraryItem.id
-                ).label("root_id"),
+                func.coalesce(LibraryItem.parent_library_id, LibraryItem.id).label("root_id"),
                 func.count(LibraryItem.id).label("cnt"),
             )
             .where(
@@ -719,8 +716,7 @@ class LibraryService:
                 LibraryItem.user_id == user.id,
                 LibraryItem.deleted_at.is_(None),
                 # Racine OU descendant pointant vers cette racine.
-                (LibraryItem.id == root_id)
-                | (LibraryItem.parent_library_id == root_id),
+                (LibraryItem.id == root_id) | (LibraryItem.parent_library_id == root_id),
             )
             .order_by(LibraryItem.created_at.asc())
         )

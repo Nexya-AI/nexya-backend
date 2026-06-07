@@ -90,9 +90,7 @@ class TestDetectRichContentLinkedIn:
         assert result is None
 
     def test_long_body_capped_at_3000(self) -> None:
-        long_body = (
-            "Aujourd'hui je suis fier d'annoncer ma promotion. " + ("Lorem ipsum. " * 300)
-        )
+        long_body = "Aujourd'hui je suis fier d'annoncer ma promotion. " + ("Lorem ipsum. " * 300)
         result = detect_rich_content_linkedin(
             user_message="Rédige un post LinkedIn",
             assistant_text=long_body,

@@ -333,10 +333,7 @@ class CodeFileDraftData(BaseModel):
         if not cleaned:
             raise ValueError("language ne peut pas être vide.")
         if not re.fullmatch(r"[a-z0-9+_\-]+", cleaned):
-            raise ValueError(
-                f"language doit être alphanumérique + `_-+` "
-                f"(reçu : {v!r})"
-            )
+            raise ValueError(f"language doit être alphanumérique + `_-+` (reçu : {v!r})")
         return cleaned
 
     @field_validator("description")
@@ -375,10 +372,7 @@ class CodeProjectFileItem(BaseModel):
         if not cleaned:
             raise ValueError("language ne peut pas être vide.")
         if not re.fullmatch(r"[a-z0-9+_\-]+", cleaned):
-            raise ValueError(
-                f"language doit être alphanumérique + `_-+` "
-                f"(reçu : {v!r})"
-            )
+            raise ValueError(f"language doit être alphanumérique + `_-+` (reçu : {v!r})")
         return cleaned
 
 
@@ -613,8 +607,7 @@ class RichContentPayload(BaseModel):
         """
         # Auto-parse les dicts en CodeProjectFileItem si fourni en raw.
         parsed_files: list[CodeProjectFileItem] = [
-            f if isinstance(f, CodeProjectFileItem) else CodeProjectFileItem(**f)
-            for f in files
+            f if isinstance(f, CodeProjectFileItem) else CodeProjectFileItem(**f) for f in files
         ]
         data = CodeProjectDraftData(
             project_name=project_name,

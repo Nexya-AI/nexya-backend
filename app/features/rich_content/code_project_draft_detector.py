@@ -272,12 +272,14 @@ def _extract_project_files(assistant_text: str) -> list[dict]:
             preceding_text=preceding_text,
         )
 
-        files.append({
-            "filename": filename,
-            "content": raw_content,
-            "language": language,
-            "_has_explicit_name": has_explicit_name,
-        })
+        files.append(
+            {
+                "filename": filename,
+                "content": raw_content,
+                "language": language,
+                "_has_explicit_name": has_explicit_name,
+            }
+        )
 
         last_block_end = match.end()
 

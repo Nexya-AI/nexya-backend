@@ -105,10 +105,7 @@ class TestMockRejectsUnsupportedDocx:
         provider = MockManifestProvider()
         result = await provider.sign_image(
             image_bytes=b"PK fake docx zip",
-            mime_type=(
-                "application/vnd.openxmlformats-officedocument."
-                "wordprocessingml.document"
-            ),
+            mime_type=("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
             request=_make_request(),
         )
         assert result.applied is False

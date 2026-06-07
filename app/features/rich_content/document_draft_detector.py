@@ -72,6 +72,7 @@ def _is_meta_question(user_message: str) -> bool:
         return False
     return any(pattern.search(text) for pattern in _META_QUESTION_PATTERNS)
 
+
 # ── INTENT — message user upstream ────────────────────────────────────
 
 _INTENT_PATTERNS_FR: tuple[Pattern[str], ...] = (

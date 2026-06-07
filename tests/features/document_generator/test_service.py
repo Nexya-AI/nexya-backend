@@ -212,9 +212,7 @@ def _install_fake_pipeline(
 
 class TestGenerateHappyPath:
     @pytest.mark.asyncio
-    async def test_full_pipeline_minimal_template(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_full_pipeline_minimal_template(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Happy path complet : message → PDF → Library → response."""
         # Mock DB
         fake_message = _make_fake_message("# Test\n\nContenu de test.")
@@ -255,9 +253,7 @@ class TestGenerateHappyPath:
         assert call["metadata_json"]["pages"] == 5
 
     @pytest.mark.asyncio
-    async def test_school_template_passes_options(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_school_template_passes_options(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Template school : options subject/level apparaissent dans HTML."""
         fake_message = _make_fake_message("Devoir maths")
         fake_result = MagicMock()
@@ -288,9 +284,7 @@ class TestGenerateHappyPath:
         assert "2026-05-30" in rendered_html
 
     @pytest.mark.asyncio
-    async def test_truncated_pdf_flag_propagated(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_truncated_pdf_flag_propagated(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fake_message = _make_fake_message("Long content")
         fake_result = MagicMock()
         fake_result.scalar_one_or_none = MagicMock(return_value=fake_message)
@@ -311,9 +305,7 @@ class TestGenerateHappyPath:
         assert result.pages == 50
 
     @pytest.mark.asyncio
-    async def test_default_title_when_none_provided(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_default_title_when_none_provided(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fake_message = _make_fake_message("X")
         fake_result = MagicMock()
         fake_result.scalar_one_or_none = MagicMock(return_value=fake_message)
@@ -379,9 +371,7 @@ class TestGenerateDocxFormat:
     """C4.7b — Dispatch format=docx bout-en-bout."""
 
     @pytest.mark.asyncio
-    async def test_docx_pipeline_minimal_template(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_docx_pipeline_minimal_template(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """format=docx déclenche docx_renderer + Library file_type=docx."""
         fake_message = _make_fake_message("# Doc DOCX\n\nContent.")
         fake_result = MagicMock()
@@ -464,9 +454,7 @@ class TestGenerateDocxFormat:
         assert opts.date_iso == "2026-05-31"
 
     @pytest.mark.asyncio
-    async def test_docx_truncated_flag_propagated(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_docx_truncated_flag_propagated(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fake_message = _make_fake_message("Long content")
         fake_result = MagicMock()
         fake_result.scalar_one_or_none = MagicMock(return_value=fake_message)
@@ -488,9 +476,7 @@ class TestGenerateDocxFormat:
         assert result.pages == 50
 
     @pytest.mark.asyncio
-    async def test_pdf_default_format_still_works(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_pdf_default_format_still_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Rétro-compat : sans format= explicite, défaut = pdf."""
         fake_message = _make_fake_message("Default pdf flow.")
         fake_result = MagicMock()
@@ -520,9 +506,7 @@ class TestGenerateDocxFormat:
 
 class TestGenerateErrors:
     @pytest.mark.asyncio
-    async def test_source_too_long_raises_413(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_source_too_long_raises_413(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Content > cap chars → DocumentSourceTooLongError."""
         # Cap settings à une petite valeur pour le test
         from app.config import settings
@@ -665,9 +649,7 @@ class TestC47dWatermarkC2PAPipeline:
         assert lib_meta["c2pa_manifest_id"] == result.c2pa_manifest_id
 
     @pytest.mark.asyncio
-    async def test_watermark_default_docx_no_c2pa_v1(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_watermark_default_docx_no_c2pa_v1(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """C4.7d — DOCX → watermark possiblement appliqué + c2pa_applied=False
         + c2pa_skip_reason='unsupported_format_docx' (V1, c2pa-rs ne
         supporte pas OOXML natif)."""

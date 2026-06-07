@@ -57,6 +57,7 @@ def _install_overrides(monkeypatch: pytest.MonkeyPatch, user, *, skip_rate_limit
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[get_db] = lambda: MagicMock()
     if skip_rate_limit:
+
         async def fake_rate_limit(*args, **kwargs):
             return None
 
@@ -83,7 +84,9 @@ def _fake_response(**overrides) -> DocumentGenerateResponse:
     return DocumentGenerateResponse(**base)
 
 
-def _patch_sync(monkeypatch: pytest.MonkeyPatch, response: DocumentGenerateResponse, *, capture=None):
+def _patch_sync(
+    monkeypatch: pytest.MonkeyPatch, response: DocumentGenerateResponse, *, capture=None
+):
     """Monkeypatch generate_or_enqueue → DocumentSyncResult (chemin 201)."""
 
     async def fake_orchestrate(user_arg, body_arg, db_arg):
@@ -94,18 +97,14 @@ def _patch_sync(monkeypatch: pytest.MonkeyPatch, response: DocumentGenerateRespo
             capture["level"] = body_arg.options.level
         return DocumentSyncResult(response=response)
 
-    monkeypatch.setattr(
-        DocumentGeneratorService, "generate_or_enqueue", fake_orchestrate
-    )
+    monkeypatch.setattr(DocumentGeneratorService, "generate_or_enqueue", fake_orchestrate)
 
 
 def _patch_raises(monkeypatch: pytest.MonkeyPatch, exc: Exception):
     async def fake_orchestrate(*args, **kwargs):
         raise exc
 
-    monkeypatch.setattr(
-        DocumentGeneratorService, "generate_or_enqueue", fake_orchestrate
-    )
+    monkeypatch.setattr(DocumentGeneratorService, "generate_or_enqueue", fake_orchestrate)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -198,9 +197,7 @@ class TestGenerateDocumentDocx:
     ) -> None:
         _install_overrides(monkeypatch, _make_fake_user())
         captured = {}
-        _patch_sync(
-            monkeypatch, _fake_response(filename="DM.docx", pages=2), capture=captured
-        )
+        _patch_sync(monkeypatch, _fake_response(filename="DM.docx", pages=2), capture=captured)
         try:
             with TestClient(app) as client:
                 response = client.post(
@@ -241,9 +238,7 @@ class TestGenerateDocumentAsync:
         async def fake_orchestrate(*args, **kwargs):
             return DocumentAsyncResult(job=fake_job)
 
-        monkeypatch.setattr(
-            DocumentGeneratorService, "generate_or_enqueue", fake_orchestrate
-        )
+        monkeypatch.setattr(DocumentGeneratorService, "generate_or_enqueue", fake_orchestrate)
 
         try:
             with TestClient(app) as client:

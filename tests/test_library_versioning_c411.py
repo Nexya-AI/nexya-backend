@@ -102,9 +102,7 @@ def test_extract_version_number_fallback_1_for_legacy_items() -> None:
 
     # Cas 2 : metadata_json existe mais SANS clé version_number (item
     # C4.7 par exemple avec template/has_watermark mais pas C4.11)
-    partial_item = _make_item(
-        metadata_json={"template": "school", "has_watermark": True}
-    )
+    partial_item = _make_item(metadata_json={"template": "school", "has_watermark": True})
     assert LibraryService._extract_version_number(partial_item) == 1
 
     # Cas 3 : version_number présent mais valeur pathologique → fallback 1

@@ -229,9 +229,7 @@ async def render_html_to_pdf(
             (jamais de raise brut côté caller).
     """
     if not html_content or not html_content.strip():
-        raise DocumentRenderFailedError(
-            "HTML content vide — impossible de rendre un PDF."
-        )
+        raise DocumentRenderFailedError("HTML content vide — impossible de rendre un PDF.")
 
     try:
         # Étape 1 : WeasyPrint render avec timeout

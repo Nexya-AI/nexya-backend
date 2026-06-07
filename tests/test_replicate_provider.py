@@ -42,8 +42,12 @@ def _make_request(prompt: str = "Mark Zuckerberg in a Maybach") -> ImageGenerati
     )
 
 
-def _fake_response(status_code: int, json_body: Any = None, headers: dict[str, str] | None = None,
-                   content: bytes = b"") -> MagicMock:
+def _fake_response(
+    status_code: int,
+    json_body: Any = None,
+    headers: dict[str, str] | None = None,
+    content: bytes = b"",
+) -> MagicMock:
     """Construit une réponse httpx mockée."""
     resp = MagicMock(spec=httpx.Response)
     resp.status_code = status_code
@@ -99,6 +103,7 @@ def _patch_httpx_with_responses(
         "app.ai.providers.replicate_provider.httpx.AsyncClient",
         _factory,
     )
+
     # Court-circuite asyncio.sleep pour ne pas attendre le backoff polling.
     async def _instant_sleep(*args: Any, **kwargs: Any) -> None:
         return None
@@ -119,6 +124,7 @@ def _patch_httpx_with_responses(
 async def test_no_token_raises_auth_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """Sans REPLICATE_API_TOKEN, le provider lève ProviderAuthError clair."""
     from app.config import settings
+
     monkeypatch.setattr(settings, "replicate_api_token", "", raising=False)
 
     provider = ReplicateImageProvider()
@@ -140,6 +146,7 @@ async def test_happy_path_returns_generated_image(
 ) -> None:
     """Pipeline complet : POST 201 succeeded inline + download → GeneratedImage."""
     from app.config import settings
+
     monkeypatch.setattr(settings, "replicate_api_token", "r8_fake_token", raising=False)
     monkeypatch.setattr(settings, "replicate_safety_tolerance", 6, raising=False)
 
@@ -167,6 +174,7 @@ async def test_happy_path_returns_generated_image(
     assert images[0].mime_type == "image/jpeg"
     # base64 decode du résultat doit donner les bytes originaux
     import base64
+
     decoded = base64.b64decode(images[0].base64_data)
     assert decoded == fake_image_bytes
 
@@ -179,6 +187,7 @@ async def test_happy_path_returns_generated_image(
 @pytest.mark.asyncio
 async def test_401_raises_auth_error(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.config import settings
+
     monkeypatch.setattr(settings, "replicate_api_token", "r8_bad_token", raising=False)
     monkeypatch.setattr(settings, "replicate_safety_tolerance", 6, raising=False)
 
@@ -193,6 +202,7 @@ async def test_401_raises_auth_error(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.mark.asyncio
 async def test_403_raises_auth_error(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.config import settings
+
     monkeypatch.setattr(settings, "replicate_api_token", "r8_fake", raising=False)
     monkeypatch.setattr(settings, "replicate_safety_tolerance", 6, raising=False)
 
@@ -214,6 +224,7 @@ async def test_429_raises_rate_limit_with_retry_after(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.config import settings
+
     monkeypatch.setattr(settings, "replicate_api_token", "r8_fake", raising=False)
     monkeypatch.setattr(settings, "replicate_safety_tolerance", 6, raising=False)
 
@@ -241,6 +252,7 @@ async def test_prediction_failed_safety_raises_content_filtered(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.config import settings
+
     monkeypatch.setattr(settings, "replicate_api_token", "r8_fake", raising=False)
     monkeypatch.setattr(settings, "replicate_safety_tolerance", 6, raising=False)
 
@@ -270,6 +282,7 @@ async def test_prediction_failed_other_raises_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from app.config import settings
+
     monkeypatch.setattr(settings, "replicate_api_token", "r8_fake", raising=False)
     monkeypatch.setattr(settings, "replicate_safety_tolerance", 6, raising=False)
 
@@ -296,6 +309,7 @@ async def test_prediction_failed_other_raises_unavailable(
 @pytest.mark.asyncio
 async def test_5xx_raises_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.config import settings
+
     monkeypatch.setattr(settings, "replicate_api_token", "r8_fake", raising=False)
     monkeypatch.setattr(settings, "replicate_safety_tolerance", 6, raising=False)
 

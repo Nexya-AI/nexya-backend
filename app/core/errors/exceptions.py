@@ -434,9 +434,7 @@ class FilePreviewUnavailableException(NexYaException):
     def __init__(self, *, reason: str = "") -> None:
         super().__init__(
             code="FILE_PREVIEW_UNAVAILABLE",
-            message=(
-                "Aperçu temporairement indisponible. Réessayez dans quelques instants."
-            ),
+            message=("Aperçu temporairement indisponible. Réessayez dans quelques instants."),
             status_code=503,
             data={"reason": reason[:200]} if reason else None,
         )

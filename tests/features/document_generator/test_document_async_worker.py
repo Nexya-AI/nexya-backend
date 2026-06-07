@@ -45,7 +45,7 @@ def _make_job(*, status="queued", deleted=False, fmt="pdf"):
     job.format = fmt
     job.template = "minimal"
     job.params_json = {"options": {}, "remove_watermark": False}
-    job.deleted_at = (datetime.now(UTC) if deleted else None)
+    job.deleted_at = datetime.now(UTC) if deleted else None
     return job
 
 

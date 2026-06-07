@@ -187,8 +187,6 @@ class LibraryItem(Base, UUIDMixin):
             "idx_library_versions",
             "user_id",
             "parent_library_id",
-            postgresql_where=text(
-                "deleted_at IS NULL AND parent_library_id IS NOT NULL"
-            ),
+            postgresql_where=text("deleted_at IS NULL AND parent_library_id IS NOT NULL"),
         ),
     )

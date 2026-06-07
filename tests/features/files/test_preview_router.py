@@ -142,9 +142,7 @@ def test_preview_cache_hit_returns_hit_header(
     assert response.headers["x-preview-cache"] == "hit"
 
 
-def test_preview_truncated_sets_header(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_preview_truncated_sets_header(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     """X-Preview-Truncated: true quand le DOCX a été tronqué."""
     fake_pdf = b"%PDF-1.4 truncated content"
     monkeypatch.setattr(
@@ -199,9 +197,7 @@ def test_preview_returns_415_when_mime_not_previewable(
     monkeypatch.setattr(
         PreviewService,
         "get_cached_or_generate",
-        AsyncMock(
-            side_effect=FilePreviewNotPreviewableException(mime_type="audio/mpeg")
-        ),
+        AsyncMock(side_effect=FilePreviewNotPreviewableException(mime_type="audio/mpeg")),
     )
 
     response = client.get(f"/files/{_FAKE_UPLOAD_ID}/preview")
@@ -237,9 +233,7 @@ def test_preview_returns_503_when_pipeline_crashes(
     monkeypatch.setattr(
         PreviewService,
         "get_cached_or_generate",
-        AsyncMock(
-            side_effect=FilePreviewUnavailableException(reason="weasyprint_timeout")
-        ),
+        AsyncMock(side_effect=FilePreviewUnavailableException(reason="weasyprint_timeout")),
     )
 
     response = client.get(f"/files/{_FAKE_UPLOAD_ID}/preview")

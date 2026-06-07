@@ -476,9 +476,7 @@ class Settings(BaseSettings):
     code_projects_max_files: int = Field(default=50, ge=2, le=200)
     # Presigned URL TTL côté MinIO. 24h car le user peut télécharger
     # plus tard (cas typique : ouvrir un email avec lien plus tard).
-    code_projects_zip_presigned_ttl_seconds: int = Field(
-        default=24 * 3600, ge=60, le=7 * 24 * 3600
-    )
+    code_projects_zip_presigned_ttl_seconds: int = Field(default=24 * 3600, ge=60, le=7 * 24 * 3600)
     # Rate limit user-scope sur POST /code-projects/build-zip.
     # 10/jour suffisant pour un dev intensif (1 projet généré toutes
     # les ~2h de session active). Au-delà = script abusif.
@@ -554,9 +552,7 @@ class Settings(BaseSettings):
     # 8000 chars ≈ ~10-15s de rendu WeasyPrint sur HW modeste (le point où
     # bloquer le SSE devient inconfortable). En-dessous, rendu synchrone
     # immédiat (UX instantanée préservée pour les petits docs). Tunable.
-    documents_generator_async_threshold_chars: int = Field(
-        default=8000, ge=1_000, le=200_000
-    )
+    documents_generator_async_threshold_chars: int = Field(default=8000, ge=1_000, le=200_000)
 
     # Kill-switch watermark documents (C4.7d).
     # True → logo NEXYA bleu en bas à droite du PDF (via WeasyPrint @page CSS)
@@ -567,9 +563,7 @@ class Settings(BaseSettings):
     # Ratio prix document Pro sans watermark vs avec (C4.7d, # TODO Ivan provisoire).
     # 1.5 = un export sans watermark coûte 1.5× plus que la version avec.
     # V1 informatif uniquement (wallet v2 facturera selon ce ratio).
-    documents_generator_no_watermark_price_multiplier: float = Field(
-        default=1.5, ge=1.0, le=10.0
-    )
+    documents_generator_no_watermark_price_multiplier: float = Field(default=1.5, ge=1.0, le=10.0)
 
     # Kill-switch branding documents (C4.8 + C4.9).
     # True → header [NEXYA AI] coin haut-gauche + footer center « Généré
@@ -588,18 +582,10 @@ class Settings(BaseSettings):
     # strict — fichiers user intouchables, branding réservé aux documents
     # GÉNÉRÉS par NEXYA via /generate/document).
     documents_generator_preview_enabled: bool = True
-    documents_generator_preview_cache_ttl_days: int = Field(
-        default=30, ge=1, le=365
-    )
-    documents_generator_preview_timeout_seconds: float = Field(
-        default=15.0, ge=5.0, le=60.0
-    )
-    documents_generator_preview_max_pages: int = Field(
-        default=50, ge=1, le=200
-    )
-    documents_generator_preview_rate_limit_per_hour: int = Field(
-        default=60, ge=1, le=1_000
-    )
+    documents_generator_preview_cache_ttl_days: int = Field(default=30, ge=1, le=365)
+    documents_generator_preview_timeout_seconds: float = Field(default=15.0, ge=5.0, le=60.0)
+    documents_generator_preview_max_pages: int = Field(default=50, ge=1, le=200)
+    documents_generator_preview_rate_limit_per_hour: int = Field(default=60, ge=1, le=1_000)
 
     # ── Paiements ──────────────────────────────────────────────
     cinetpay_api_key: str = ""

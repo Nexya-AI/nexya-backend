@@ -109,9 +109,7 @@ async def generate_document(
 
     # Délégation à l'orchestrateur (décide sync vs async — C4.12).
     try:
-        outcome = await DocumentGeneratorService.generate_or_enqueue(
-            current_user, body, db
-        )
+        outcome = await DocumentGeneratorService.generate_or_enqueue(current_user, body, db)
     except TemplateNotFoundError as exc:
         raise NexYaException(code=exc.code, message=str(exc), status_code=422) from exc
     except DocumentSourceTooLongError as exc:

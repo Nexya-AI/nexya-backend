@@ -36,9 +36,7 @@ _FAKE_PDF_BYTES = b"%PDF-1.4\nfake content\n%%EOF\n"
 
 class TestRenderHappy:
     @pytest.mark.asyncio
-    async def test_happy_path_returns_rendered_pdf(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_happy_path_returns_rendered_pdf(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Render HTML → PDF avec mock complet."""
 
         def fake_render_sync(html_content: str) -> bytes:
@@ -130,7 +128,10 @@ class TestRenderExceptions:
 
         with pytest.raises(DocumentRenderFailedError) as exc_info:
             await render_html_to_pdf("<html><body>x</body></html>")
-        assert "compression" in str(exc_info.value).lower() or exc_info.value.code == "DOCUMENT_RENDER_FAILED"
+        assert (
+            "compression" in str(exc_info.value).lower()
+            or exc_info.value.code == "DOCUMENT_RENDER_FAILED"
+        )
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -140,9 +141,7 @@ class TestRenderExceptions:
 
 class TestRenderTruncation:
     @pytest.mark.asyncio
-    async def test_pdf_truncated_flag_propagated(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_pdf_truncated_flag_propagated(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Si pikepdf tronque les pages, truncated=True dans le résultat."""
 
         def fake_render_sync(html_content: str) -> bytes:
@@ -179,7 +178,9 @@ class TestRenderEdgeCases:
     async def test_empty_html_rejected(self) -> None:
         with pytest.raises(DocumentRenderFailedError) as exc_info:
             await render_html_to_pdf("")
-        assert "vide" in str(exc_info.value).lower() or exc_info.value.code == "DOCUMENT_RENDER_FAILED"
+        assert (
+            "vide" in str(exc_info.value).lower() or exc_info.value.code == "DOCUMENT_RENDER_FAILED"
+        )
 
     @pytest.mark.asyncio
     async def test_whitespace_only_html_rejected(self) -> None:
@@ -212,9 +213,7 @@ class TestSafeUrlFetcher:
         result = _safe_url_fetcher("http://169.254.169.254/latest/meta-data/")
         assert result["string"] == b""
 
-    def test_data_uri_is_delegated_to_weasyprint(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_data_uri_is_delegated_to_weasyprint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """data: URIs sont délégués au default_url_fetcher WeasyPrint.
 
         Skip si WeasyPrint runtime KO (binaires cairo/pango manquants
