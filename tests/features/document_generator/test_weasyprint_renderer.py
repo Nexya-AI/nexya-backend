@@ -231,12 +231,19 @@ class TestSafeUrlFetcher:
         data_uri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
         result = _safe_url_fetcher(data_uri)
         # Default fetcher devrait décoder le data: URI. Selon la version
-        # weasyprint, le résultat est un dict (<69.0) OU un URLFetcherResponse
-        # object (>=69.0). On vérifie le duck-typing : accès au champ 'string'.
-        # Le anti-SSRF stub retournerait string=b"" (delegate marche = string
-        # non vide pour un data URI valide).
+        # weasyprint, le résultat est un dict {"string": b"..."} (<69.0)
+        # OU un URLFetcherResponse object avec .read() (>=69.0). On vérifie
+        # défensivement les deux APIs : le anti-SSRF stub retourne
+        # {"string": b""} (delegate KO) donc on vérifie que ce N'EST PAS ce
+        # cas-là.
+        assert result is not None
         if isinstance(result, dict):
-            string_data = result["string"]
+            # API ancienne weasyprint < 69.0 : dict avec champ "string"
+            assert result.get("string"), "anti-SSRF stub déclenché à tort sur data: URI"
         else:
-            string_data = result.string
-        assert string_data and len(string_data) > 0
+            # API nouvelle weasyprint >= 69.0 : URLFetcherResponse object
+            # avec méthode .read() qui retourne les bytes du body. Le delegate
+            # a marché s'il retourne un object non-None avec read().
+            assert hasattr(result, "read"), f"type inattendu : {type(result).__name__}"
+            body_bytes = result.read()
+            assert body_bytes and len(body_bytes) > 0, "body vide = anti-SSRF stub"
