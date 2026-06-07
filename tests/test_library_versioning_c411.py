@@ -32,7 +32,6 @@ from app.features.document_generator.service import DocumentGeneratorService
 from app.features.library.models import LibraryItem
 from app.features.library.service import LibraryService
 
-
 # ══════════════════════════════════════════════════════════════
 # Helpers / fixtures
 # ══════════════════════════════════════════════════════════════

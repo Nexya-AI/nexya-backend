@@ -10,7 +10,7 @@ Mock-first :
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -45,12 +45,12 @@ def _make_job(*, status="queued", deleted=False, fmt="pdf"):
     job.format = fmt
     job.template = "minimal"
     job.params_json = {"options": {}, "remove_watermark": False}
-    job.deleted_at = (datetime.now(timezone.utc) if deleted else None)
+    job.deleted_at = (datetime.now(UTC) if deleted else None)
     return job
 
 
 def _fake_doc_response():
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return DocumentGenerateResponse(
         library_id=uuid.uuid4(),
         download_url="https://x/y.pdf",

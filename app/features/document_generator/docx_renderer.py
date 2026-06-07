@@ -28,7 +28,7 @@ from __future__ import annotations
 import asyncio
 import io
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Final, Literal
 
 import structlog
@@ -536,7 +536,7 @@ def _render_docx_sync(
     from docx import Document
 
     doc = Document()
-    today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today_iso = datetime.now(UTC).strftime("%Y-%m-%d")
 
     # C4.8 — Branding header `[NEXYA AI]` discret EN HAUT de la première
     # section. Doit être appliqué AVANT le body pour cohérence visuelle
@@ -694,7 +694,7 @@ async def render_markdown_to_docx(
             ),
             timeout=timeout_seconds,
         )
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         log.warning(
             "documents.render.docx_timeout",
             timeout_seconds=timeout_seconds,

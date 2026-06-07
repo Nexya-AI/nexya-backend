@@ -68,7 +68,6 @@ from app.core.errors.exceptions import (
 )
 from app.core.storage import ObjectStore, get_object_store
 from app.features.auth.models import User
-from app.features.files.models import UploadedFile
 from app.features.files.service import FileUploadService
 
 log = structlog.get_logger(__name__)

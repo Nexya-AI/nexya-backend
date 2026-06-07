@@ -15,14 +15,15 @@ complet avec MockManifestProvider mock-first auto (cf. settings.py).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from app.features.images.c2pa import (
-    MockManifestProvider,
     _SUPPORTED_MIMES,
     C2PASignRequest,
+    MockManifestProvider,
 )
-from datetime import datetime, timezone
 
 
 def _make_request(prompt: str = "Test doc") -> C2PASignRequest:
@@ -31,7 +32,7 @@ def _make_request(prompt: str = "Test doc") -> C2PASignRequest:
         prompt=prompt,
         provider="weasyprint",
         model="template_minimal",
-        generation_timestamp=datetime.now(timezone.utc),
+        generation_timestamp=datetime.now(UTC),
         watermark_applied=True,
         watermark_version="v1-doc-pdf-docx-2026-05",
     )

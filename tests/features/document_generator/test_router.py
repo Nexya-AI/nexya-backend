@@ -19,7 +19,7 @@ Couvre :
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -68,7 +68,7 @@ def _cleanup_overrides():
 
 
 def _fake_response(**overrides) -> DocumentGenerateResponse:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     base = dict(
         library_id=uuid.uuid4(),
         download_url="https://minio.local/foo.pdf?sig=abc",
@@ -270,7 +270,7 @@ class TestGenerateDocumentAsync:
         _install_overrides(monkeypatch, user)
 
         job_id = uuid.uuid4()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         job_response = DocumentJobResponse(
             job_id=job_id,
             status="done",

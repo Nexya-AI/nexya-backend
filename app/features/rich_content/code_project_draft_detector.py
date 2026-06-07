@@ -45,7 +45,7 @@ Aucun appel LLM, aucun I/O, aucun side-effect — module pur synchrone.
 from __future__ import annotations
 
 import re
-from typing import Pattern
+from re import Pattern
 
 from app.features.rich_content.code_file_draft_detector import (
     _CODE_BLOCK_RE,
@@ -314,11 +314,7 @@ def _has_explicit_filename(*, preceding_text: str, block_content: str) -> bool:
         r"^\s*<!--\s*([\w/.\-]+\.\w+)\s*-->\s*$",
         r"^\s*/\*\s*([\w/.\-]+\.\w+)\s*\*/\s*$",
     )
-    for pat in inline_patterns:
-        if re.search(pat, block_head, re.MULTILINE):
-            return True
-
-    return False
+    return any(re.search(pat, block_head, re.MULTILINE) for pat in inline_patterns)
 
 
 def detect_rich_content_code_project(

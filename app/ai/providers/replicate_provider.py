@@ -281,7 +281,7 @@ class ReplicateImageProvider(ImageProvider):
                 retry_after = response.headers.get("Retry-After")
                 retry_seconds = float(retry_after) if retry_after else None
                 raise ProviderRateLimitError(
-                    f"Replicate rate limit atteint (HTTP 429).",
+                    "Replicate rate limit atteint (HTTP 429).",
                     provider=self.name,
                     model=model,
                     retry_after_seconds=retry_seconds,

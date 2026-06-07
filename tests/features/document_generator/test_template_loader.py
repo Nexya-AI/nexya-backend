@@ -18,7 +18,6 @@ from app.features.document_generator.template_loader import (
     render_markdown_to_html,
 )
 
-
 # ──────────────────────────────────────────────────────────────────
 # render_markdown_to_html
 # ──────────────────────────────────────────────────────────────────

@@ -239,7 +239,7 @@ async def render_html_to_pdf(
             asyncio.to_thread(_render_pdf_sync, html_content),
             timeout=timeout_seconds,
         )
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         log.warning(
             "documents.render.timeout",
             timeout_seconds=timeout_seconds,

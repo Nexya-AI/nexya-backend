@@ -15,7 +15,7 @@ Couvre 7 scénarios critiques :
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -66,7 +66,7 @@ class _FakeAsyncClient:
         self._responses = list(responses)
         self.calls: list[tuple[str, str]] = []  # (method, url)
 
-    async def __aenter__(self) -> "_FakeAsyncClient":
+    async def __aenter__(self) -> _FakeAsyncClient:
         return self
 
     async def __aexit__(self, *args: Any) -> None:

@@ -485,7 +485,7 @@ class RichContentPayload(BaseModel):
         subject: str | None,
         body: str,
         to: str | None = None,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload email avec validation Pydantic stricte.
 
         Lève `ValidationError` si `body` vide ou trop long, `subject`/`to`
@@ -501,7 +501,7 @@ class RichContentPayload(BaseModel):
         *,
         phone: str | None,
         body: str,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload WhatsApp avec validation Pydantic stricte."""
         data = WhatsAppDraftData(phone=phone, body=body)
         return cls(kind="whatsapp_draft", data=data.model_dump())
@@ -512,7 +512,7 @@ class RichContentPayload(BaseModel):
         *,
         phone: str | None,
         body: str,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload SMS avec validation Pydantic stricte (C4.5).
 
         Lève `ValidationError` si `body` vide ou > 1600 chars.
@@ -525,7 +525,7 @@ class RichContentPayload(BaseModel):
         cls,
         *,
         body: str,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload LinkedIn post avec validation stricte (C4.5).
 
         Lève `ValidationError` si `body` vide ou > 3000 chars.
@@ -538,7 +538,7 @@ class RichContentPayload(BaseModel):
         cls,
         *,
         body: str,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload Tweet/X avec validation stricte (C4.5).
 
         Lève `ValidationError` si `body` vide ou > 280 chars.
@@ -553,7 +553,7 @@ class RichContentPayload(BaseModel):
         title: str | None,
         body: str,
         recipient: str | None = None,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload document long avec validation stricte (C4.5).
 
         Lève `ValidationError` si `body` vide ou > 50 000 chars, `title`/
@@ -570,7 +570,7 @@ class RichContentPayload(BaseModel):
         content: str,
         language: str,
         description: str | None = None,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload UN SEUL fichier de code avec validation
         stricte (C4.6).
 
@@ -597,7 +597,7 @@ class RichContentPayload(BaseModel):
         files: list[dict] | list[CodeProjectFileItem],
         description: str | None = None,
         project_type: str | None = None,
-    ) -> "RichContentPayload":
+    ) -> RichContentPayload:
         """Construit un payload projet code multi-fichiers avec validation
         stricte (C4.6).
 

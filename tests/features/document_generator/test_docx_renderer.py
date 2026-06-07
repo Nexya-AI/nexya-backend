@@ -27,7 +27,6 @@ from app.features.document_generator.docx_renderer import (
 from app.features.document_generator.exceptions import DocumentRenderFailedError
 from app.features.document_generator.schemas import DocumentGenerateOptions
 
-
 # ──────────────────────────────────────────────────────────────────
 # Happy path — Template minimal
 # ──────────────────────────────────────────────────────────────────

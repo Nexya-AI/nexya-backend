@@ -19,7 +19,6 @@ Couvre :
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -37,7 +36,6 @@ from app.features.document_generator.service import (
     DocumentGeneratorService,
     _sanitize_filename,
 )
-
 
 # ──────────────────────────────────────────────────────────────────
 # _sanitize_filename

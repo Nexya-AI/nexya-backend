@@ -25,7 +25,6 @@ from app.features.document_generator.weasyprint_renderer import (
     render_html_to_pdf,
 )
 
-
 # Mock PDF bytes minimaux (header PDF valide pour pikepdf)
 _FAKE_PDF_BYTES = b"%PDF-1.4\nfake content\n%%EOF\n"
 

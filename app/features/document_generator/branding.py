@@ -54,7 +54,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Final, Literal
 
 import structlog
@@ -180,7 +180,7 @@ def build_branding_context(
     Returns:
         BrandingContext frozen, prêt à être consommé.
     """
-    actual_now = now if now is not None else datetime.now(timezone.utc)
+    actual_now = now if now is not None else datetime.now(UTC)
     notice = (
         AI_TRANSPARENCY_NOTICE_FR
         if locale == "fr"
@@ -551,8 +551,8 @@ def enrich_docx_footer_with_branding(
     """
     try:
         from docx.enum.text import WD_ALIGN_PARAGRAPH
-        from docx.oxml.ns import qn
         from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
         from docx.shared import Pt, RGBColor
 
         section = document.sections[0]

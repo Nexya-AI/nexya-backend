@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import io
 import uuid
-from typing import TYPE_CHECKING
 
 import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -41,9 +40,6 @@ from app.features.files.preview_service import PreviewService
 from app.features.files.schemas import UploadedFileResponse
 from app.features.files.service import FileUploadService, build_text_preview
 from app.shared.schemas import NexyaResponse
-
-if TYPE_CHECKING:
-    pass
 
 log = structlog.get_logger()
 

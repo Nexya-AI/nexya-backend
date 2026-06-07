@@ -18,7 +18,7 @@ Sécurité :
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, Literal
 
@@ -187,7 +187,7 @@ def render_document_html(
     body_html = render_markdown_to_html(markdown_source)
 
     # Date par défaut = aujourd'hui UTC ISO court (YYYY-MM-DD)
-    today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today_iso = datetime.now(UTC).strftime("%Y-%m-%d")
 
     # C4.7d : résolution paresseuse du data URL watermark (singleton fail-safe).
     # `None` si apply_watermark=False ou asset PNG introuvable → template Jinja2

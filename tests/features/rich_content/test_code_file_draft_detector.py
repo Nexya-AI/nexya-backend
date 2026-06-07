@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from app.features.rich_content.code_file_draft_detector import (
     _extract_filename,
     detect_rich_content_code_file,

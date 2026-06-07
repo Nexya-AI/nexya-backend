@@ -625,7 +625,7 @@ class LibraryService:
         item_id: uuid.UUID,
         user: User,
         db: AsyncSession,
-    ) -> "LibraryItemWithVersions":
+    ) -> LibraryItemWithVersions:
         """C4.11 — Variante de `get` qui enrichit avec version_number + count.
 
         Utilisée par le router `GET /library/{id}` pour exposer le

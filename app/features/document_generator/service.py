@@ -30,7 +30,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Final
 
 import structlog
@@ -61,14 +61,14 @@ from .exceptions import (
     DocumentStorageUnavailableError,
     DocumentTruncatedError,  # exporté pour info, pas raise
 )
+from .job_models import DocumentJob
+from .job_service import DocumentJobService
 from .schemas import (
     DocumentGenerateOptions,
     DocumentGenerateRequest,
     DocumentGenerateResponse,
     DocumentTemplate,
 )
-from .job_models import DocumentJob
-from .job_service import DocumentJobService
 from .template_loader import render_document_html
 from .watermark_assets import WATERMARK_VERSION
 from .weasyprint_renderer import render_html_to_pdf
@@ -416,7 +416,7 @@ class DocumentGeneratorService:
                     prompt=f"NEXYA document template={body.template}",
                     provider=provider_name,
                     model=f"template_{body.template}",
-                    generation_timestamp=datetime.now(timezone.utc),
+                    generation_timestamp=datetime.now(UTC),
                     watermark_applied=watermark_applied,
                     watermark_version=(
                         WATERMARK_VERSION if watermark_applied else None
@@ -465,7 +465,7 @@ class DocumentGeneratorService:
         # `safe_basename` reste calculé dans les 2 branches car utilisé
         # comme fallback pour `library_item.title` plus bas.
         title_for_filename = body.title or (
-            f"document_{datetime.now(timezone.utc).strftime('%Y-%m-%d')}"
+            f"document_{datetime.now(UTC).strftime('%Y-%m-%d')}"
         )
         safe_basename = _sanitize_filename(
             title_for_filename, fallback="document"
@@ -569,10 +569,10 @@ class DocumentGeneratorService:
             ) from exc
 
         # 7. Construction response
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expires_at = datetime.fromtimestamp(
             now.timestamp() + settings.documents_generator_presigned_ttl_seconds,
-            tz=timezone.utc,
+            tz=UTC,
         )
 
         log.info(
@@ -622,7 +622,7 @@ class DocumentGeneratorService:
         user: User,
         body: DocumentGenerateRequest,
         db: AsyncSession,
-    ) -> "DocumentSyncResult | DocumentAsyncResult":
+    ) -> DocumentSyncResult | DocumentAsyncResult:
         """Décide sync vs async selon la taille du markdown source (C4.12).
 
         Le backend ne peut PAS chronométrer le rendu WeasyPrint à l'avance ;

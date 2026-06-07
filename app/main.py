@@ -72,11 +72,13 @@ from app.core.observability.worker_health import (
 )
 from app.core.openapi import customize_openapi
 from app.core.security.headers import NexyaSecurityHeadersMiddleware
+from app.features.account.router import router as account_router  # C4.11
 from app.features.ai_models.router import router as ai_models_router
 from app.features.auth.models import User
-from app.features.account.router import router as account_router  # C4.11
 from app.features.auth.router import router as auth_router
 from app.features.chat.router import router as chat_router
+from app.features.code_projects.router import router as code_projects_router
+from app.features.document_generator.router import router as document_generator_router
 from app.features.files.router import router as files_router
 from app.features.helpdesk.router import router as helpdesk_router
 from app.features.images.c2pa import (
@@ -87,13 +89,11 @@ from app.features.images.watermark import (
     WATERMARK_VERSION,
     apply_nexya_watermark,
 )
-from app.features.document_generator.router import router as document_generator_router
 from app.features.library.router import router as library_router
 from app.features.library.service import LibraryService
 from app.features.memory.router import router as memory_router
 from app.features.metadata.router import router as metadata_router
 from app.features.notifications.router import router as notifications_router
-from app.features.code_projects.router import router as code_projects_router
 from app.features.planner.router import router as planner_router
 from app.features.projects.router import router as projects_router
 from app.features.rag.router import router as rag_router

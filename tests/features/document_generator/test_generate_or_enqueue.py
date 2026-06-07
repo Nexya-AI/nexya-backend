@@ -12,7 +12,7 @@ Mock-first :
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -53,7 +53,7 @@ def _body(*, remove_watermark: bool = False) -> DocumentGenerateRequest:
 
 
 def _fake_doc_response() -> DocumentGenerateResponse:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return DocumentGenerateResponse(
         library_id=uuid.uuid4(),
         download_url="https://x/y.pdf",

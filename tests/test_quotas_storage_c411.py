@@ -31,7 +31,7 @@ Couverture ciblée (decision Ivan tests focused, ~13 tests groupés) :
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -43,7 +43,6 @@ from app.features.account.service import (
     _start_of_current_month_utc,
 )
 from app.features.library.service import LibraryService
-
 
 # ══════════════════════════════════════════════════════════════
 # Helpers

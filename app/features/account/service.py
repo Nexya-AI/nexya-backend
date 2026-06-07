@@ -22,10 +22,10 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import structlog
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings

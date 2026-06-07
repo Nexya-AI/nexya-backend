@@ -31,11 +31,11 @@ from app.core.errors.exceptions import (
 )
 from app.features.files.models import UploadedFile
 from app.features.files.preview_service import (
+    _DOCX_MIME,
+    _PDF_MIME,
+    _PREVIEW_BUCKET_PREFIX,
     PreviewResult,
     PreviewService,
-    _PDF_MIME,
-    _DOCX_MIME,
-    _PREVIEW_BUCKET_PREFIX,
 )
 from app.features.files.service import FileUploadService
 
