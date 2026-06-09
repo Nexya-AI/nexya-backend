@@ -195,13 +195,14 @@ def test_full_chain_for_studio_is_just_primary() -> None:
 # ══════════════════════════════════════════════════════════════
 
 
-def test_only_cooking_has_corpus_enabled_post_g2() -> None:
-    """Après G2 (2026-05-16), seul l'expert `cooking` a `corpus_enabled=True`
-    (recettes camerounaises propriétaires Loth Ivan / Nexyalabs).
+def test_only_cooking_and_legal_have_corpus_enabled() -> None:
+    """Experts avec corpus RAG activé : `cooking` (G2, recettes camerounaises
+    propriétaires) + `legal` (2026-06-09, 14 codes camerounais/OHADA/CIMA,
+    8460 articles, retrieval conscient du domaine).
     G1 `language` reste désactivé après échec blind test du 2026-04-24.
     G4 ingénierie / G6 informatique / G7 sciences resteront désactivés
     jusqu'à leurs sessions d'activation dédiées."""
-    expected_enabled = {"cooking"}
+    expected_enabled = {"cooking", "legal"}
     actual_enabled = {expert_id for expert_id, cfg in EXPERT_REGISTRY.items() if cfg.corpus_enabled}
     assert actual_enabled == expected_enabled, (
         f"Mismatch corpus_enabled : attendu {expected_enabled}, obtenu {actual_enabled}"

@@ -80,6 +80,91 @@ def _detect_language_pair_hint(query: str) -> str | None:
     return None
 
 
+# Détection du DOMAINE juridique (expert legal). Mappe une question vers la
+# valeur `metadata_json->>'domain'` d'un des 14 codes, pour restreindre la
+# recherche au bon code et éviter que les grosses compilations (CGI, Code
+# civil) ne noient les codes spécialisés. Ordre = priorité : les domaines
+# les plus distinctifs d'abord (fiscal/assurances avant ohada-sociétés pour
+# que « impôt sur les sociétés » → fiscal, pas sociétés). Haute précision :
+# en cas de doute on renvoie None (recherche non filtrée = comportement sûr).
+_LEGAL_DOMAIN_HINTS: tuple[tuple[str, str], ...] = (
+    (
+        r"assur(?:é|e|eur|ance|ables?|és|ées)|sinistre|prime d'assur|police d'assur"
+        r"|r[ée]assur|\bcima\b|indemnisation",
+        "assurances",
+    ),
+    (
+        r"\bimp[ôo]ts?\b|\btaxe|\btva\b|fiscal|contribuable|\birpp\b|patente"
+        r"|droit d'enregistrement|accise|redressement fiscal|d[ée]claration fiscale"
+        r"|imp[ôo]t sur (?:le|les)",
+        "fiscal",
+    ),
+    (
+        r"licenciement|pr[ée]avis|salari[ée]|\bsalaire|employeur|contrat de travail"
+        r"|d[ée]mission|cong[ée]s?\b|rupture du contrat|indemnit[ée] de licenciement"
+        r"|syndicat|\bgr[èe]ve\b|\bsmig\b|heures suppl[ée]mentaires"
+        r"|d[ée]l[ée]gu[ée] du personnel",
+        "travail",
+    ),
+    (
+        r"cybercrim|cybers[ée]cur|\bcyber|donn[ée]es personnelles|piratage"
+        r"|fraude informatique|syst[èe]me informatique|communication [ée]lectronique",
+        "cyber",
+    ),
+    (
+        r"titre foncier|fonci[èe]re?|immatriculation|domaine national"
+        r"|propri[ée]t[ée] fonci[èe]re|certificat d'occupation|bornage",
+        "foncier",
+    ),
+    (
+        r"droit d'auteur|propri[ée]t[ée] intellectuelle|droits voisins|plagiat"
+        r"|contrefa[çc]on|\bœuvre|\boeuvre",
+        "propriete-intellectuelle",
+    ),
+    (r"semenc|vari[ée]t[ée] v[ée]g[ée]tale|obtenteur", "commerce-agricole"),
+    (
+        r"\bsarl\b|soci[ée]t[ée] anonyme|soci[ée]t[ée] [àa] responsabilit[ée]|\bgie\b"
+        r"|actionnaire|capital social|assembl[ée]e g[ée]n[ée]rale|conseil d'administration"
+        r"|parts sociales|\bstatuts\b|\bg[ée]rant|constitu\w* (?:d'une |de la |une )?soci[ée]t[ée]"
+        r"|dissolution|liquidation de la soci[ée]t[ée]",
+        "ohada-societes",
+    ),
+    (
+        r"commer[çc]ant|fonds de commerce|bail commercial|registre du commerce|\brccm\b"
+        r"|vente commerciale|interm[ée]diaire de commerce",
+        "ohada-commercial",
+    ),
+    (
+        r"garde [àa] vue|juge d'instruction|perquisition|d[ée]tention provisoire"
+        r"|mandat de d[ée]p[ôo]t|mandat d'arr[êe]t|flagrant d[ée]lit|\bprocureur",
+        "procedure-penale",
+    ),
+    (
+        r"\bpeines?\b|\bprison|emprisonnement|\bcrime|\bd[ée]lit\b|infraction|\bvol\b"
+        r"|meurtre|homicide|\bviol\b|escroquerie|abus de confiance|coups et blessures"
+        r"|complicit[ée]|l[ée]gitime d[ée]fense|r[ée]cidive|sanction p[ée]nale",
+        "penal",
+    ),
+    (
+        r"responsabilit[ée] civile|\bdivorce|\bmariage|succession|h[ée]rit|donation"
+        r"|testament|servitude|tutelle|filiation|[ée]tat civil|acte de (?:naissance|d[ée]c[èe]s)",
+        "civil",
+    ),
+)
+
+
+def _detect_legal_domain(query: str) -> str | None:
+    """Retourne le domaine juridique détecté (valeur `metadata.domain`) ou None.
+
+    Premier match dans l'ordre de priorité. None = aucun signal fort →
+    recherche non filtrée (comportement sûr, jamais dégradé)."""
+    normalized = query.lower()
+    for pattern, domain in _LEGAL_DOMAIN_HINTS:
+        if re.search(pattern, normalized):
+            return domain
+    return None
+
+
 # ══════════════════════════════════════════════════════════════
 # Formatage & troncature
 # ══════════════════════════════════════════════════════════════
@@ -221,6 +306,10 @@ async def build_expert_corpus_context(
     else:
         effective_lang = language_pair_hint
 
+    # Filtre par domaine juridique (expert legal uniquement). Restreint la
+    # recherche au bon code ; fallback non filtré plus bas si rien ne matche.
+    effective_domain = _detect_legal_domain(stripped_query) if expert_slug == "legal" else None
+
     try:
         # Embed de la query — task_type=RETRIEVAL_QUERY côté Gemini pour
         # une projection asymétrique optimisée search. OpenAI/Mock
@@ -234,7 +323,7 @@ async def build_expert_corpus_context(
             return None
         q_vec = embed_response.vectors[0].values
 
-        # Premier essai : avec le filtre de paire détecté.
+        # Premier essai : avec les filtres détectés (paire de langue / domaine).
         results = await ExpertCorpusService.search(
             db,
             expert_slug=expert_slug,
@@ -242,10 +331,11 @@ async def build_expert_corpus_context(
             k=effective_k,
             min_similarity=effective_min_sim,
             language_pair=effective_lang,
+            domain=effective_domain,
         )
-        # Fallback gracieux : si filtre langue actif mais rien ne matche,
-        # on relâche le filtre pour garder une chance de retrieval utile.
-        if not results and effective_lang is not None:
+        # Fallback gracieux : si un filtre était actif mais rien ne matche,
+        # on relâche les filtres pour garder une chance de retrieval utile.
+        if not results and (effective_lang is not None or effective_domain is not None):
             results = await ExpertCorpusService.search(
                 db,
                 expert_slug=expert_slug,
@@ -253,6 +343,7 @@ async def build_expert_corpus_context(
                 k=effective_k,
                 min_similarity=effective_min_sim,
                 language_pair=None,
+                domain=None,
             )
     except Exception as exc:  # noqa: BLE001 — fail-safe absolue
         log.warning(
