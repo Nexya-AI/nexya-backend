@@ -214,6 +214,10 @@ class StreamContext:
     # spécialisée (extraits de corpus factuels avec framing
     # anti-injection D5), (3) les instructions métier (comment répondre).
     expert_corpus_context: str | None = None
+    # Fiche partenaire factuelle (ex: AB Consulting & Services) injectee quand
+    # le message la justifie. Construite par `app/ai/knowledge::build_partner_context`
+    # dans le router. None = aucune entite partenaire detectee dans le message.
+    partner_context: str | None = None
     # I1 (2026-05-05) — Bloc RAG documents user (chunks pgvector D4).
     # Construit côté **frontend** : appel `POST /rag/query` D5 → recevoir
     # `framed_context` (chunks wrappés `<<<DOCUMENT EXTRACT>>>...<<<END>>>`,
@@ -692,6 +696,7 @@ class StreamHandler:
             temporal_block,
             ctx.memory_context,
             ctx.expert_corpus_context,
+            ctx.partner_context,
             rag_block,
             config.system_prompt or None,
             tools_guidance_block,

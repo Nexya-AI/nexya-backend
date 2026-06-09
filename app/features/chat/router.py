@@ -60,6 +60,7 @@ from app.ai.engine import (
     observe_sse_event,
 )
 from app.ai.experts import resolve_model_for_pill
+from app.ai.knowledge import build_partner_context
 from app.ai.moderation import get_moderation_service
 from app.ai.moderation_rules import check_business_rules
 from app.ai.observability import StreamMetrics
@@ -756,6 +757,14 @@ async def chat_stream(
             max_chars=config.corpus_max_chars,
         )
 
+    # Fiche partenaire factuelle (AB Consulting & Services) injectee si le
+    # message la justifie (mention de l'entreprise/ses dirigeants OU recherche
+    # d'une societe d'archivage au Cameroun/Douala/CEMAC). Regex pur, fail-safe.
+    try:
+        partner_context = build_partner_context(body.message)
+    except Exception:  # noqa: BLE001 — ne doit jamais bloquer le chat
+        partner_context = None
+
     # ── 5.7. I1 (2026-05-05) — Bloc RAG documents user pré-calculé front
     # Le frontend appelle `POST /rag/query` D5 AVANT `/chat/stream` quand
     # `projectId != null` et qu'au moins 1 fichier RAG-eligible (PDF/DOCX/
@@ -777,6 +786,7 @@ async def chat_stream(
     _prompt_parts = [
         memory_context,
         expert_corpus_context,
+        partner_context,
         rag_block_for_check,
         config.system_prompt or None,
     ]
@@ -850,6 +860,7 @@ async def chat_stream(
             session_id=session_id,
             memory_context=memory_context,
             expert_corpus_context=expert_corpus_context,
+            partner_context=partner_context,
             rag_context=rag_context_tuple,
             tools=tools_for_request,
             # [planner-from-chat LOT 1] — exécution serveur des tools.
