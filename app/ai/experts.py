@@ -229,6 +229,17 @@ class ExpertConfig:
     # G3 Studio, G4 Ingénierie, G5 Productivité, G6 Informatique, G7 Sciences).
     corpus_enabled: bool = False
 
+    # Réglages RAG per-expert (None = fallback sur les valeurs globales
+    # `settings.expert_corpus_k / _min_similarity / _max_chars`). Posés
+    # uniquement quand un expert a des besoins propres. Ex : l'expert
+    # `legal` injecte plusieurs articles longs et exige un budget de chars
+    # plus large + un seuil de similarité adapté à l'embedding asymétrique
+    # RETRIEVAL_QUERY/DOCUMENT. Le router les passe à
+    # `build_expert_corpus_context`. Cuisine garde None (comportement G2 V8).
+    corpus_k: int | None = None
+    corpus_min_similarity: float | None = None
+    corpus_max_chars: int | None = None
+
     # F2.5 — Function calling. Si True, le router `/chat/stream` injecte
     # `tool_registry.build_openai_tools()` dans `StreamContext.tools` ;
     # le LLM peut alors décider d'appeler `create_task`, `list_tasks`,
@@ -702,6 +713,18 @@ EXPERT_REGISTRY: dict[str, ExpertConfig] = {
             "Consulte un avocat ou un notaire pour tout cas concret."
         ),
         tags=("legal", "safety-critical", "ohada"),
+        # RAG juridique (2026-06-09) — corpus de 14 codes camerounais/OHADA/CIMA
+        # (8460 articles, propriété Nexyalabs, ingérés via Vertex). Le retrieval
+        # est conscient du DOMAINE (build_expert_corpus_context détecte le code
+        # via heuristique + filtre `metadata.domain`) pour éviter que les grosses
+        # compilations (CGI, Code civil) ne noient les codes spécialisés.
+        corpus_enabled=True,
+        # Réglages propres au droit : plusieurs articles longs par réponse
+        # (k=6, budget 8000 chars ~ 5 articles) + seuil adapté à l'embedding
+        # asymétrique RETRIEVAL_QUERY/DOCUMENT et au filtrage par domaine.
+        corpus_k=6,
+        corpus_min_similarity=0.55,
+        corpus_max_chars=8000,
         # [planner-from-chat LOT 4] — idem `medicine` : function calling
         # RÉACTIVÉ (décision produit Ivan). Un utilisateur en mode Légal
         # doit pouvoir poser un rappel (« rappelle-moi l'échéance du

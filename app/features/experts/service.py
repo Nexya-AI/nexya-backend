@@ -68,6 +68,7 @@ class ExpertCorpusService:
         k: int = 5,
         min_similarity: float = 0.7,
         language_pair: str | None = None,
+        domain: str | None = None,
     ) -> list[ExpertChunkResult]:
         """Top-K chunks corpus triés par similarité cosinus décroissante.
 
@@ -81,6 +82,10 @@ class ExpertCorpusService:
                 strict). Un chunk sous le seuil est rejeté.
             language_pair: filtre optionnel (ex: 'fra-spa'). None = pas
                 de filtre.
+            domain: filtre optionnel sur `metadata_json->>'domain'` (ex:
+                'travail', 'assurances'). Indispensable pour l'expert legal :
+                les grosses compilations (CGI, Code civil) dominent l'espace
+                vectoriel et noient les codes spécialisés. None = pas de filtre.
 
         Returns:
             Liste possiblement vide si rien ne passe le seuil. Triée
@@ -102,6 +107,10 @@ class ExpertCorpusService:
         if language_pair:
             lang_clause = "AND language_pair = :lang"
             bindparams["lang"] = language_pair
+        domain_clause = ""
+        if domain:
+            domain_clause = "AND metadata_json->>'domain' = :domain"
+            bindparams["domain"] = domain
 
         # nosec B608 — `lang_clause` est une constante littérale construite
         # côté serveur (jamais user input). Tous les vrais paramètres user
@@ -118,6 +127,7 @@ class ExpertCorpusService:
             FROM expert_corpus_chunks
             WHERE expert_slug = :slug
               {lang_clause}
+              {domain_clause}
               AND (1 - (embedding <=> CAST(:q_vec AS vector))) >= :min_sim
             ORDER BY embedding <=> CAST(:q_vec AS vector)
             LIMIT :k
@@ -151,6 +161,7 @@ class ExpertCorpusService:
             k=effective_k,
             min_similarity=min_similarity,
             language_pair=language_pair,
+            domain=domain,
             n_results=len(results),
         )
         return results
