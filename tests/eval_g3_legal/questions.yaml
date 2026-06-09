@@ -1,0 +1,248 @@
+# Blind test G3 - Expert Juridique NEXYA
+# 32 questions couvrant les 14 codes du corpus + hors-scope.
+# `expected_criteria` : ce qu'une bonne reponse doit contenir. La citation
+# d'article EXACTE (bon numero + bon code camerounais/OHADA/CIMA) est le
+# critere discriminant : le corpus la fournit, Gemini brut l'approxime ou cite
+# du droit francais.
+
+questions:
+  # ---- Penal (Code penal 2016/007) ----
+  - id: penal_vol
+    domain: penal
+    question_fr: "Quelles sont les peines encourues pour vol au Cameroun ?"
+    expected_criteria:
+      - "Cite l'article 318 du Code penal camerounais (vol, abus de confiance, escroquerie)"
+      - "Indique une peine d'emprisonnement et une amende"
+      - "Ne cite pas le Code penal francais ni d'article invente"
+
+  - id: penal_peine_mort
+    domain: penal
+    question_fr: "Dans quels cas la peine de mort peut-elle etre prononcee en droit camerounais ?"
+    expected_criteria:
+      - "Se fonde sur le Code penal camerounais"
+      - "Reste factuel et mesure (decrit le droit, ne prend pas parti)"
+      - "Mentionne les infractions concernees sans inventer de reference"
+
+  - id: penal_legitime_defense
+    domain: penal
+    question_fr: "Qu'est-ce que la legitime defense en droit penal camerounais ?"
+    expected_criteria:
+      - "Cite le Code penal camerounais (article pertinent)"
+      - "Mentionne l'actualite de l'attaque et la proportionnalite de la riposte"
+
+  # ---- Procedure penale (Loi 2005/007) ----
+  - id: pp_garde_a_vue
+    domain: procedure-penale
+    question_fr: "Quelle est la duree legale de la garde a vue en procedure penale camerounaise ?"
+    expected_criteria:
+      - "Se fonde sur le Code de procedure penale camerounais (Loi 2005/007)"
+      - "Donne une duree et evoque la prolongation possible"
+
+  - id: pp_detention_provisoire
+    domain: procedure-penale
+    question_fr: "Qu'est-ce que la detention provisoire et quelles en sont les conditions ?"
+    expected_criteria:
+      - "Se fonde sur le Code de procedure penale camerounais"
+      - "Mentionne le caractere exceptionnel et le controle par le juge"
+
+  # ---- Civil (Code civil) ----
+  - id: civil_responsabilite
+    domain: civil
+    question_fr: "Sur quel fondement peut-on demander reparation d'un dommage cause par la faute d'autrui ?"
+    expected_criteria:
+      - "Cite l'article 1382 (ou 1383) du Code civil sur la responsabilite delictuelle"
+      - "Explique faute, dommage, lien de causalite"
+
+  - id: civil_mariage
+    domain: civil
+    question_fr: "Quelles sont les conditions de validite du mariage au Cameroun ?"
+    expected_criteria:
+      - "Se fonde sur le droit civil / etat civil camerounais"
+      - "Mentionne le consentement et l'age requis"
+
+  - id: civil_succession
+    domain: civil
+    question_fr: "Comment se regle une succession en l'absence de testament ?"
+    expected_criteria:
+      - "Se fonde sur le Code civil"
+      - "Explique la devolution legale aux heritiers"
+
+  # ---- Travail (Code du travail 92/007) ----
+  - id: travail_preavis
+    domain: travail
+    question_fr: "Quel preavis faut-il respecter en cas de rupture du contrat de travail ?"
+    expected_criteria:
+      - "Cite le Code du travail camerounais (articles sur le preavis, autour de 34)"
+      - "Indique que la duree depend de l'anciennete / categorie"
+      - "Ne cite pas le Code du travail francais"
+
+  - id: travail_conges
+    domain: travail
+    question_fr: "Combien de jours de conges payes le Code du travail camerounais accorde-t-il ?"
+    expected_criteria:
+      - "Se fonde sur le Code du travail camerounais"
+      - "Donne un ordre de grandeur (environ 1,5 jour ouvrable par mois)"
+
+  - id: travail_cdd_cdi
+    domain: travail
+    question_fr: "Quelle est la difference entre un CDD et un CDI en droit camerounais ?"
+    expected_criteria:
+      - "Se fonde sur le Code du travail camerounais"
+      - "Distingue duree determinee et indeterminee, et leurs regles"
+
+  # ---- OHADA societes (AUSCGIE 2014) ----
+  - id: ohada_sarl
+    domain: ohada-societes
+    question_fr: "Comment constituer une SARL en droit OHADA ?"
+    expected_criteria:
+      - "Cite l'Acte uniforme OHADA sur les societes (AUSCGIE), articles autour de 309"
+      - "Mentionne statuts, capital social, associes"
+
+  - id: ohada_sa_capital
+    domain: ohada-societes
+    question_fr: "Quel est le capital social minimum d'une societe anonyme en droit OHADA ?"
+    expected_criteria:
+      - "Se fonde sur l'AUSCGIE OHADA"
+      - "Donne le montant (10 millions FCFA) sans inventer"
+
+  - id: ohada_gerant
+    domain: ohada-societes
+    question_fr: "Quels sont les pouvoirs du gerant d'une SARL en droit OHADA ?"
+    expected_criteria:
+      - "Se fonde sur l'AUSCGIE OHADA"
+      - "Explique la representation de la societe et ses limites"
+
+  # ---- OHADA commercial (AUDCG) ----
+  - id: ohada_rccm
+    domain: ohada-commercial
+    question_fr: "A quoi sert l'immatriculation au registre du commerce et du credit mobilier (RCCM) ?"
+    expected_criteria:
+      - "Se fonde sur l'Acte uniforme OHADA sur le droit commercial general (AUDCG)"
+      - "Explique l'effet (personnalite / opposabilite, qualite de commercant)"
+
+  - id: ohada_bail_commercial
+    domain: ohada-commercial
+    question_fr: "Qu'est-ce qu'un bail commercial en droit OHADA ?"
+    expected_criteria:
+      - "Se fonde sur l'AUDCG OHADA"
+      - "Mentionne le droit au renouvellement"
+
+  # ---- Assurances (CIMA) ----
+  - id: cima_obligations_assureur
+    domain: assurances
+    question_fr: "Quelles sont les obligations de l'assureur et le delai de paiement en cas de sinistre ?"
+    expected_criteria:
+      - "Se fonde sur le Code CIMA des assurances"
+      - "Mentionne le paiement de l'indemnite dans le delai convenu / legal"
+
+  - id: cima_non_paiement_prime
+    domain: assurances
+    question_fr: "Que se passe-t-il si l'assure ne paie pas sa prime d'assurance ?"
+    expected_criteria:
+      - "Se fonde sur le Code CIMA"
+      - "Mentionne mise en demeure puis suspension de la garantie"
+
+  # ---- Fiscal (CGI 2024) ----
+  - id: fiscal_is_taux
+    domain: fiscal
+    question_fr: "Quel est le taux de l'impot sur les societes au Cameroun ?"
+    expected_criteria:
+      - "Cite le CGI camerounais (article 17) avec le taux de 30 %"
+      - "Ne confond pas avec un taux etranger"
+
+  - id: fiscal_tva
+    domain: fiscal
+    question_fr: "Quel est le taux de la TVA au Cameroun ?"
+    expected_criteria:
+      - "Se fonde sur le CGI camerounais"
+      - "Donne le taux (19,25 %) sans l'inventer"
+
+  - id: fiscal_irpp
+    domain: fiscal
+    question_fr: "Comment est impose le revenu des personnes physiques au Cameroun ?"
+    expected_criteria:
+      - "Se fonde sur le CGI camerounais"
+      - "Explique le bareme progressif / categories de revenus"
+
+  # ---- Foncier (Ordonnance 74-1) ----
+  - id: foncier_titre
+    domain: foncier
+    question_fr: "Comment obtenir un titre foncier au Cameroun ?"
+    expected_criteria:
+      - "Cite l'ordonnance fixant le regime foncier (74-1), articles 6 et 7"
+      - "Explique la procedure d'immatriculation"
+
+  - id: foncier_domaine_national
+    domain: foncier
+    question_fr: "Qu'est-ce que le domaine national en droit foncier camerounais ?"
+    expected_criteria:
+      - "Se fonde sur l'ordonnance fonciere camerounaise"
+      - "Distingue domaine national, prive et public"
+
+  # ---- Cyber (Loi 2010/012) ----
+  - id: cyber_sanctions
+    domain: cyber
+    question_fr: "Quelles sont les sanctions penales en matiere de cybercriminalite au Cameroun ?"
+    expected_criteria:
+      - "Cite la loi camerounaise 2010/012 sur la cybersecurite et la cybercriminalite"
+      - "Donne des peines (emprisonnement, amende) sans inventer l'article"
+
+  - id: cyber_donnees
+    domain: cyber
+    question_fr: "La loi camerounaise sanctionne-t-elle l'acces frauduleux a un systeme informatique ?"
+    expected_criteria:
+      - "Se fonde sur la loi 2010/012"
+      - "Confirme l'incrimination et la sanction"
+
+  # ---- Commerce (Loi 90/031) ----
+  - id: commerce_commercant
+    domain: ohada-commercial
+    question_fr: "Qui est considere comme commercant au Cameroun ?"
+    expected_criteria:
+      - "Se fonde sur le droit commercial (loi camerounaise / AUDCG OHADA)"
+      - "Definit l'accomplissement d'actes de commerce a titre de profession"
+
+  # ---- Semences (Loi 2001/014) ----
+  - id: semence_certification
+    domain: commerce-agricole
+    question_fr: "Faut-il une autorisation pour exercer l'activite semenciere au Cameroun ?"
+    expected_criteria:
+      - "Se fonde sur la loi camerounaise relative a l'activite semenciere"
+      - "Mentionne l'agrement / la certification"
+
+  # ---- Droit d'auteur (Loi 2000/011) ----
+  - id: copyright_duree
+    domain: propriete-intellectuelle
+    question_fr: "Combien de temps dure la protection du droit d'auteur au Cameroun ?"
+    expected_criteria:
+      - "Se fonde sur la loi camerounaise 2000/011 sur le droit d'auteur"
+      - "Donne une duree (vie de l'auteur plus une periode post mortem)"
+
+  - id: copyright_droits_voisins
+    domain: propriete-intellectuelle
+    question_fr: "Que sont les droits voisins du droit d'auteur ?"
+    expected_criteria:
+      - "Se fonde sur la loi 2000/011"
+      - "Cite les beneficiaires (artistes-interpretes, producteurs, organismes de radiodiffusion)"
+
+  # ---- Hors-scope (garde-fou) ----
+  - id: oos_cuisine
+    domain: out_of_scope
+    question_fr: "Donne-moi la recette complete du ndole camerounais."
+    expected_criteria:
+      - "Redirige vers le mode Cuisine de NEXYA"
+      - "Ne detaille pas la recette (hors domaine juridique)"
+
+  - id: oos_calcul
+    domain: out_of_scope
+    question_fr: "Combien font 47 multiplie par 89 ?"
+    expected_criteria:
+      - "Indique que la question sort du domaine juridique"
+      - "Ne se lance pas dans une demonstration mathematique detaillee"
+
+  - id: oos_meteo
+    domain: out_of_scope
+    question_fr: "Quel temps fera-t-il demain a Yaounde ?"
+    expected_criteria:
+      - "Indique que la meteo sort du domaine juridique"
+      - "Reoriente sans inventer de prevision"

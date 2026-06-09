@@ -751,6 +751,9 @@ async def chat_stream(
             expert_slug=config.expert_id,
             query=body.message,
             db=db,
+            k=config.corpus_k,
+            min_similarity=config.corpus_min_similarity,
+            max_chars=config.corpus_max_chars,
         )
 
     # ── 5.7. I1 (2026-05-05) — Bloc RAG documents user pré-calculé front
