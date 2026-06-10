@@ -56,8 +56,13 @@ Ordre justifié — pourquoi Document AVANT Email :
 - Si Email était testé avant, une lettre administrative serait
   classée comme email → cassé en Flutter (rendu carte email avec
   mailto: alors qu'il faut un PDF).
-- Document a un seuil minimal de 200 chars + recipient + closing
-  formel → ne wrongly classe pas un email court "Bonjour Marie, ..."
+- Document a un seuil minimal de 120 chars (fix 2026-06-10) ; il flague
+  soit sur intent élargi (rédige/génère/fais + lettre/rapport/synthèse/
+  note/exposé/fiche/dissertation/procédure/document/cours/PDF...), soit
+  sur markers formels (recipient + closing), soit — Cas D — sur une
+  réponse longue ET très structurée (>= 2 titres markdown + >= 3 items
+  de liste + 1500 chars, title=None) → ne wrongly classe pas un email
+  court "Bonjour Marie, ...".
 - Email reste défensif sur le passage informel/semi-formel.
 
 Aucun appel LLM, aucun I/O, aucun side-effect — le module est pur

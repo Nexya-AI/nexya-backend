@@ -1028,6 +1028,41 @@ def _coerce_role(role: str) -> str:
     return "user"
 
 
+def _detect_rich_content_for_stream(
+    outcome: StreamOutcome,
+    user_message: str,
+    assistant_message_id: uuid.UUID,
+) -> dict | None:
+    """Détecte un brouillon actionnable (`rich_content`) sur l'outcome accumulé,
+    pour émission SSE **en direct** au client.
+
+    Appelé au moment de l'`event: done` dans `_persisted_stream` : à ce point
+    `QueryEngine` a déjà observé tous les events (il observe AVANT de yield),
+    donc `outcome` porte le contenu complet + la raison finale.
+
+    Gate strict : uniquement sur un stream `completed` avec du contenu — un
+    stream avorté (failed/cancelled) ne produit jamais de carte. Fail-safe
+    absolu : toute exception du détecteur → log + `None` (le chat continue
+    sans carte, le reload via `metadata_json` persisté reste le filet).
+    """
+    if outcome.final_status() != "completed":
+        return None
+    content = outcome.final_content()
+    if not content:
+        return None
+    try:
+        return detect_rich_content(user_message, content)
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "chat.stream.rich_content_detection_failed",
+            assistant_message_id=str(assistant_message_id),
+            error=str(exc),
+            error_type=type(exc).__name__,
+            phase="live",
+        )
+        return None
+
+
 async def _persisted_stream(
     *,
     handler,
@@ -1061,8 +1096,28 @@ async def _persisted_stream(
     """
     outcome = StreamOutcome()
     engine = QueryEngine(handler=handler)
+    # Fix génération documents (live, 2026-06-10) — détection rich_content
+    # émise EN DIRECT dans le flux, juste avant `event: done`, pour que le
+    # client pose la carte (PDF/Word, brouillon email/WhatsApp/code...) dès
+    # que la réponse passe en `completed` — sans attendre le reload de la
+    # conversation. `rich_payload` est mémorisé puis transmis à la
+    # finalisation pour éviter une double détection (source de vérité unique).
+    rich_payload: dict | None = None
+    rich_detected = False
     try:
         async for event in engine.run(request, ctx, outcome=outcome):
+            # `QueryEngine` observe AVANT de yield : à l'`event: done`,
+            # `outcome` porte déjà le contenu complet + la raison finale.
+            # On détecte une seule fois et on émet `event: rich_content`
+            # AVANT de relayer le `done` (ordre chunks → rich_content → done,
+            # le client le reçoit quoi qu'il fasse ensuite).
+            if not rich_detected and event.startswith("event: done"):
+                rich_detected = True
+                rich_payload = _detect_rich_content_for_stream(
+                    outcome, user_message, assistant_message_id
+                )
+                if rich_payload is not None:
+                    yield _sse_rich_content(rich_payload)
             yield event
     finally:
         await asyncio.shield(
@@ -1072,6 +1127,8 @@ async def _persisted_stream(
                 outcome=outcome,
                 metrics=metrics,
                 user_message=user_message,
+                rich_content=rich_payload,
+                rich_content_already_detected=rich_detected,
             )
         )
 
@@ -1083,6 +1140,8 @@ async def _finalize_in_fresh_session(
     outcome: StreamOutcome,
     metrics: StreamMetrics,
     user_message: str,
+    rich_content: dict | None = None,
+    rich_content_already_detected: bool = False,
 ) -> None:
     """Ouvre une session DB indépendante et finalise le placeholder.
 
@@ -1114,16 +1173,26 @@ async def _finalize_in_fresh_session(
     # → log warning + skip, la finalisation chat continue sans
     # `rich_content`. Pas de carte vs faux positif → trade-off conservateur.
     if status_final == "completed" and content:
-        try:
-            rich = detect_rich_content(user_message, content)
-        except Exception as exc:  # noqa: BLE001
-            rich = None
-            log.warning(
-                "chat.stream.rich_content_detection_failed",
-                assistant_message_id=str(assistant_message_id),
-                error=str(exc),
-                error_type=type(exc).__name__,
-            )
+        if rich_content_already_detected:
+            # Fix génération documents (live) — la détection a déjà tourné
+            # côté stream (`_persisted_stream`) et a été émise en direct au
+            # client. On réutilise le résultat : source de vérité unique,
+            # persistance cohérente avec le SSE live, pas de double détection.
+            rich = rich_content
+        else:
+            # Chemin historique (reload-only) — détection au finalize, pour
+            # les callers qui n'émettent pas en direct (défense en profondeur
+            # + appels/tests directs de la finalisation).
+            try:
+                rich = detect_rich_content(user_message, content)
+            except Exception as exc:  # noqa: BLE001
+                rich = None
+                log.warning(
+                    "chat.stream.rich_content_detection_failed",
+                    assistant_message_id=str(assistant_message_id),
+                    error=str(exc),
+                    error_type=type(exc).__name__,
+                )
         if rich is not None:
             if metadata_json is None:
                 metadata_json = {}
@@ -1226,6 +1295,15 @@ def _sse_done(reason: str, *, usage: dict | None = None) -> str:
         data["usage"] = usage
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     return f"event: done\ndata: {payload}\n\n"
+
+
+def _sse_rich_content(rich: dict) -> str:
+    """Format SSE `event: rich_content` — payload `{kind, data}` aligné sur
+    `RichContentPayload`. Émis en direct juste avant `event: done` quand le
+    backend détecte un brouillon actionnable, pour que le client pose la
+    carte (PDF/Word, email, WhatsApp, code...) sans attendre le reload."""
+    payload = json.dumps(rich, ensure_ascii=False, separators=(",", ":"))
+    return f"event: rich_content\ndata: {payload}\n\n"
 
 
 async def _replay_cached_stream(
