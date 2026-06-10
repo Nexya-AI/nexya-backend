@@ -58,9 +58,7 @@ def _doc_events() -> list[str]:
     return [_chunk(DOC_BODY), 'event: done\ndata: {"reason":"stop"}\n\n']
 
 
-async def _collect(
-    events: list[str], user_message: str, monkeypatch
-) -> list[str]:
+async def _collect(events: list[str], user_message: str, monkeypatch) -> list[str]:
     """Draine `_persisted_stream` en neutralisant la finalisation DB."""
     monkeypatch.setattr(router, "_finalize_in_fresh_session", AsyncMock())
     collected: list[str] = []
