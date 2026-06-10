@@ -111,9 +111,7 @@ class TestDetectDocumentIntent:
             "What is an essay?",
         ],
     )
-    def test_meta_questions_still_none_after_broadening(
-        self, user_message: str
-    ) -> None:
+    def test_meta_questions_still_none_after_broadening(self, user_message: str) -> None:
         assert detect_document_intent(user_message) is False
 
 
@@ -275,8 +273,7 @@ class TestDetectRichContentDocument:
         # carte (anti-faux-positif sur un chat normal verbeux).
         result = detect_rich_content_document(
             user_message="Parle-moi du Cameroun",
-            assistant_text="Le Cameroun est un pays d'Afrique centrale très divers. "
-            * 40,
+            assistant_text="Le Cameroun est un pays d'Afrique centrale très divers. " * 40,
         )
         assert result is None
 
@@ -288,8 +285,7 @@ class TestDetectRichContentDocument:
             "Une intro un peu développée pour dépasser le seuil minimal de 120 "
             "caractères sans pour autant atteindre le seuil Cas D.\n\n"
             "## Section\n\n"
-            "- item un\n- item deux\n- item trois\n\n"
-            + ("Texte de remplissage modéré. " * 8)
+            "- item un\n- item deux\n- item trois\n\n" + ("Texte de remplissage modéré. " * 8)
         )
         result = detect_rich_content_document(
             user_message="Donne-moi un aperçu rapide",
