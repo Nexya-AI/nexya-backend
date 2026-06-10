@@ -42,9 +42,11 @@ from app.features.rich_content.schemas import RichContentPayload
 _DOCUMENT_BODY_MAX_CHARS = 50_000
 
 # Seuil minimum body pour qu'une carte document soit crédible.
-# Une lettre formelle courte fait ~300-500 chars (entête + corps + politesse),
-# au-dessous = trop fragmentaire pour mériter une carte actionnable PDF.
-_DOCUMENT_BODY_MIN_CHARS = 200
+# Abaissé 200 -> 120 (fix 2026-06-10) : couvre les réponses courtes mais
+# réelles (note de réunion, fiche, mémo) tout en restant au-dessus du
+# fragmentaire (< ~1/4 de page A4). Une lettre formelle courte fait ~300-500
+# chars (entête + corps + politesse).
+_DOCUMENT_BODY_MIN_CHARS = 120
 
 # Patterns méta-questions FR+EN — l'user pose une question SUR un type
 # de document, pas une demande de rédaction.
@@ -79,11 +81,25 @@ _INTENT_PATTERNS_FR: tuple[Pattern[str], ...] = (
     # « rédige-moi une lettre » / « écris-moi un courrier officiel »
     re.compile(
         r"\b(rédige|redige|écris|ecris|écrire|ecrire|rédiger|rediger|prépare|prepare|"
-        r"crée|cree|génère|genere|tape|tapes|produis|produire)\b[^.\n]{0,80}?"
+        r"crée|cree|génère|genere|tape|tapes|produis|produire|"
+        # Fix 2026-06-10 — verbes élargis (fais-moi une synthèse, dresse un
+        # rapport, établis un compte-rendu).
+        r"fais|dresse|établis|etablis)\b[^.\n]{0,80}?"
+        # Fix 2026-06-10 — liste de types de documents élargie (synthèse, note,
+        # exposé, fiche, dissertation, essai, mémoire, analyse, résumé,
+        # procédure, mode d'emploi) + `document` nu + `cours`/`guide` nus.
         r"\b(lettre|courrier(?:\s+officiel)?|courrier\s+formel|"
-        r"rapport|compte[\s-]?rendu|mémo|memo|note\s+(?:de\s+service|interne)|"
-        r"discours|cours\s+(?:sur|de|détaillé)|tutoriel|guide\s+(?:complet|détaillé)|"
-        r"document(?:\s+officiel)?|pdf|article\s+(?:de\s+fond|détaillé))\b",
+        r"rapport|compte[\s-]?rendu|mémo|memo|"
+        r"note(?:\s+(?:de\s+service|interne|de\s+synthèse|de\s+synthese))?|"
+        r"synthèse|synthese|exposé|expose|exposés|exposes|fiche|"
+        r"dissertation|essai|essais|mémoire|memoire|"
+        r"analyse(?:\s+(?:détaillée|detaillee|approfondie))?|"
+        r"résumé(?:\s+structuré)?|resume(?:\s+structure)?|"
+        r"procédure|procedure|mode\s+d['’]?\s*emploi|"
+        r"discours|cours(?:\s+(?:sur|de|détaillé|detaille))?|tutoriel|"
+        r"guide(?:\s+(?:complet|détaillé|detaille))?|"
+        r"document(?:\s+(?:officiel|long|complet|formel))?|pdf|"
+        r"article(?:\s+(?:de\s+fond|détaillé|detaille))?)\b",
         re.IGNORECASE,
     ),
     # « génère-moi un PDF » / « produis un document PDF »
@@ -103,9 +119,13 @@ _INTENT_PATTERNS_EN: tuple[Pattern[str], ...] = (
     # "write a formal letter" / "draft a report" / "generate a course"
     re.compile(
         r"\b(write|draft|compose|prepare|create|generate|produce)\b[^.\n]{0,80}?"
+        # Fix 2026-06-10 — EN élargi : summary/essay/analysis/procedure/brief/
+        # note/dissertation + course/tutorial/guide nus.
         r"\b(formal\s+letter|letter|official\s+(?:letter|document)|"
-        r"report|memo|memorandum|speech|"
-        r"detailed\s+(?:course|tutorial|guide)|long\s+document|pdf|document)\b",
+        r"report|memo|memorandum|speech|summary|essay|essays|"
+        r"analysis|procedure|brief|note|dissertation|"
+        r"detailed\s+(?:course|tutorial|guide)|course|tutorial|guide|"
+        r"long\s+document|pdf|document)\b",
         re.IGNORECASE,
     ),
     # "letter to my employer" / "report for the meeting"
@@ -271,19 +291,66 @@ def detect_formal_letter_body(assistant_text: str) -> tuple[bool, dict | None]:
     return False, None
 
 
+# ── Cas D (fix 2026-06-10) — réponse longue ET très structurée ────────────
+# Seuils DÉLIBÉRÉMENT conservateurs : on ne veut PAS transformer toute réponse
+# markdown bien formatée en carte (les prompts experts A2 poussent fortement le
+# markdown). On exige un VRAI document : long ET avec une vraie ossature
+# (plusieurs titres + plusieurs listes). Trivialement désactivable en remontant
+# ces 3 constantes (ou en retirant l'appel `_is_long_structured_document`).
+_CASE_D_MIN_CHARS = 1500
+_CASE_D_MIN_HEADERS = 2
+_CASE_D_MIN_LIST_ITEMS = 3
+
+# Titre markdown `#`..`######` en début de ligne (tolère 0-3 espaces d'indent).
+_MD_HEADER_RE = re.compile(r"^[ \t]{0,3}#{1,6}[ \t]+\S", re.MULTILINE)
+# Item de liste `-`/`*`/`+` ou numéroté `1.`/`1)` en début de ligne.
+_MD_LIST_ITEM_RE = re.compile(r"^[ \t]{0,3}(?:[-*+]|\d+[.)])[ \t]+\S", re.MULTILINE)
+
+
+def _is_long_structured_document(text: str) -> bool:
+    """Heuristique conservatrice (Cas D) : True si `text` ressemble à un vrai
+    document long et structuré (guide / cours / rapport) — au moins
+    `_CASE_D_MIN_CHARS` caractères, `_CASE_D_MIN_HEADERS` titres markdown et
+    `_CASE_D_MIN_LIST_ITEMS` items de liste. Conservateur pour limiter les
+    faux positifs sur une simple réponse markdown bien formatée.
+    """
+    if len(text) < _CASE_D_MIN_CHARS:
+        return False
+    if len(_MD_HEADER_RE.findall(text)) < _CASE_D_MIN_HEADERS:
+        return False
+    if len(_MD_LIST_ITEM_RE.findall(text)) < _CASE_D_MIN_LIST_ITEMS:
+        return False
+    return True
+
+
+def _cap_body_to_max(text: str) -> str:
+    """Cape le body au cap schéma (50 000), troncature propre sur le dernier
+    saut de ligne sous le cap (cf. DocumentDraftData.body max_length=50000)."""
+    body = text[:_DOCUMENT_BODY_MAX_CHARS]
+    if len(text) > _DOCUMENT_BODY_MAX_CHARS:
+        last_newline = body.rfind("\n")
+        if last_newline > int(_DOCUMENT_BODY_MAX_CHARS * 0.95):
+            body = body[:last_newline]
+    return body
+
+
 def detect_rich_content_document(user_message: str, assistant_text: str) -> dict | None:
     """Point d'entrée — combine intent + body detection.
 
     Retourne un dict conforme à `RichContentPayload` (sérialisé), ou None.
 
     Confidence levels :
-      - `intent_match ∧ body_match` (formel) → flag (cas standard)
+      - `intent_match ∧ body_match` (formel) → flag (cas standard, lettre)
       - `body_match ∧ ¬intent_match ∧ recipient extracted` → flag (cas
         où l'user dit « répond à cette lettre » et le LLM produit une
         lettre formelle structurée — le recipient extrait confirme)
       - `intent_match ∧ ¬body_match` → flag SANS markers formels MAIS
-        avec cap body raisonnable (≥ 500 chars) — les cours/tutoriels
-        n'ont pas de "Madame/Monsieur", uniquement structure markdown.
+        body ≥ `_DOCUMENT_BODY_MIN_CHARS` (120) — les cours/tutoriels/notes
+        n'ont pas de "Madame/Monsieur", juste une structure markdown.
+      - **Cas D (fix 2026-06-10)** : `¬intent_match ∧ ¬body_match` MAIS
+        réponse longue + très structurée (`_is_long_structured_document`)
+        → carte CONFIANCE BASSE (title=None, recipient=None). Seuil
+        conservateur pour ne pas spammer toute réponse markdown.
       - sinon → SKIP
 
     Le retour est un dict prêt pour `metadata_json["rich_content"]`.
@@ -303,18 +370,18 @@ def detect_rich_content_document(user_message: str, assistant_text: str) -> dict
     # Cas 1 : intent + body markers → confiance haute (lettre formelle)
     # Cas 2 : body markers + recipient → confiance moyenne (réponse à lettre)
     # Cas 3 : intent SANS body markers → cours/rapport/tutoriel structuré
+    # Cas D : ni intent ni body markers MAIS réponse longue + très structurée
     if not intent_match and not body_match:
-        return None
-
-    if intent_match and not body_match:
+        # Cas D (fix 2026-06-10) — sans intent ni markers formels, on ne flague
+        # QUE si la réponse est un vrai document long et structuré (heuristique
+        # conservatrice). Sinon SKIP (chat normal, même verbeux).
+        if not _is_long_structured_document(text):
+            return None
+        payload = {"title": None, "body": _cap_body_to_max(text), "recipient": None}
+    elif intent_match and not body_match:
         # Cours/rapport sans formules formelles. On prend le texte tel quel
         # sans recipient ni title extrait (l'user complétera dans la card).
-        body = text[:_DOCUMENT_BODY_MAX_CHARS]
-        if len(text) > _DOCUMENT_BODY_MAX_CHARS:
-            last_newline = body.rfind("\n")
-            if last_newline > int(_DOCUMENT_BODY_MAX_CHARS * 0.95):
-                body = body[:last_newline]
-        payload = {"title": None, "body": body, "recipient": None}
+        payload = {"title": None, "body": _cap_body_to_max(text), "recipient": None}
     elif body_match and not intent_match:
         # Body formel sans intent explicite : on exige recipient extrait
         # pour confirmer (un texte avec "Cordialement" SANS "Madame/Monsieur"

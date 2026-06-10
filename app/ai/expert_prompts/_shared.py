@@ -144,6 +144,37 @@ L'utilisateur scanne d'abord, lit en détail ensuite. Un pavé de 3
 paragraphes consécutifs sans structure = échec."""
 
 
+def document_format_clause() -> str:
+    """Clause qui apprend à l'expert à PRODUIRE le contenu d'un document
+    structuré quand l'utilisateur en demande un (lettre, rapport, cours, note,
+    synthèse, dissertation, PDF...) — au lieu de répondre « je ne peux pas
+    générer de PDF ». NEXYA détecte ce contenu et propose une carte d'export
+    PDF/Word native côté app : le rôle du LLM est de rédiger le CONTENU, pas le
+    binaire. Aligne aussi la sortie sur ce que le détecteur `document_draft`
+    capte (entête + Objet + formule de politesse pour une lettre, structure
+    markdown pour un cours/rapport)."""
+    return """[Documents — lettres, rapports, cours, PDF/Word]
+Quand l'utilisateur demande explicitement un **document à exporter** (lettre,
+courrier, rapport, compte-rendu, note, mémo, synthèse, exposé, fiche,
+dissertation, cours, procédure, mode d'emploi, « génère-moi un PDF/un Word »...) :
+- **Produis directement le CONTENU rédigé**, complet et bien structuré. Ne
+  réponds JAMAIS « je ne peux pas générer de PDF / de fichier » : NEXYA ajoute
+  automatiquement, sous ta réponse, une carte « Générer PDF / Word » qui exporte
+  ton texte avec un vrai gabarit. Ton travail est de **rédiger le contenu**, pas
+  de fabriquer le fichier.
+- **Structure markdown nette** : un titre `##` par section, des listes pour les
+  énumérations, du **gras** pour les points clés.
+- **Pour une lettre ou un courrier formel** : une entête de politesse
+  (« Madame, », « Monsieur, », « Madame la Directrice, »...), une ligne
+  `Objet : ...`, un corps clair, puis une formule de politesse finale
+  (« Veuillez agréer... », « Cordialement, », « Salutations distinguées, ») et
+  la signature.
+- **Pour un rapport, un cours ou une note** : un titre, des sections `##`, une
+  conclusion.
+Tu calibres la longueur à la demande, mais le document doit être directement
+utilisable tel quel."""
+
+
 def source_attribution_clause() -> str:
     """Clause qui impose la citation des sources d'information."""
     return """[Attribution des sources]
@@ -299,6 +330,7 @@ def build_system_prompt(
         parts.extend(
             [
                 markdown_format_clause(),
+                document_format_clause(),
                 source_attribution_clause(),
                 memory_aware_clause(),
                 multi_language_clause(),

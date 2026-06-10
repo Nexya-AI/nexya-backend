@@ -17,6 +17,7 @@ from app.ai.expert_prompts._shared import (
     FewShotExample,
     build_system_prompt,
     conversational_continuity_clause,
+    document_format_clause,
     format_few_shot_examples,
     markdown_format_clause,
     memory_aware_clause,
@@ -63,6 +64,7 @@ def test_emergency_numbers_international_includes_112() -> None:
         progressive_disclosure_clause,
         conversational_continuity_clause,
         markdown_format_clause,
+        document_format_clause,
         source_attribution_clause,
     ],
 )
@@ -98,6 +100,21 @@ def test_markdown_format_clause_mentions_tables_and_latex() -> None:
     clause = markdown_format_clause()
     assert "tableau" in clause.lower() or "Tableaux" in clause
     assert "LaTeX" in clause or "latex" in clause.lower()
+
+
+def test_document_format_clause_anti_refusal_and_letter_markers() -> None:
+    """Fix 2026-06-10 — la clause document doit (1) interdire le refus
+    « je ne peux pas générer de PDF », (2) lister les markers de lettre
+    (Madame/Monsieur, Objet, formule de politesse) que le détecteur capte."""
+    clause = document_format_clause()
+    low = clause.lower()
+    # Anti-refus explicite
+    assert "ne réponds jamais" in low or "ne peux pas générer" in low
+    assert "pdf" in low
+    # Markers de lettre formelle (alignés détecteur document_draft)
+    assert "Madame" in clause and "Monsieur" in clause
+    assert "Objet" in clause
+    assert "agréer" in low or "cordialement" in low or "salutations" in low
 
 
 def test_source_attribution_clause_forbids_fabrication() -> None:
@@ -244,6 +261,23 @@ def test_build_system_prompt_extra_blocks_injected_before_clauses() -> None:
     extra_idx = result.index("EXTRA_URGENCE_BLOCK")
     # Extra block après anti_patterns
     assert anti_idx < extra_idx
+
+
+def test_build_system_prompt_includes_document_clause_by_default() -> None:
+    """Fix 2026-06-10 — la clause document est injectée par défaut (anti-refus
+    LLM) et absente en mode studio (include_transverse_clauses=False)."""
+    with_clauses = build_system_prompt(
+        persona="P", methodology="M", output_templates="T", anti_patterns="A"
+    )
+    assert "Générer PDF / Word" in with_clauses
+    without = build_system_prompt(
+        persona="P",
+        methodology="M",
+        output_templates="T",
+        anti_patterns="A",
+        include_transverse_clauses=False,
+    )
+    assert "Générer PDF / Word" not in without
 
 
 def test_build_system_prompt_idempotent() -> None:
