@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.errors.exceptions import PlanRequiredException, ResourceNotFoundException
+from app.core.storage.object_store import get_object_store
 from app.features.auth.models import User
 from app.features.chat.models import Conversation, Message
 from app.features.images.c2pa import (
@@ -56,6 +57,7 @@ from .branding import (
     generate_intelligent_filename,
 )
 from .docx_renderer import render_markdown_to_docx
+from .download import build_document_download_path
 from .exceptions import (
     DocumentSourceTooLongError,
     DocumentStorageUnavailableError,
@@ -536,21 +538,13 @@ class DocumentGeneratorService:
             # global et retourneront 500.
             raise
 
-        # 6. Génération presigned URL TTL 30 min
-        try:
-            presigned_url = await LibraryService.presigned_url_for(
-                library_item,
-                ttl_seconds=settings.documents_generator_presigned_ttl_seconds,
-            )
-        except Exception as exc:
-            log.warning(
-                "documents.presigned_failed",
-                error_type=type(exc).__name__,
-                library_id=str(library_item.id),
-            )
-            raise DocumentStorageUnavailableError(
-                "Document généré mais URL de téléchargement temporairement indisponible."
-            ) from exc
+        # 6. URL de téléchargement = endpoint API proxy authentifié (fix P0 2026-06-10).
+        # PAS de presigned MinIO : en prod MinIO n'a aucun port public (réseau Docker
+        # interne) et Caddy ne route que api.nexyalabs.com → le presigned était
+        # physiquement injoignable depuis le téléphone (« erreur de connexion »).
+        # Le chemin relatif pointe vers GET /generate/document/download/{id} qui
+        # stream le binaire depuis MinIO interne. Cf. download.py.
+        download_url = build_document_download_path(library_item.id)
 
         # 7. Construction response
         now = datetime.now(UTC)
@@ -582,7 +576,7 @@ class DocumentGeneratorService:
 
         return DocumentGenerateResponse(
             library_id=library_item.id,
-            download_url=presigned_url,
+            download_url=download_url,
             filename=filename,
             size_bytes=output_size,
             pages=output_pages,
@@ -684,6 +678,72 @@ class DocumentGeneratorService:
             template=body.template,
         )
         return DocumentAsyncResult(job=job)
+
+    # ── Fix P0 2026-06-10 : download proxy authentifié ───────────────
+    @staticmethod
+    async def fetch_for_download(
+        library_id: uuid.UUID,
+        user: User,
+        db: AsyncSession,
+    ) -> tuple[bytes, str, str]:
+        """Charge le binaire d'un document généré pour le streamer au client.
+
+        Sert l'endpoint authentifié `GET /generate/document/download/{id}` qui
+        remplace le presigned MinIO injoignable depuis le téléphone (cf.
+        download.py). Owner-check IDOR-safe via `LibraryService.get` (404 si pas
+        owned / soft-deleted). Restreint au type `document` — un image/audio
+        owned passe par les endpoints Library, pas par celui-ci.
+
+        Returns:
+            (bytes, mime_type, filename) — prêts pour la StreamingResponse.
+
+        Raises:
+            ResourceNotFoundException: 404 (item KO / pas un document / blob absent).
+            DocumentStorageUnavailableError: 503 (MinIO down).
+        """
+        item = await LibraryService.get(library_id, user, db)  # 404 IDOR-safe
+
+        # Défense : cet endpoint ne sert QUE les documents générés.
+        if item.type != "document":
+            raise ResourceNotFoundException("Document")
+
+        store = get_object_store()
+        try:
+            data = await store.download_bytes(item.storage_key)
+        except FileNotFoundError as exc:
+            # Blob purgé / clé orpheline → 404 (la ressource n'existe plus, le
+            # client ne doit pas retenter indéfiniment).
+            log.warning(
+                "documents.download.blob_missing",
+                library_id=str(library_id),
+                user_id=str(user.id),
+            )
+            raise ResourceNotFoundException("Document") from exc
+        except Exception as exc:  # noqa: BLE001 — MinIO down / réseau Docker
+            log.warning(
+                "documents.download.storage_failed",
+                library_id=str(library_id),
+                user_id=str(user.id),
+                error_type=type(exc).__name__,
+            )
+            raise DocumentStorageUnavailableError(
+                "Téléchargement temporairement indisponible. Réessaie dans un instant."
+            ) from exc
+
+        filename = DocumentGeneratorService._download_filename(item)
+        return data, item.mime_type, filename
+
+    @staticmethod
+    def _download_filename(item: LibraryItem) -> str:
+        """Filename FS-safe pour le Content-Disposition.
+
+        Cosmétique : le client Flutter utilise déjà `response.filename` (de la
+        requête POST) pour nommer le fichier temp avant le Share natif. Ce nom
+        ne sert que si l'URL était ouverte hors app (cas qui n'arrive pas).
+        """
+        ext = item.file_type if item.file_type in ("pdf", "docx") else "pdf"
+        base = _sanitize_filename(item.title or "document", "document")
+        return f"{base}.{ext}"
 
 
 # Aliases pour test/mock

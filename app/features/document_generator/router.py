@@ -18,11 +18,12 @@ Pipeline POST :
 
 from __future__ import annotations
 
+import io
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -157,3 +158,76 @@ async def get_document_job(
     job = await DocumentJobService.get_owned_job(job_id, current_user, db)
     response = await DocumentJobService.to_response(job, current_user, db)
     return NexyaResponse(success=True, data=response)
+
+
+@router.get(
+    "/document/download/{library_id}",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "content": {
+                "application/pdf": {},
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
+            },
+            "description": "Binaire du document généré (PDF ou DOCX), streamé depuis MinIO interne.",
+        },
+        404: {
+            "description": (
+                "RESOURCE_NOT_FOUND — document inexistant / pas owned / "
+                "soft-deleted / blob purgé (IDOR-safe)."
+            )
+        },
+        429: {"description": "RATE_LIMIT_ABUSE — trop de téléchargements/heure."},
+        503: {"description": "DOCUMENT_STORAGE_UNAVAILABLE — MinIO injoignable."},
+    },
+)
+async def download_document(
+    library_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> StreamingResponse:
+    """Stream le binaire d'un document généré (fix P0 2026-06-10).
+
+    REMPLACE le presigned MinIO qui était **injoignable depuis le téléphone** :
+    en prod MinIO n'a aucun port public (réseau Docker interne) et Caddy ne route
+    que `api.nexyalabs.com`. L'API, elle, est joignable (TLS + Caddy) ET dans le
+    réseau Docker → elle proxy le binaire depuis MinIO interne via
+    `object_store.download_bytes`. Le client (dio `apiClientProvider`,
+    baseUrl=api.nexyalabs.com + JWT) résout le chemin relatif renvoyé dans
+    `download_url` et attache le Bearer automatiquement.
+
+    Auth JWT obligatoire + owner-check IDOR-safe (404 si pas owned / soft-deleted).
+    Restreint au type `document` (un image/audio owned passe par les endpoints
+    Library, pas par celui-ci).
+
+    Codes d'erreur :
+        404 RESOURCE_NOT_FOUND : document KO / pas owned / blob absent (IDOR-safe).
+        429 RATE_LIMIT_ABUSE   : > quota téléchargements/heure.
+        503 DOCUMENT_STORAGE_UNAVAILABLE : MinIO down.
+    """
+    await check_user_rate_limit(
+        current_user.id,
+        action="document_download",
+        max_requests=settings.documents_generator_download_rate_limit_per_hour,
+        window_seconds=3600,
+        on_exceeded=RateLimitAbuseException,
+    )
+
+    try:
+        data, mime_type, filename = await DocumentGeneratorService.fetch_for_download(
+            library_id, current_user, db
+        )
+    except DocumentStorageUnavailableError as exc:
+        raise NexYaException(code=exc.code, message=str(exc), status_code=503) from exc
+
+    # StreamingResponse proxy bytes (le doc tient en RAM, cap pages borne la taille).
+    # `ResourceNotFoundException` (404 IDOR) remonte telle quelle au handler global.
+    return StreamingResponse(
+        content=io.BytesIO(data),
+        media_type=mime_type,
+        headers={
+            "Content-Length": str(len(data)),
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+        },
+    )
