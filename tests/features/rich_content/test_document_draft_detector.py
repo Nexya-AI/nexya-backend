@@ -66,38 +66,75 @@ class TestDetectDocumentIntent:
     @pytest.mark.parametrize(
         "user_message",
         [
-            # Fix 2026-06-10 — intent FR élargi : document nu + synthèse + note
-            # + exposé + fiche + dissertation + essai + analyse + résumé +
-            # procédure + mode d'emploi.
+            # Refonte precision-first V3 — artefacts FORTEMENT-document : ils
+            # déclenchent car ils impliquent sans ambiguïté un fichier livrable.
             "Génère un document sur les fonctions mathématiques",
-            "Fais-moi une synthèse de 5 pages sur la photosynthèse",
-            "Rédige une note de réunion pour l'équipe",
             "Écris un exposé sur la Révolution française",
-            "Rédige une fiche de révision sur les intégrales",
             "Rédige une dissertation sur la liberté",
-            "Écris-moi un essai sur l'intelligence artificielle",
-            "Génère une analyse détaillée du marché camerounais",
-            "Rédige un résumé structuré de ce chapitre",
             "Rédige une procédure d'installation pas à pas",
             "Écris un mode d'emploi pour cette machine",
+            "Rédige un mémoire sur l'économie camerounaise",
+            "Rédige une note de service pour l'équipe",
+            "Prépare un contrat de prestation",
+            "Rédige mon CV",
+            # Mots de FORMAT explicite : un seul suffit.
+            "Mets ça en PDF",
+            "Je veux ce contenu au format Word",
+            "Transforme cette réponse en PDF",
+            "génère-moi un fichier PDF",
         ],
     )
-    def test_fr_intent_broadened(self, user_message: str) -> None:
+    def test_fr_intent_strong_signal_detected(self, user_message: str) -> None:
         assert detect_document_intent(user_message) is True
 
     @pytest.mark.parametrize(
         "user_message",
         [
-            # Fix 2026-06-10 — intent EN élargi : summary/essay/analysis/
-            # procedure/course/tutorial/guide (en plus de document/report/letter).
+            # Détection large assumée (décision Ivan) : ces mots de document
+            # déclenchent DÈS QU'un verbe de création est présent. Le verbe est
+            # le verrou : « explique-moi le cours » (sans verbe) ne matche pas,
+            # « génère un cours » (avec verbe) matche.
+            "Fais-moi une synthèse de 5 pages sur la photosynthèse",
+            "Rédige une note de réunion pour l'équipe",
+            "Rédige une fiche de révision sur les intégrales",
+            "Génère une analyse détaillée du marché camerounais",
+            "Rédige un résumé structuré de ce chapitre",
+            "Fais-moi un cours sur les boucles for",
+            "Rédige un guide pour installer Python",
+            "Écris un tutoriel sur Flutter",
+        ],
+    )
+    def test_fr_content_words_with_verb_detected(self, user_message: str) -> None:
+        assert detect_document_intent(user_message) is True
+
+    @pytest.mark.parametrize(
+        "user_message",
+        [
+            # Mots de FORMAT explicite — un seul suffit, même sans type de doc.
+            "Mets ça en PDF",
+            "Je veux ce contenu au format Word",
+            "génère-moi un fichier PDF",
+            "Export this as a PDF",
+            "I want this in Word format",
+        ],
+    )
+    def test_format_word_alone_detected(self, user_message: str) -> None:
+        assert detect_document_intent(user_message) is True
+
+    @pytest.mark.parametrize(
+        "user_message",
+        [
+            # EN — mêmes mots de document, détection large avec verbe.
             "Write a summary about climate change",
-            "Draft an essay on artificial intelligence",
             "Generate an analysis of the African market",
             "Write a procedure for the installation",
             "Generate a course on Python loops",
+            "Write a guide to install Python",
+            "Draft an essay on artificial intelligence",
+            "Write a dissertation on freedom",
         ],
     )
-    def test_en_intent_broadened(self, user_message: str) -> None:
+    def test_en_content_words_with_verb_detected(self, user_message: str) -> None:
         assert detect_document_intent(user_message) is True
 
     @pytest.mark.parametrize(
@@ -142,8 +179,8 @@ class TestDetectRichContentDocument:
         # title (Objet) extracted
         assert result["data"]["title"] == "Demande d'acte de naissance"
 
-    def test_intent_with_course_body_no_formal_markers(self) -> None:
-        # Cours/tutoriel : pas de "Madame/Monsieur" mais intent explicite
+    def test_intent_with_document_body_no_formal_markers(self) -> None:
+        # Document explicite : pas de "Madame/Monsieur" mais intent fort
         body = (
             "# Les boucles for en Python\n\n"
             "Une boucle `for` permet d'itérer sur une séquence.\n\n"
@@ -154,7 +191,7 @@ class TestDetectRichContentDocument:
             "## Pièges courants\n\nNe pas modifier la liste pendant l'itération.\n\n"
         ) * 5  # > 500 chars
         result = detect_rich_content_document(
-            user_message="Génère un cours détaillé sur les boucles for en Python",
+            user_message="Génère un document détaillé sur les boucles for en Python",
             assistant_text=body,
         )
         assert result is not None
@@ -290,3 +327,60 @@ class TestDetectRichContentDocument:
             assistant_text=body,
         )
         assert result is None
+
+
+class TestCorrectionIntent:
+    """Fix 2026-06-10 — correction d'exercice (maths/physique/chimie/sciences),
+    uploadé ou tapé → proposer la génération PDF/Word de la correction."""
+
+    _CORRECTION_BODY = (
+        "## Correction de l'exercice\n\n"
+        "**Énoncé** : résoudre l'équation 2x + 4 = 10.\n\n"
+        "**Étape 1** : on isole le terme en x → 2x = 10 - 4 = 6.\n"
+        "**Étape 2** : on divise les deux membres par 2 → x = 3.\n\n"
+        "**Conclusion** : la solution de l'équation est x = 3."
+    )
+
+    @pytest.mark.parametrize(
+        "prompt",
+        [
+            "Corrige cet exercice de maths",
+            "Résous ce problème de physique",
+            "corrige cette épreuve de chimie",
+            "Donne-moi la correction de l'exercice",
+            "Fais cet exercice de sciences",
+            "Réponds aux questions de l'épreuve",
+            "Solve this exercise",
+            "Give me the solution to this problem",
+            "the correction to question 3",
+        ],
+    )
+    def test_correction_intent_triggers_document(self, prompt: str) -> None:
+        result = detect_rich_content_document(
+            user_message=prompt,
+            assistant_text=self._CORRECTION_BODY,
+        )
+        assert result is not None
+        assert result["kind"] == "document_draft"
+
+    @pytest.mark.parametrize(
+        "prompt",
+        [
+            "Corrige mon texte",  # grammaire, pas un exercice
+            "corrige mon code Python",  # code, pas un exercice scolaire
+            "Comment résoudre cet exercice ?",  # méta-question (explication)
+            "C'est quoi la solution de facilité ?",  # méta-question
+        ],
+    )
+    def test_non_exercise_correction_does_not_trigger(self, prompt: str) -> None:
+        result = detect_rich_content_document(
+            user_message=prompt,
+            assistant_text=self._CORRECTION_BODY,
+        )
+        assert result is None
+
+    def test_intent_helper_correction(self) -> None:
+        assert detect_document_intent("corrige cet exercice de maths") is True
+        assert detect_document_intent("résous ce problème") is True
+        assert detect_document_intent("corrige mon texte") is False
+        assert detect_document_intent("corrige mon code") is False
