@@ -77,60 +77,153 @@ def _is_meta_question(user_message: str) -> bool:
 
 # ── INTENT — message user upstream ────────────────────────────────────
 
+# ── DÉTECTION D'INTENTION (refonte structurée 2026-06-10 V3) ──────────
+# Principe : la carte proactive se déclenche sur un VERBE DE CRÉATION + un
+# type de document. Détection GÉNÉREUSE assumée (cours, exposé, dissertation,
+# résumé, synthèse, fiche... sont des livrables que le public étudiant/grand
+# public NEXYA veut souvent télécharger). Le VERROU contre les faux positifs
+# n'est PAS la liste de mots mais le VERBE de création en amont : « explique-
+# moi le cours » (pas de verbe → AUCUNE carte) vs « génère un cours » (verbe
+# → carte). Les réponses longues sans intention (ancien Cas D) ne déclenchent
+# plus rien. Un mot de format (« en PDF ») suffit aussi à lui seul.
+
+# Verbes de création de document (FR).
+_DOC_VERBS_FR = (
+    r"rédige|redige|écris|ecris|écrire|ecrire|rédiger|rediger|"
+    r"prépare|prepare|crée|cree|génère|genere|produis|produire|"
+    r"tape|tapes|fais|fais-moi|fais-en|dresse|établis|etablis|mets|met"
+)
+
+# Types de documents (FR) — large : tout ce que l'utilisateur peut vouloir
+# comme livrable téléchargeable. Le verbe de création en amont écarte déjà
+# les questions de chat (« explique-moi le cours » n'a pas de verbe).
+_DOC_TYPES_FR = (
+    r"lettre|courrier(?:\s+(?:officiel|formel))?|"
+    r"rapport|compte[\s-]?rendu|mémo|memo|"
+    r"note(?:\s+(?:de\s+service|interne|de\s+synthèse|de\s+synthese|de\s+réunion|de\s+reunion))?|"
+    r"synthèse|synthese|exposé|expose|exposés|exposes|fiche|"
+    r"dissertation|essai|essais|mémoire|memoire|"
+    r"analyse(?:\s+(?:détaillée|detaillee|approfondie))?|"
+    r"résumé(?:\s+structuré)?|resume(?:\s+structure)?|"
+    r"procédure|procedure|mode\s+d['’]?\s*emploi|"
+    r"discours|contrat|cv|curriculum\s+vitae|"
+    r"cours(?:\s+(?:sur|de|détaillé|detaille|complet))?|tutoriel|"
+    r"guide(?:\s+(?:complet|détaillé|detaille))?|"
+    r"document(?:\s+(?:officiel|long|complet|formel))?|"
+    r"article(?:\s+(?:de\s+fond|détaillé|detaille))?"
+)
+
+# Mots de FORMAT explicite (FR+EN communs) : un seul suffit (« mets ça en
+# PDF », « je veux un fichier Word »). Signal le plus fiable de tous.
+_FORMAT_WORDS = r"pdf|word|docx|fichier\s+(?:texte|pdf|word)"
+
 _INTENT_PATTERNS_FR: tuple[Pattern[str], ...] = (
-    # « rédige-moi une lettre » / « écris-moi un courrier officiel »
+    # verbe de création + type de document
     re.compile(
-        r"\b(rédige|redige|écris|ecris|écrire|ecrire|rédiger|rediger|prépare|prepare|"
-        r"crée|cree|génère|genere|tape|tapes|produis|produire|"
-        # Fix 2026-06-10 — verbes élargis (fais-moi une synthèse, dresse un
-        # rapport, établis un compte-rendu).
-        r"fais|dresse|établis|etablis)\b[^.\n]{0,80}?"
-        # Fix 2026-06-10 — liste de types de documents élargie (synthèse, note,
-        # exposé, fiche, dissertation, essai, mémoire, analyse, résumé,
-        # procédure, mode d'emploi) + `document` nu + `cours`/`guide` nus.
-        r"\b(lettre|courrier(?:\s+officiel)?|courrier\s+formel|"
-        r"rapport|compte[\s-]?rendu|mémo|memo|"
-        r"note(?:\s+(?:de\s+service|interne|de\s+synthèse|de\s+synthese))?|"
-        r"synthèse|synthese|exposé|expose|exposés|exposes|fiche|"
-        r"dissertation|essai|essais|mémoire|memoire|"
-        r"analyse(?:\s+(?:détaillée|detaillee|approfondie))?|"
-        r"résumé(?:\s+structuré)?|resume(?:\s+structure)?|"
-        r"procédure|procedure|mode\s+d['’]?\s*emploi|"
-        r"discours|cours(?:\s+(?:sur|de|détaillé|detaille))?|tutoriel|"
-        r"guide(?:\s+(?:complet|détaillé|detaille))?|"
-        r"document(?:\s+(?:officiel|long|complet|formel))?|pdf|"
-        r"article(?:\s+(?:de\s+fond|détaillé|detaille))?)\b",
+        rf"\b({_DOC_VERBS_FR})\b[^.\n]{{0,80}}?\b({_DOC_TYPES_FR})\b",
         re.IGNORECASE,
     ),
-    # « génère-moi un PDF » / « produis un document PDF »
+    # verbe de création + mot de format explicite (« génère-moi un PDF »)
     re.compile(
-        r"\b(génère|genere|produis|produire|crée|cree|fais|fais-moi|fais-en)\b[^.\n]{0,40}?"
-        r"\b(pdf|document\s+(?:long|complet|formel)|fichier\s+(?:texte|pdf))\b",
+        rf"\b({_DOC_VERBS_FR})\b[^.\n]{{0,40}}?\b({_FORMAT_WORDS})\b",
+        re.IGNORECASE,
+    ),
+    # mot de format explicite introduit (« en PDF », « format Word »,
+    # « sous forme de PDF ») — un seul suffit
+    re.compile(
+        rf"\b(en|format|sous\s+forme\s+de|au\s+format)\s+({_FORMAT_WORDS})\b",
         re.IGNORECASE,
     ),
     # « lettre à mon employeur » / « courrier au maire »
     re.compile(
-        r"\b(lettre|courrier|courrier\s+officiel)\b\s+(à|a|au|aux|pour|destiné|destine)\b",
+        r"\b(lettre|courrier)\b\s+(à|a|au|aux|pour|destiné|destine)\b",
         re.IGNORECASE,
     ),
 )
 
+# Verbes de création de document (EN).
+_DOC_VERBS_EN = r"write|draft|compose|prepare|create|generate|produce|make"
+
+# Types de documents (EN) — large, même logique que FR.
+_DOC_TYPES_EN = (
+    r"formal\s+letter|letter|official\s+(?:letter|document)|"
+    r"report|memo|memorandum|speech|summary|essay|essays|"
+    r"analysis|procedure|brief|note|dissertation|thesis|"
+    r"contract|cv|resume|curriculum\s+vitae|"
+    r"course|tutorial|guide|"
+    r"long\s+document|document"
+)
+
 _INTENT_PATTERNS_EN: tuple[Pattern[str], ...] = (
-    # "write a formal letter" / "draft a report" / "generate a course"
+    # creation verb + document type
     re.compile(
-        r"\b(write|draft|compose|prepare|create|generate|produce)\b[^.\n]{0,80}?"
-        # Fix 2026-06-10 — EN élargi : summary/essay/analysis/procedure/brief/
-        # note/dissertation + course/tutorial/guide nus.
-        r"\b(formal\s+letter|letter|official\s+(?:letter|document)|"
-        r"report|memo|memorandum|speech|summary|essay|essays|"
-        r"analysis|procedure|brief|note|dissertation|"
-        r"detailed\s+(?:course|tutorial|guide)|course|tutorial|guide|"
-        r"long\s+document|pdf|document)\b",
+        rf"\b({_DOC_VERBS_EN})\b[^.\n]{{0,80}}?\b({_DOC_TYPES_EN})\b",
+        re.IGNORECASE,
+    ),
+    # creation verb + explicit format word ("generate a PDF")
+    re.compile(
+        rf"\b({_DOC_VERBS_EN})\b[^.\n]{{0,40}}?\b({_FORMAT_WORDS})\b",
+        re.IGNORECASE,
+    ),
+    # explicit format word introduced ("as a PDF", "in Word format")
+    re.compile(
+        rf"\b(as\s+an?|in|into)\s+({_FORMAT_WORDS})(\s+(file|format|document))?\b",
         re.IGNORECASE,
     ),
     # "letter to my employer" / "report for the meeting"
     re.compile(
         r"\b(letter|formal\s+letter|report)\b\s+(to|for|addressed\s+to)\b",
+        re.IGNORECASE,
+    ),
+)
+
+# ── INTENT CORRECTION/EXERCICE (fix 2026-06-10) ───────────────────────
+# Cas « envoie-moi la correction » : exercices maths/physique/chimie/sciences
+# uploadés (image ou PDF) OU tapés, où l'utilisateur veut la correction
+# structurée en document partageable. Signal FIABLE car ancré sur un nom
+# d'exercice/problème ou un nom de sortie type-document (« la correction
+# de... »). « corrige cet exercice » déclenche ; « corrige mon texte » /
+# « corrige mon code » NON (texte/code hors liste = pas un document scolaire).
+_INTENT_PATTERNS_CORRECTION: tuple[Pattern[str], ...] = (
+    # verbe de correction/résolution + nom d'exercice/problème
+    re.compile(
+        r"\b(corrige|corriger|corrigez|corrige[\s-]?moi|résous|resous|résoudre|"
+        r"resoudre|résolu?s?|solutionne|solutionner)\b[^.\n]{0,40}?"
+        r"\b(exercices?|épreuves?|epreuves?|devoirs?|problèmes?|problemes?|"
+        r"équations?|equations?|qcm|énoncés?|enonces?|sujets?|td|tp|dm|"
+        r"questions?|examens?|interro(?:gation)?s?|contrôles?|controles?)\b",
+        re.IGNORECASE,
+    ),
+    # nom de sortie type-document : « la correction de... » / « le corrigé »
+    # / « la solution de l'exercice » / « la résolution du problème »
+    re.compile(
+        r"\b(la\s+correction|le\s+corrigé|le\s+corrige|un\s+corrigé|un\s+corrige|"
+        r"la\s+résolution|la\s+resolution|la\s+solution\s+(?:de|du|des|complète|complete)|"
+        r"les\s+solutions)\b",
+        re.IGNORECASE,
+    ),
+    # « fais cet exercice » / « traite ce problème »
+    re.compile(
+        r"\b(fais|faire|fais[\s-]?moi|traite|traiter|résous[\s-]?moi)\b[^.\n]{0,20}?"
+        r"\b(exercices?|épreuves?|epreuves?|devoirs?|problèmes?|problemes?|qcm|td|tp|dm)\b",
+        re.IGNORECASE,
+    ),
+    # « réponds aux questions de l'épreuve »
+    re.compile(
+        r"\b(réponds?|repond?s?|répondre|repondre)\b[^.\n]{0,20}?"
+        r"\b(questions?|qcm|énoncés?|enonces?)\b",
+        re.IGNORECASE,
+    ),
+    # EN — « solve this exercise » / « correct this problem » / « solution to »
+    re.compile(
+        r"\b(solve|correct|answer|work\s+out)\b[^.\n]{0,40}?"
+        r"\b(exercises?|problems?|equations?|questions?|quiz|test|homework|"
+        r"assignment|mcq)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(the\s+)?(correction|solution|answer\s+key|worked\s+solution)\s+"
+        r"(to|of|for)\b",
         re.IGNORECASE,
     ),
 )
@@ -197,7 +290,7 @@ def detect_document_intent(user_message: str) -> bool:
     if _is_meta_question(user_message):
         return False
 
-    for pattern in _INTENT_PATTERNS_FR + _INTENT_PATTERNS_EN:
+    for pattern in _INTENT_PATTERNS_FR + _INTENT_PATTERNS_EN + _INTENT_PATTERNS_CORRECTION:
         if pattern.search(user_message):
             return True
     return False
