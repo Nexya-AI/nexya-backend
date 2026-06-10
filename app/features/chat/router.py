@@ -910,6 +910,7 @@ async def chat_stream(
         metrics=metrics,
         memory_context=memory_context,
         expert_corpus_context=expert_corpus_context,
+        partner_context=partner_context,
         rag_context=rag_context_tuple,
         tools=tools_for_request,
         # [planner-from-chat LOT 1] — exécution serveur des tools.

@@ -72,6 +72,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 \
         curl \
         ca-certificates \
+        libpango-1.0-0 \
+        libpangocairo-1.0-0 \
+        libpangoft2-1.0-0 \
+        libcairo2 \
+        libgdk-pixbuf-2.0-0 \
+        libglib2.0-0 \
+        libffi8 \
+        libharfbuzz0b \
+        libfribidi0 \
+        shared-mime-info \
+        fontconfig \
+        fonts-dejavu-core \
+        fonts-liberation \
+        libjpeg62-turbo \
+        libopenjp2-7 \
+        qpdf \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --system --gid 1001 nexya \
     && useradd  --system --uid 1001 --gid nexya --home /app --shell /sbin/nologin nexya
