@@ -372,12 +372,20 @@ def detect_rich_content_document(user_message: str, assistant_text: str) -> dict
     # Cas 3 : intent SANS body markers → cours/rapport/tutoriel structuré
     # Cas D : ni intent ni body markers MAIS réponse longue + très structurée
     if not intent_match and not body_match:
-        # Cas D (fix 2026-06-10) — sans intent ni markers formels, on ne flague
-        # QUE si la réponse est un vrai document long et structuré (heuristique
-        # conservatrice). Sinon SKIP (chat normal, même verbeux).
-        if not _is_long_structured_document(text):
-            return None
-        payload = {"title": None, "body": _cap_body_to_max(text), "recipient": None}
+        # Cas D DÉSACTIVÉ (fix 2026-06-10 V2) — détecter un « document voulu »
+        # à partir de « réponse longue + structurée » est un faux signal :
+        # depuis l'affûtage A2, une réponse de chat normale a EXACTEMENT cette
+        # forme (titres markdown + listes). Aucune heuristique de texte ne
+        # distingue de façon fiable « réponse à lire dans le chat » de
+        # « document à télécharger ». On ne flague donc QUE sur intention
+        # explicite (Cas 1/2/3 ci-dessous). Coût : un message de plus pour
+        # l'utilisateur (« génère-moi ça en PDF »), bien moindre qu'une carte
+        # parasite sur chaque réponse longue. `_is_long_structured_document`
+        # et `_CASE_D_*` restent définis ci-dessus mais ne sont plus appelés —
+        # réservés à une V2 qui s'appuierait sur un vrai signal (mini-classifieur
+        # LLM dédié OU bouton « Exporter » côté UI où l'utilisateur décide),
+        # pas sur une heuristique de longueur.
+        return None
     elif intent_match and not body_match:
         # Cours/rapport sans formules formelles. On prend le texte tel quel
         # sans recipient ni title extrait (l'user complétera dans la card).

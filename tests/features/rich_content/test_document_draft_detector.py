@@ -244,12 +244,14 @@ class TestDetectRichContentDocument:
         assert result is not None
         assert result["kind"] == "document_draft"
 
-    # ── Fix 2026-06-10 — Cas D (long + très structuré, sans intent) ─────
+    # ── Fix 2026-06-10 V2 — Cas D désactivé (réponse longue normale ≠ document)
 
-    def test_case_d_long_structured_no_intent_no_markers(self) -> None:
-        # Réponse longue + très structurée (>= 2 titres markdown + >= 3 items de
-        # liste + >= 1500 chars) SANS intent ni markers formels -> carte
-        # confiance basse (title=None, recipient=None).
+    def test_long_structured_response_without_intent_returns_none(self) -> None:
+        # Cas D DÉSACTIVÉ : une réponse de chat longue + structurée (titres +
+        # listes) SANS intention explicite de document ne doit PLUS déclencher
+        # de carte. Depuis A2 ce format EST le format normal d'une bonne
+        # réponse → zéro carte parasite. La carte n'apparaît que sur intention
+        # explicite (« génère/rédige un PDF/une lettre... »).
         body = (
             "## Le cycle de l'eau\n\n"
             "Le cycle de l'eau décrit le mouvement continu de l'eau sur Terre.\n\n"
@@ -263,27 +265,23 @@ class TestDetectRichContentDocument:
             user_message="Explique-moi le cycle de l'eau",
             assistant_text=body,
         )
-        assert result is not None
-        assert result["kind"] == "document_draft"
-        assert result["data"]["title"] is None
-        assert result["data"]["recipient"] is None
+        assert result is None
 
-    def test_case_d_long_unstructured_returns_none(self) -> None:
+    def test_long_unstructured_response_returns_none(self) -> None:
         # Réponse longue mais SANS structure (ni titres ni listes) -> pas de
-        # carte (anti-faux-positif sur un chat normal verbeux).
+        # carte (chat normal verbeux).
         result = detect_rich_content_document(
             user_message="Parle-moi du Cameroun",
             assistant_text="Le Cameroun est un pays d'Afrique centrale très divers. " * 40,
         )
         assert result is None
 
-    def test_case_d_structured_but_short_returns_none(self) -> None:
-        # Structuré (titres + listes) mais court (< 1500 chars) -> pas de carte
-        # (Cas D délibérément conservateur).
+    def test_short_structured_response_returns_none(self) -> None:
+        # Structuré (titres + listes) mais court, sans intention -> pas de carte.
         body = (
             "## Titre\n\n"
             "Une intro un peu développée pour dépasser le seuil minimal de 120 "
-            "caractères sans pour autant atteindre le seuil Cas D.\n\n"
+            "caractères.\n\n"
             "## Section\n\n"
             "- item un\n- item deux\n- item trois\n\n" + ("Texte de remplissage modéré. " * 8)
         )
