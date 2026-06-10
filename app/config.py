@@ -529,6 +529,13 @@ class Settings(BaseSettings):
     documents_generator_rate_limit_free_per_hour: int = Field(default=60, ge=1, le=1_000)
     documents_generator_rate_limit_pro_per_hour: int = Field(default=100, ge=1, le=10_000)
 
+    # Rate limit du download proxy (fix P0 2026-06-10) — GET /generate/document/
+    # download/{id}. Plus généreux que la génération : un download est un simple
+    # proxy MinIO (~50 ms, pas de CPU render) + borné par le rate de génération
+    # en amont + scopé à l'owner. Couvre les re-téléchargements (poll async, tap
+    # notif, retry réseau 2G/3G).
+    documents_generator_download_rate_limit_per_hour: int = Field(default=240, ge=1, le=10_000)
+
     # TTL presigned URL MinIO pour le download. 30 min couvre un partage
     # rapide (email, WhatsApp). Au-delà, l'user re-génère ou re-fetch via
     # GET /library/{id} qui régénère une nouvelle URL.

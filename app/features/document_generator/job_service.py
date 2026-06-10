@@ -22,11 +22,10 @@ import structlog
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.core.errors.exceptions import ResourceNotFoundException
 from app.features.auth.models import User
-from app.features.library.service import LibraryService
 
+from .download import build_document_download_path
 from .job_models import DocumentJob
 from .schemas import DocumentGenerateRequest, DocumentJobResponse
 
@@ -175,25 +174,15 @@ class DocumentJobService:
     async def to_response(job: DocumentJob, user: User, db: AsyncSession) -> DocumentJobResponse:
         """Construit la réponse de polling.
 
-        Si `done` + `library_id`, régénère un presigned URL FRAIS (TTL 30 min)
-        à chaque appel (jamais persisté). Fail-safe : MinIO down → URL=None
-        plutôt qu'un 500 (le client retentera plus tard).
+        Si `done` + `library_id`, `download_url` = chemin API proxy authentifié
+        `GET /generate/document/download/{id}` (fix P0 2026-06-10). PAS de
+        presigned MinIO : en prod MinIO n'a aucun port public (réseau Docker
+        interne) → le presigned était injoignable depuis le téléphone. Cf.
+        download.py. Le client (dio authentifié) résout le chemin relatif.
         """
         download_url: str | None = None
         if job.status == "done" and job.library_id is not None:
-            try:
-                item = await LibraryService.get(job.library_id, user, db)
-                download_url = await LibraryService.presigned_url_for(
-                    item,
-                    ttl_seconds=settings.documents_generator_presigned_ttl_seconds,
-                )
-            except Exception as exc:  # noqa: BLE001 — fail-safe presign
-                log.warning(
-                    "documents.job.presign_failed",
-                    job_id=str(job.id),
-                    library_id=str(job.library_id),
-                    error_type=type(exc).__name__,
-                )
+            download_url = build_document_download_path(job.library_id)
 
         return DocumentJobResponse(
             job_id=job.id,

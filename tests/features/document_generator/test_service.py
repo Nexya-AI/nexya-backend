@@ -240,7 +240,9 @@ class TestGenerateHappyPath:
         # `nexya_<template>_<title-slug>_<YYYY-MM-DD>.<ext>`
         assert result.filename.startswith("nexya_minimal_mon-document_")
         assert result.filename.endswith(".pdf")
-        assert result.download_url.startswith("https://minio.local/")
+        # Fix P0 2026-06-10 : download_url = chemin API proxy relatif (plus de
+        # presigned MinIO injoignable depuis le téléphone). Cf. download.py.
+        assert result.download_url.startswith("/generate/document/download/")
         assert result.size_bytes > 0
         # LibraryService.create_from_bytes appelé avec bons paramètres
         assert len(captures["library_calls"]) == 1
