@@ -4286,6 +4286,61 @@
         }
       }
     },
+    "/generate/document/download/{library_id}": {
+      "get": {
+        "tags": [
+          "documents"
+        ],
+        "summary": "Download Document",
+        "description": "Stream le binaire d'un document généré (fix P0 2026-06-10).\n\nREMPLACE le presigned MinIO qui était **injoignable depuis le téléphone** :\nen prod MinIO n'a aucun port public (réseau Docker interne) et Caddy ne route\nque `api.nexyalabs.com`. L'API, elle, est joignable (TLS + Caddy) ET dans le\nréseau Docker → elle proxy le binaire depuis MinIO interne via\n`object_store.download_bytes`. Le client (dio `apiClientProvider`,\nbaseUrl=api.nexyalabs.com + JWT) résout le chemin relatif renvoyé dans\n`download_url` et attache le Bearer automatiquement.\n\nAuth JWT obligatoire + owner-check IDOR-safe (404 si pas owned / soft-deleted).\nRestreint au type `document` (un image/audio owned passe par les endpoints\nLibrary, pas par celui-ci).\n\nCodes d'erreur :\n    404 RESOURCE_NOT_FOUND : document KO / pas owned / blob absent (IDOR-safe).\n    429 RATE_LIMIT_ABUSE   : > quota téléchargements/heure.\n    503 DOCUMENT_STORAGE_UNAVAILABLE : MinIO down.",
+        "operationId": "download_document_generate_document_download__library_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "library_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Library Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Binaire du document généré (PDF ou DOCX), streamé depuis MinIO interne.",
+            "content": {
+              "application/pdf": {},
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {}
+            }
+          },
+          "404": {
+            "description": "RESOURCE_NOT_FOUND — document inexistant / pas owned / soft-deleted / blob purgé (IDOR-safe)."
+          },
+          "429": {
+            "description": "RATE_LIMIT_ABUSE — trop de téléchargements/heure."
+          },
+          "503": {
+            "description": "DOCUMENT_STORAGE_UNAVAILABLE — MinIO injoignable."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/healthz": {
       "get": {
         "tags": [
