@@ -271,6 +271,52 @@ async def list_library_items(
 
 
 # ══════════════════════════════════════════════════════════════
+# 2b. GET /library/trash — corbeille paginée (C3.5)
+# ══════════════════════════════════════════════════════════════
+#
+# DÉCLARÉ AVANT `GET /library/{item_id}` : sinon FastAPI tenterait de parser
+# "trash" comme un UUID → 422. L'ordre de déclaration prime côté routing.
+
+
+@router.get(
+    "/trash",
+    response_model=NexyaResponse[LibraryPage],
+)
+async def list_library_trash(
+    cursor: str | None = Query(
+        default=None,
+        max_length=256,
+        description="Curseur opaque renvoyé par la page précédente.",
+    ),
+    limit: int = Query(default=20, ge=1, le=50),
+    type: LibraryItemType | None = Query(
+        default=None,
+        description="Filtre par type : image, video, gif, audio, document, text.",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> NexyaResponse[LibraryPage]:
+    """Liste paginée des médias soft-deletés — tri `deleted_at DESC`.
+
+    Miroir de la corbeille Conversations (B3). Chaque item conserve une
+    presigned URL valide (le blob survit jusqu'au cron Phase 12), donc
+    l'écran corbeille peut afficher les vignettes. `next_cursor=null` = fin.
+    """
+    page = await LibraryService.list_trash_for_user(
+        current_user,
+        db,
+        cursor=cursor,
+        limit=limit,
+        type_=type,
+    )
+    items = [await _item_to_list_item(i) for i in page.items]
+    return NexyaResponse(
+        success=True,
+        data=LibraryPage(items=items, next_cursor=page.next_cursor),
+    )
+
+
+# ══════════════════════════════════════════════════════════════
 # 3. GET /library/{id} — détail + presigned URL
 # ══════════════════════════════════════════════════════════════
 
@@ -386,4 +432,53 @@ async def delete_library_item(
     un éventuel restore futur sans perte.
     """
     await LibraryService.soft_delete(item_id, current_user, db)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ══════════════════════════════════════════════════════════════
+# 6. POST /library/{id}/restore — sortie de corbeille (C3.5)
+# ══════════════════════════════════════════════════════════════
+
+
+@router.post(
+    "/{item_id}/restore",
+    response_model=NexyaResponse[LibraryItemResponse],
+)
+async def restore_library_item(
+    item_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> NexyaResponse[LibraryItemResponse]:
+    """Restaure un média depuis la corbeille — 200 + item réactivé.
+
+    404 IDOR-safe si le média n'est pas dans la corbeille de l'user courant
+    (`_get_owned_item_in_trash` exige `deleted_at IS NOT NULL`).
+    """
+    item = await LibraryService.restore(item_id, current_user, db)
+    return NexyaResponse(success=True, data=await _item_to_response(item))
+
+
+# ══════════════════════════════════════════════════════════════
+# 7. DELETE /library/{id}/permanent — purge définitive (C3.5)
+# ══════════════════════════════════════════════════════════════
+
+
+@router.delete(
+    "/{item_id}/permanent",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def permanent_delete_library_item(
+    item_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Purge définitive d'un média **déjà dans la corbeille** — 204.
+
+    Flux en deux temps imposé (`DELETE /library/{id}` soft → `DELETE
+    .../permanent`). 404 si le média n'est pas soft-deleté (protège contre
+    une purge accidentelle d'un média actif). Blob MinIO laissé au cron
+    Phase 12 (un autre item actif peut partager la `storage_key` via dédup).
+    """
+    await LibraryService.permanent_delete(item_id, current_user, db)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

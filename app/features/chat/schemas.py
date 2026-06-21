@@ -76,11 +76,21 @@ class ConversationUpdate(BaseModel):
     Note : on ne laisse pas modifier `expert_id` après création pour
     éviter qu'un user force un expert "medicine" sur une conv existante et
     contourne la logique de tarification / disclaimer.
+
+    Rattachement à un projet (Add-to-project lot) :
+    - `project_id=<UUID>` → attache la conversation au projet (ownership check
+      `ProjectService._get_owned_project`, 404 IDOR-safe si pas propriétaire).
+    - `clear_project_id=True` → détache la conversation de tout projet
+      (`project_id = NULL`). Drapeau dédié pour lever l'ambiguïté « null =
+      champ absent vs effacement », même pattern que `clear_instructions` côté
+      `ProjectUpdate`. Si les deux sont fournis, **`clear_project_id` prime**.
     """
 
     title: str | None = Field(default=None, max_length=120)
     is_archived: bool | None = None
     is_favorite: bool | None = None
+    project_id: uuid.UUID | None = None
+    clear_project_id: bool = False
 
     @field_validator("title")
     @classmethod
@@ -105,6 +115,7 @@ class ConversationResponse(BaseModel):
     user_id: uuid.UUID
     title: str | None
     expert_id: str
+    project_id: uuid.UUID | None = None
     last_message_at: datetime | None
     message_count: int
     is_archived: bool
@@ -129,6 +140,7 @@ class ConversationListItem(BaseModel):
     id: uuid.UUID
     title: str | None
     expert_id: str
+    project_id: uuid.UUID | None = None
     last_message_at: datetime | None
     message_count: int
     is_archived: bool

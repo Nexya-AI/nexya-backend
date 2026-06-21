@@ -58,6 +58,7 @@ def _make_fake_user(*, is_pro: bool = False) -> MagicMock:
     user.created_at = datetime.now(UTC)
     user.updated_at = datetime.now(UTC)
     user.avatar_url = None
+    user.avatar_storage_key = None
     return user
 
 
@@ -141,6 +142,7 @@ def test_all_auth_endpoints_are_mounted_smoke() -> None:
         "/auth/forgot-password",
         "/auth/reset-password",
         "/user/profile",
+        "/user/avatar",
         "/user/password",
         "/user/account",
         "/user/device-token",
@@ -257,7 +259,9 @@ def test_get_profile_with_auth_returns_user_profile(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     profile = _fake_user_profile(fake_user)
-    monkeypatch.setattr(auth_service, "get_profile", lambda u: profile)
+    # `get_profile` est désormais async (presigned avatar régénérée à la
+    # lecture) → on patche avec un AsyncMock, pas un lambda sync.
+    monkeypatch.setattr(auth_service, "get_profile", AsyncMock(return_value=profile))
 
     resp = authenticated_client.get("/user/profile")
     assert resp.status_code == 200

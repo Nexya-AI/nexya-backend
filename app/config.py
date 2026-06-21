@@ -40,8 +40,13 @@ class Settings(BaseSettings):
     # Le validator ci-dessous détecte automatiquement le format.
     jwt_private_key: str = ""
     jwt_public_key: str = ""
-    jwt_access_ttl_minutes: int = 15
-    jwt_refresh_ttl_days: int = 30
+    # [Auth-fix 2026-06-21] TTL allongés pour tenir 30-60 jours sans
+    # reconnexion (demande Ivan). L'access token (60 min) est rafraîchi en
+    # transparence par l'AuthInterceptor ; le refresh token (60 j) borne la
+    # durée de vie réelle de la session. Sécurité préservée : rotation
+    # single-use du refresh à chaque /auth/refresh + blacklist Redis sur logout.
+    jwt_access_ttl_minutes: int = 60
+    jwt_refresh_ttl_days: int = 60
 
     @field_validator("jwt_private_key", "jwt_public_key", mode="after")
     @classmethod
@@ -138,6 +143,31 @@ class Settings(BaseSettings):
     # Force le MockObjectStore même si des creds S3 sont posées.
     # Utile pour les tests CI où on veut l'isolation totale.
     storage_mock_enabled: bool = False
+
+    # ── Avatar profil (POST /user/avatar) ──────────────────────
+    # Pipeline avatar dédié (lean, pas le FileUploadService lourd) :
+    # MIME whitelist + magic-bytes + clé fixe `users/{id}/avatar.{ext}`.
+    # Le frontend resize déjà l'image en 512² JPEG q=85 (~30-80 KB), le
+    # cap 5 MB est une marge de défense en profondeur contre un client
+    # qui posterait l'image brute sans resize.
+    avatar_max_upload_bytes: int = 5 * 1024 * 1024
+    # MIME acceptés pour l'avatar — image-only strict (pas de SVG : risque
+    # XSS si servi inline, pas de GIF animé : inutile sur un avatar).
+    avatar_allowed_mimes: list[str] = Field(
+        default_factory=lambda: [
+            "image/jpeg",
+            "image/jpg",
+            "image/png",
+            "image/webp",
+        ]
+    )
+    # TTL de la presigned avatar régénérée à chaque GET /user/profile.
+    # 1 h suffit : le profil est rechargé fréquemment, l'URL est donc
+    # toujours fraîche côté client.
+    avatar_presigned_ttl_seconds: int = 3600
+    # Rate limit user-scoped sur l'upload avatar — anti-spam (un user
+    # légitime change son avatar quelques fois par jour au plus).
+    avatar_upload_rate_limit_per_hour: int = Field(default=20, ge=1)
 
     # ── Library (quotas Free / Pro) ────────────────────────────
     # Session C3 — plafonds sur le nombre d'items actifs dans la biblio.

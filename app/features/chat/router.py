@@ -623,9 +623,37 @@ async def chat_stream(
     # ── 1. Budget : cap absolu user/jour (pré-consommation) ──────────
     await get_budget_tracker().check_and_consume_chat(user_id_str)
 
-    # ── 2. Modération OpenAI du prompt (fail-open si clé absente) ────
-    decision = await get_moderation_service().check(
-        body.message, kind="input", user_id=user_id_str, trace_id=trace_id
+    # ── 2. [Perf 2026-06-21] B1 — Modération (httpx OpenAI) + recherche
+    # mémoire D3 (pgvector) lancées EN PARALLÈLE. Avant, elles étaient
+    # séquentielles (modération ~0,3-0,5 s PUIS mémoire ~0,3-1 s ≈ ~1,5 s
+    # cumulés). Comme elles sont indépendantes — la modération frappe l'API
+    # OpenAI, la mémoire interroge pgvector + l'API embeddings — on les
+    # exécute simultanément via `asyncio.gather` → on ne paie plus que le
+    # max(modération, mémoire) ≈ ~0,8 s.
+    #
+    # SÛRETÉ DB : dans ce gather, SEUL `build_memory_context` utilise la
+    # session `db` (la modération est purement httpx, aucun accès DB). Une
+    # AsyncSession SQLAlchemy n'est pas concurrency-safe, mais ici il n'y a
+    # qu'UN seul consommateur de `db` → aucun conflit. La charge conversation
+    # (db) reste SÉQUENTIELLE après le gather.
+    #
+    # FAIL-SAFE : `build_memory_context` catche toute exception en interne et
+    # retourne `None` (D3) ; `get_moderation_service().check` est fail-open.
+    # Le gather ne lève donc pas d'exception métier.
+    #
+    # ZÉRO impact qualité : exactement les mêmes appels, mêmes résultats —
+    # seul l'ordonnancement change (parallèle au lieu de séquentiel).
+    #
+    # NB : la mémoire tourne aussi quand la modération bloque (contenu toxique,
+    # rare) → au pire 1 crédit embeddings « gaspillé » sur un message refusé.
+    # Compromis négligeable accepté pour le gain de latence sur le chemin
+    # nominal (et aucune conversation orpheline créée — la conv n'est touchée
+    # qu'après le block check, plus bas).
+    decision, memory_context = await asyncio.gather(
+        get_moderation_service().check(
+            body.message, kind="input", user_id=user_id_str, trace_id=trace_id
+        ),
+        build_memory_context(current_user, db, query=body.message),
     )
     if not decision.allowed:
         return JSONResponse(
@@ -732,14 +760,14 @@ async def chat_stream(
         ai_messages = list(context_messages)
         ai_messages.append(AiChatMessage(role="user", content=body.message))
 
-    # ── 5.5. D3 — Récupération des memories pertinentes ──────────────
-    # L'injection mémoire IA se fait AVANT le token estimator pour que
-    # le cap 30 000 tokens (B2) prenne en compte le bloc mémoire injecté.
-    # Fail-safe absolue : `build_memory_context` catche toute exception
-    # en interne et retourne `None` si la recherche échoue (pgvector
-    # lent, embeddings API down, budget embeddings dépassé). Le chat
-    # ne doit JAMAIS être bloqué par un dysfonctionnement mémoire.
-    memory_context = await build_memory_context(current_user, db, query=body.message)
+    # ── 5.5. D3 — Le bloc mémoire (`memory_context`) a déjà été calculé en
+    # parallèle de la modération au step 2 [Perf 2026-06-21 B1]. Il est injecté
+    # ici dans le system prompt AVANT le token estimator pour que le cap
+    # 30 000 tokens (B2) prenne en compte le bloc mémoire injecté. La concat
+    # finale se refait dans `_stream_link` (Single Source of Truth). Fail-safe
+    # absolue : `build_memory_context` retourne `None` si la recherche échoue
+    # (pgvector lent, embeddings down, budget dépassé) — le chat n'est JAMAIS
+    # bloqué par un dysfonctionnement mémoire.
 
     # ── 5.6. G1 — Récupération des chunks corpus expert pertinents ──
     # Même discipline que D3 : fail-safe absolue, shortcut si

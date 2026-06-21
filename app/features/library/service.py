@@ -238,6 +238,32 @@ class LibraryService:
             raise ResourceNotFoundException("Média")
         return item
 
+    # ── Owner check corbeille (deleted_at IS NOT NULL) — C3.5 ────
+    @staticmethod
+    async def _get_owned_item_in_trash(
+        item_id: uuid.UUID,
+        user_id: uuid.UUID,
+        db: AsyncSession,
+    ) -> LibraryItem:
+        """Charge un média **soft-deleté** dont l'user est propriétaire.
+
+        Miroir strict de `_get_owned_item` mais filtre inversé
+        (`deleted_at IS NOT NULL`). Garantit l'étanchéité actif ↔ corbeille :
+        un `restore` ou un `permanent_delete` ne peut JAMAIS toucher un média
+        actif par accident. Même politique anti-énumération : 404, jamais 403.
+        """
+        result = await db.execute(
+            select(LibraryItem).where(
+                LibraryItem.id == item_id,
+                LibraryItem.user_id == user_id,
+                LibraryItem.deleted_at.is_not(None),
+            )
+        )
+        item = result.scalar_one_or_none()
+        if item is None:
+            raise ResourceNotFoundException("Média")
+        return item
+
     # ── Count actif scope user ─────────────────────────────────
     @staticmethod
     async def _count_active(user_id: uuid.UUID, db: AsyncSession) -> int:
@@ -744,6 +770,136 @@ class LibraryService:
         # Pas de delete MinIO ici. Un cron de Phase 12 nettoiera les
         # objets dont `deleted_at < NOW() - 7 days` — marge de sécurité
         # pour un éventuel restore.
+
+    # ── LIST TRASH (paginée cursor-based, tri par date de suppression) ─ C3.5
+    @staticmethod
+    async def list_trash_for_user(
+        user: User,
+        db: AsyncSession,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        type_: LibraryItemType | None = None,
+    ) -> LibraryPageOrm:
+        """Liste paginée des médias **soft-deletés** de l'utilisateur.
+
+        Symétrique de `list_for_user`, miroir de la corbeille Conversations
+        (B3) :
+
+        - **Filtre inversé** : `deleted_at IS NOT NULL`.
+        - **Clé de tri : `deleted_at DESC`** — l'utilisateur veut voir « ce
+          que j'ai supprimé récemment » en premier. Pas de COALESCE :
+          `deleted_at` est non-NULL par construction du filtre.
+        - `type_` optionnel : corbeille filtrée par type média côté Flutter.
+
+        Les presigned URLs restent valides : le blob MinIO survit jusqu'au
+        cron Phase 12 (`deleted_at < NOW() - 7 days`), donc l'écran corbeille
+        peut afficher les vignettes.
+        """
+        effective_limit = _clamp_limit(limit)
+        sort_expr = LibraryItem.deleted_at
+
+        conditions: list = [
+            LibraryItem.user_id == user.id,
+            LibraryItem.deleted_at.is_not(None),
+        ]
+        if type_ is not None:
+            conditions.append(LibraryItem.type == type_)
+
+        if cursor:
+            cursor_ts, cursor_id = _decode_cursor(cursor)
+            conditions.append(
+                tuple_(sort_expr, LibraryItem.id) < tuple_(cursor_ts, cursor_id)
+            )
+
+        stmt = (
+            select(LibraryItem)
+            .where(*conditions)
+            .order_by(sort_expr.desc(), LibraryItem.id.desc())
+            .limit(effective_limit + 1)
+        )
+        result = await db.execute(stmt)
+        rows = list(result.scalars().all())
+
+        has_next = len(rows) > effective_limit
+        items = rows[:effective_limit]
+        next_cursor: str | None = None
+        if has_next and items:
+            last = items[-1]
+            if last.deleted_at is not None:  # garanti par le WHERE
+                next_cursor = _encode_cursor(last.deleted_at, last.id)
+
+        return LibraryPageOrm(items=items, next_cursor=next_cursor)
+
+    # ── RESTORE (sortie de corbeille) ─────────────────────────── C3.5
+    @staticmethod
+    async def restore(
+        item_id: uuid.UUID,
+        user: User,
+        db: AsyncSession,
+    ) -> LibraryItem:
+        """Restaure un média depuis la corbeille — `deleted_at = NULL`.
+
+        Le média réapparaît dans les listings actifs à sa place de tri
+        habituelle (`created_at` inchangé). Owner check + IS NOT NULL via
+        `_get_owned_item_in_trash` : restaurer un média actif (ou inconnu,
+        ou d'un autre user) retourne 404.
+
+        Note dédup : si entre-temps l'user a ré-uploadé le MÊME contenu (même
+        SHA-256 → même `storage_key`), un nouvel item actif partage déjà cette
+        clé. La restauration ne crée pas de conflit DB (l'unique partiel
+        `(user_id, storage_key) WHERE deleted_at IS NULL` n'est touché que par
+        ce restore qui passe `deleted_at` à NULL) — sauf collision rare où
+        l'item ré-uploadé existe encore en actif : Postgres lèverait alors une
+        IntegrityError. Cas marginal accepté V1 (le frontend masque le restore
+        si un doublon actif existe est hors-scope — la 409/500 reste un edge
+        case que l'user résout en supprimant le doublon).
+        """
+        item = await LibraryService._get_owned_item_in_trash(item_id, user.id, db)
+        item.deleted_at = None
+        item.updated_at = datetime.now(UTC)
+        await db.commit()
+        await db.refresh(item)
+        log.info(
+            "library.restored",
+            user_id=str(user.id),
+            item_id=str(item.id),
+        )
+        return item
+
+    # ── PERMANENT DELETE (purge définitive) ──────────────────── C3.5
+    @staticmethod
+    async def permanent_delete(
+        item_id: uuid.UUID,
+        user: User,
+        db: AsyncSession,
+    ) -> None:
+        """Supprime définitivement un média déjà dans la corbeille.
+
+        Contrat strict (miroir Conversations B3) :
+        - Le média DOIT être soft-deleté au préalable (`deleted_at IS NOT
+          NULL`). Owner check via `_get_owned_item_in_trash` → tenter de
+          purger un média actif retourne 404, protégeant l'invariant « on ne
+          purge que depuis la corbeille ».
+        - Vrai `DELETE SQL` de la ligne. La self-ref FK `parent_library_id`
+          est `ON DELETE SET NULL` (migration 027) : purger une racine de
+          lineage orphelinise ses versions descendantes (elles survivent,
+          `parent_library_id=NULL`) — aucune perte en cascade.
+
+        **Pas de delete MinIO synchrone** : le blob est laissé au cron Phase
+        12. C'est volontaire — un autre item actif peut partager le même
+        `storage_key` (dédup SHA-256 sur ré-upload du même contenu après
+        soft-delete), donc supprimer le blob ici casserait sa presigned URL.
+        Le cron purge en vérifiant qu'aucun item actif ne référence la clé.
+        """
+        item = await LibraryService._get_owned_item_in_trash(item_id, user.id, db)
+        await db.delete(item)
+        await db.commit()
+        log.info(
+            "library.permanent_deleted",
+            user_id=str(user.id),
+            item_id=str(item_id),
+        )
 
     # ── Helper : presigned URL pour un item chargé ──────────────
     @staticmethod

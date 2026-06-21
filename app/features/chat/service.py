@@ -452,15 +452,52 @@ class ConversationService:
         un effacement (sémantique PATCH stricte). `expert_id` n'est
         volontairement pas modifiable (pas dans `ConversationUpdate`) pour
         éviter le contournement de tarification / disclaimer après création.
+
+        Rattachement à un projet (Add-to-project lot) : `project_id` /
+        `clear_project_id` sont extraits AVANT la boucle setattr générique car
+        ils ne mappent pas 1:1 vers une colonne (validation d'ownership +
+        drapeau d'effacement). Ownership check via `ProjectService` →
+        `ResourceNotFoundException` (404 IDOR-safe). `clear_project_id` prime.
         """
         conversation = await ConversationService._get_owned_conversation(
             conversation_id, user.id, db
         )
         update_data = body.model_dump(exclude_unset=True)
-        if not update_data:
-            # Aucun champ envoyé → no-op, on évite un UPDATE inutile et un
-            # bump artificiel de updated_at.
+
+        # Extraction des champs project_id (rattachement) — ils ne passent pas
+        # par la boucle setattr générique.
+        clear_project_id = update_data.pop("clear_project_id", False)
+        new_project_id = update_data.pop("project_id", None)
+
+        # Anti-MissingGreenlet (5ᵉ occurrence du pattern, cf. D3) : capture des
+        # str AVANT tout commit. Un IntegrityError sur la FK project_id
+        # expirerait l'ORM et un accès `str(user.id)` dans le log relancerait
+        # un lazy-load hors greenlet async.
+        user_id_str = str(user.id)
+        conversation_id_str = str(conversation.id)
+
+        project_changed = False
+        if clear_project_id:
+            # Détachement explicite (project_id = NULL).
+            if conversation.project_id is not None:
+                conversation.project_id = None
+                project_changed = True
+        elif new_project_id is not None:
+            # Rattachement : ownership check du projet AVANT mutation
+            # (404 IDOR-safe, jamais 403). Local import pour casser le cycle
+            # projects ↔ chat.
+            from app.features.projects.service import ProjectService
+
+            await ProjectService._get_owned_project(new_project_id, user.id, db)
+            if conversation.project_id != new_project_id:
+                conversation.project_id = new_project_id
+                project_changed = True
+
+        if not update_data and not project_changed:
+            # Aucun champ envoyé (ou aucun changement effectif) → no-op, on
+            # évite un UPDATE inutile et un bump artificiel de updated_at.
             return conversation
+
         for field, value in update_data.items():
             setattr(conversation, field, value)
         conversation.updated_at = datetime.now(UTC)
@@ -468,9 +505,10 @@ class ConversationService:
         await db.refresh(conversation)
         log.info(
             "chat.conversation.updated",
-            user_id=str(user.id),
-            conversation_id=str(conversation.id),
+            user_id=user_id_str,
+            conversation_id=conversation_id_str,
             fields=list(update_data.keys()),
+            project_changed=project_changed,
         )
         return conversation
 

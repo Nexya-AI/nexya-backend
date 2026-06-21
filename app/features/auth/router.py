@@ -18,14 +18,16 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.auth.guards import get_current_user
 from app.core.auth.jwt import decode_access_token
 from app.core.database.postgres import get_db
 from app.core.security.rate_limiter import (
+    check_user_rate_limit,
     rate_limit_forgot_password_ip,
     rate_limit_login,
     rate_limit_refresh,
@@ -34,6 +36,7 @@ from app.core.security.rate_limiter import (
     rate_limit_reset_password_ip,
 )
 from app.features.auth import service as auth_service
+from app.features.auth.avatar import AvatarService
 from app.features.auth.models import User
 from app.features.auth.schemas import (
     ChangePasswordRequest,
@@ -242,8 +245,8 @@ async def logout(
 async def get_profile(
     current_user: User = Depends(get_current_user),
 ) -> NexyaResponse[UserProfile]:
-    """Profil de l'utilisateur courant."""
-    profile = auth_service.get_profile(current_user)
+    """Profil de l'utilisateur courant (avec presigned avatar fraîche)."""
+    profile = await auth_service.get_profile(current_user)
     return NexyaResponse(success=True, data=profile)
 
 
@@ -255,6 +258,46 @@ async def update_profile(
 ) -> NexyaResponse[UserProfile]:
     """Mise à jour partielle du profil (seuls les champs fournis sont modifiés)."""
     profile = await auth_service.update_profile(current_user, body, db)
+    return NexyaResponse(success=True, data=profile)
+
+
+@router.post("/user/avatar", response_model=NexyaResponse[UserProfile])
+async def upload_avatar(
+    avatar: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> NexyaResponse[UserProfile]:
+    """Upload / remplace la photo de profil.
+
+    Pipeline lean (cf. `AvatarService`) : MIME whitelist image + magic-bytes
+    + clé MinIO fixe (overwrite, zéro orphelin). Retourne le profil enrichi
+    de la presigned avatar fraîche. Rate-limité par user pour éviter le spam
+    d'upload.
+
+    Erreurs : 415 `FILE_TYPE_NOT_ALLOWED` / `FILE_CONTENT_MISMATCH`,
+    413 `IMAGE_TOO_LARGE`, 429 `RATE_LIMIT_ABUSE`, 503 `STORAGE_UNAVAILABLE`.
+    """
+    await check_user_rate_limit(
+        current_user.id,
+        "avatar_upload",
+        settings.avatar_upload_rate_limit_per_hour,
+        3600,
+    )
+    profile = await AvatarService.upload_avatar(current_user, db, upload_file=avatar)
+    return NexyaResponse(success=True, data=profile)
+
+
+@router.delete("/user/avatar", response_model=NexyaResponse[UserProfile])
+async def delete_avatar(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> NexyaResponse[UserProfile]:
+    """Supprime la photo de profil — idempotent (no-op si pas d'avatar).
+
+    Supprime le blob MinIO best-effort + remet `avatar_storage_key` à NULL.
+    Retourne le profil (avec `avatar_url = null`).
+    """
+    profile = await AvatarService.delete_avatar(current_user, db)
     return NexyaResponse(success=True, data=profile)
 
 
