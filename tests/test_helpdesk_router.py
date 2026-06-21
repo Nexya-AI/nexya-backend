@@ -25,6 +25,7 @@ from app.features.helpdesk.schemas import (
     HelpdeskMetricsResponse,
 )
 from app.main import app
+from tests._route_paths import all_route_paths
 
 
 def _make_admin_user() -> MagicMock:
@@ -70,7 +71,7 @@ def _fake_metrics() -> HelpdeskMetricsResponse:
 
 
 def test_admin_helpdesk_metrics_endpoint_mounted() -> None:
-    paths = {route.path for route in app.routes}  # type: ignore[attr-defined]
+    paths = all_route_paths(app)
     assert "/admin/helpdesk/metrics" in paths
 
 

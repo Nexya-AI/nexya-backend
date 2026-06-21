@@ -29,6 +29,7 @@ from app.features.auth.models import User
 from app.features.planner import service as planner_service_mod
 from app.features.planner.scheduler import compute_next_run
 from app.main import app
+from tests._route_paths import all_route_paths
 
 # ══════════════════════════════════════════════════════════════
 # Fixtures
@@ -205,7 +206,7 @@ def test_list_task_results_forwards_cursor_and_limit(
 
 
 def test_planner_endpoints_are_mounted_smoke() -> None:
-    paths = {route.path for route in app.routes}  # type: ignore[attr-defined]
+    paths = all_route_paths(app)
     expected = {
         "/tasks",
         "/tasks/{task_id}",

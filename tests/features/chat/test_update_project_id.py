@@ -97,9 +97,7 @@ def _patch_owned_project(monkeypatch, *, raises=None):
     else:
         proj = MagicMock()
         mock = AsyncMock(return_value=proj)
-    monkeypatch.setattr(
-        projects_service.ProjectService, "_get_owned_project", mock
-    )
+    monkeypatch.setattr(projects_service.ProjectService, "_get_owned_project", mock)
     return mock
 
 
