@@ -34,6 +34,7 @@ from app.core.database.postgres import get_db
 from app.features.auth.models import User
 from app.features.chat import router as chat_router_mod
 from app.main import app
+from tests._route_paths import all_route_paths
 
 # ══════════════════════════════════════════════════════════════
 # 1. Singletons runtime.py
@@ -209,7 +210,7 @@ def test_chat_reports_propagates_duplicate_report_409(
 
 
 def test_chat_endpoints_are_mounted_smoke() -> None:
-    paths = {route.path for route in app.routes}  # type: ignore[attr-defined]
+    paths = all_route_paths(app)
     expected = {
         "/chat/stream",
         "/chat/stop",

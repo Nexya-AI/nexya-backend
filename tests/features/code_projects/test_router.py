@@ -20,6 +20,7 @@ from app.core.database.postgres import get_db
 from app.features.code_projects.schemas import BuildZipResponse
 from app.features.code_projects.service import CodeProjectService
 from app.main import app
+from tests._route_paths import all_route_paths
 
 
 @pytest.fixture
@@ -211,5 +212,5 @@ class TestBuildZipAuthGuard:
 
     def test_endpoint_mounted_in_app(self):
         # Vérifie que la route est bien enregistrée dans l'app.
-        paths = [r.path for r in app.routes if hasattr(r, "path")]
+        paths = all_route_paths(app)
         assert "/code-projects/build-zip" in paths

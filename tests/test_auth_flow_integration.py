@@ -39,6 +39,7 @@ from app.features.auth import service as auth_service
 from app.features.auth.models import User
 from app.features.auth.schemas import TokenResponse, UserProfile
 from app.main import app
+from tests._route_paths import all_route_paths
 
 # ══════════════════════════════════════════════════════════════
 # Fixtures
@@ -133,7 +134,7 @@ def authenticated_client(
 def test_all_auth_endpoints_are_mounted_smoke() -> None:
     """Anti-régression : si quelqu'un drop le `app.include_router(auth_router)`
     par erreur, ce test casse."""
-    paths = {route.path for route in app.routes}  # type: ignore[attr-defined]
+    paths = all_route_paths(app)
     expected = {
         "/auth/register",
         "/auth/login",

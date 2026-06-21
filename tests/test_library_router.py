@@ -385,12 +385,8 @@ def test_restore_library_item_returns_404_when_not_in_trash(
     assert response.json()["code"] == "RESOURCE_NOT_FOUND"
 
 
-def test_permanent_delete_returns_204(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        LibraryService, "permanent_delete", AsyncMock(return_value=None)
-    )
+def test_permanent_delete_returns_204(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(LibraryService, "permanent_delete", AsyncMock(return_value=None))
 
     response = client.delete(f"/library/{uuid.uuid4()}/permanent")
     assert response.status_code == 204

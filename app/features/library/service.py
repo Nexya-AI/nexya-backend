@@ -808,9 +808,7 @@ class LibraryService:
 
         if cursor:
             cursor_ts, cursor_id = _decode_cursor(cursor)
-            conditions.append(
-                tuple_(sort_expr, LibraryItem.id) < tuple_(cursor_ts, cursor_id)
-            )
+            conditions.append(tuple_(sort_expr, LibraryItem.id) < tuple_(cursor_ts, cursor_id))
 
         stmt = (
             select(LibraryItem)
