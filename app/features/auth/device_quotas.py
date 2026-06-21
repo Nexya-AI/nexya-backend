@@ -26,6 +26,7 @@ from datetime import UTC, date, datetime
 
 import structlog
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -104,25 +105,50 @@ async def check_and_consume_device_quota(
     # INSERT + ON CONFLICT est critique pour éviter la TOCTOU race :
     # deux requêtes parallèles voient count=0 en même temps, insèrent deux
     # fois, et ont chacune un count=1 au lieu de count=2.
-    result = await db.execute(
-        text(
-            """
-            INSERT INTO device_quotas (device_id, day, count, last_ip, created_at, updated_at)
-            VALUES (:device_id, :day, 1, :ip, NOW(), NOW())
-            ON CONFLICT (device_id, day) DO UPDATE
-                SET count = device_quotas.count + 1,
-                    last_ip = COALESCE(EXCLUDED.last_ip, device_quotas.last_ip),
-                    updated_at = NOW()
-            RETURNING count
-            """
-        ),
-        {"device_id": device_id, "day": today, "ip": ip},
-    )
-    new_count = int(result.scalar_one())
+    #
+    # [Auth-fix 2026-06-21] FAIL-OPEN sur erreur d'infra. Un mécanisme
+    # anti-abus ne doit JAMAIS bloquer une inscription légitime quand SA
+    # PROPRE infrastructure est cassée : table `device_quotas` absente
+    # (migration 003 non appliquée en prod), blip de connexion, etc. levaient
+    # une erreur DB brute → 500 INTERNAL_ERROR → toute inscription échouait.
+    # On capture donc les erreurs SQLAlchemy → log + on laisse passer (return 0).
+    # SEULE la DeviceQuotaExceededException (vrai dépassement) reste levée.
+    # Même philosophie que le fail-open captcha sur erreur transport.
+    try:
+        result = await db.execute(
+            text(
+                """
+                INSERT INTO device_quotas (device_id, day, count, last_ip, created_at, updated_at)
+                VALUES (:device_id, :day, 1, :ip, NOW(), NOW())
+                ON CONFLICT (device_id, day) DO UPDATE
+                    SET count = device_quotas.count + 1,
+                        last_ip = COALESCE(EXCLUDED.last_ip, device_quotas.last_ip),
+                        updated_at = NOW()
+                RETURNING count
+                """
+            ),
+            {"device_id": device_id, "day": today, "ip": ip},
+        )
+        new_count = int(result.scalar_one())
 
-    # Commit explicite — on ne veut PAS que cet incrément soit rollbacké
-    # par une erreur ultérieure dans le service register (voir docstring).
-    await db.commit()
+        # Commit explicite — on ne veut PAS que cet incrément soit rollbacké
+        # par une erreur ultérieure dans le service register (voir docstring).
+        await db.commit()
+    except SQLAlchemyError as exc:
+        # Fail-open : on remet la session dans un état propre puis on autorise
+        # l'inscription. Le rollback est lui-même défensif (connexion morte).
+        try:
+            await db.rollback()
+        except SQLAlchemyError:
+            pass
+        log.warning(
+            "device_quota.infra_error_fail_open",
+            device_id=device_id,
+            day=str(today),
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        return 0
 
     if new_count > limit:
         log.warning(

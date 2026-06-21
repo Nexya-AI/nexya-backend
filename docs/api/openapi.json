@@ -265,7 +265,7 @@
           "auth"
         ],
         "summary": "Get Profile",
-        "description": "Profil de l'utilisateur courant.",
+        "description": "Profil de l'utilisateur courant (avec presigned avatar fraîche).",
         "operationId": "get_profile_user_profile_get",
         "responses": {
           "200": {
@@ -319,6 +319,78 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/user/avatar": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Upload Avatar",
+        "description": "Upload / remplace la photo de profil.\n\nPipeline lean (cf. `AvatarService`) : MIME whitelist image + magic-bytes\n+ clé MinIO fixe (overwrite, zéro orphelin). Retourne le profil enrichi\nde la presigned avatar fraîche. Rate-limité par user pour éviter le spam\nd'upload.\n\nErreurs : 415 `FILE_TYPE_NOT_ALLOWED` / `FILE_CONTENT_MISMATCH`,\n413 `IMAGE_TOO_LARGE`, 429 `RATE_LIMIT_ABUSE`, 503 `STORAGE_UNAVAILABLE`.",
+        "operationId": "upload_avatar_user_avatar_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_avatar_user_avatar_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NexyaResponse_UserProfile_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Delete Avatar",
+        "description": "Supprime la photo de profil — idempotent (no-op si pas d'avatar).\n\nSupprime le blob MinIO best-effort + remet `avatar_storage_key` à NULL.\nRetourne le profil (avec `avatar_url = null`).",
+        "operationId": "delete_avatar_user_avatar_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NexyaResponse_UserProfile_"
                 }
               }
             }
@@ -2131,6 +2203,103 @@
         }
       }
     },
+    "/library/trash": {
+      "get": {
+        "tags": [
+          "library"
+        ],
+        "summary": "List Library Trash",
+        "description": "Liste paginée des médias soft-deletés — tri `deleted_at DESC`.\n\nMiroir de la corbeille Conversations (B3). Chaque item conserve une\npresigned URL valide (le blob survit jusqu'au cron Phase 12), donc\nl'écran corbeille peut afficher les vignettes. `next_cursor=null` = fin.",
+        "operationId": "list_library_trash_library_trash_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Curseur opaque renvoyé par la page précédente.",
+              "title": "Cursor"
+            },
+            "description": "Curseur opaque renvoyé par la page précédente."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "image",
+                    "video",
+                    "gif",
+                    "audio",
+                    "document",
+                    "text",
+                    "code"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filtre par type : image, video, gif, audio, document, text.",
+              "title": "Type"
+            },
+            "description": "Filtre par type : image, video, gif, audio, document, text."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NexyaResponse_LibraryPage_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/library/{item_id}": {
       "get": {
         "tags": [
@@ -2255,6 +2424,97 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/library/{item_id}/restore": {
+      "post": {
+        "tags": [
+          "library"
+        ],
+        "summary": "Restore Library Item",
+        "description": "Restaure un média depuis la corbeille — 200 + item réactivé.\n\n404 IDOR-safe si le média n'est pas dans la corbeille de l'user courant\n(`_get_owned_item_in_trash` exige `deleted_at IS NOT NULL`).",
+        "operationId": "restore_library_item_library__item_id__restore_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NexyaResponse_LibraryItemResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/library/{item_id}/permanent": {
+      "delete": {
+        "tags": [
+          "library"
+        ],
+        "summary": "Permanent Delete Library Item",
+        "description": "Purge définitive d'un média **déjà dans la corbeille** — 204.\n\nFlux en deux temps imposé (`DELETE /library/{id}` soft → `DELETE\n.../permanent`). 404 si le média n'est pas soft-deleté (protège contre\nune purge accidentelle d'un média actif). Blob MinIO laissé au cron\nPhase 12 (un autre item actif peut partager la `storage_key` via dédup).",
+        "operationId": "permanent_delete_library_item_library__item_id__permanent_delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -4589,6 +4849,20 @@
         ],
         "title": "Body_transcribe_voice_transcribe_post"
       },
+      "Body_upload_avatar_user_avatar_post": {
+        "properties": {
+          "avatar": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "Avatar"
+          }
+        },
+        "type": "object",
+        "required": [
+          "avatar"
+        ],
+        "title": "Body_upload_avatar_user_avatar_post"
+      },
       "Body_upload_file_files_upload_post": {
         "properties": {
           "file": {
@@ -5160,6 +5434,18 @@
             "type": "string",
             "title": "Expert Id"
           },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
           "last_message_at": {
             "anyOf": [
               {
@@ -5248,6 +5534,18 @@
           "expert_id": {
             "type": "string",
             "title": "Expert Id"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
           },
           "last_message_at": {
             "anyOf": [
@@ -5347,11 +5645,28 @@
               }
             ],
             "title": "Is Favorite"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "clear_project_id": {
+            "type": "boolean",
+            "title": "Clear Project Id",
+            "default": false
           }
         },
         "type": "object",
         "title": "ConversationUpdate",
-        "description": "Mise à jour partielle — seuls les champs envoyés sont modifiés.\n\nNote : on ne laisse pas modifier `expert_id` après création pour\néviter qu'un user force un expert \"medicine\" sur une conv existante et\ncontourne la logique de tarification / disclaimer."
+        "description": "Mise à jour partielle — seuls les champs envoyés sont modifiés.\n\nNote : on ne laisse pas modifier `expert_id` après création pour\néviter qu'un user force un expert \"medicine\" sur une conv existante et\ncontourne la logique de tarification / disclaimer.\n\nRattachement à un projet (Add-to-project lot) :\n- `project_id=<UUID>` → attache la conversation au projet (ownership check\n  `ProjectService._get_owned_project`, 404 IDOR-safe si pas propriétaire).\n- `clear_project_id=True` → détache la conversation de tout projet\n  (`project_id = NULL`). Drapeau dédié pour lever l'ambiguïté « null =\n  champ absent vs effacement », même pattern que `clear_instructions` côté\n  `ProjectUpdate`. Si les deux sont fournis, **`clear_project_id` prime**."
       },
       "ConversationsPage": {
         "properties": {

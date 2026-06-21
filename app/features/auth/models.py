@@ -43,7 +43,15 @@ class User(Base, UUIDMixin):
     username: Mapped[str | None] = mapped_column(String(50), unique=True, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(100))
+    # `avatar_url` legacy : conservée pour rétrocompat, plus écrite par le
+    # flux avatar (toujours NULL désormais). L'URL exposée au client est
+    # une presigned MinIO régénérée à chaque lecture depuis
+    # `avatar_storage_key` (cf. `build_profile_response`).
     avatar_url: Mapped[str | None] = mapped_column(String(500))
+    # `avatar_storage_key` : clé MinIO opaque (`users/{id}/avatar.{ext}`)
+    # posée par `POST /user/avatar`. NULL = pas d'avatar. Régénérée en
+    # presigned fraîche à chaque `GET /user/profile`.
+    avatar_storage_key: Mapped[str | None] = mapped_column(String(512))
     bio: Mapped[str | None] = mapped_column(Text)
     locale: Mapped[str] = mapped_column(String(10), server_default="fr", default="fr")
     timezone: Mapped[str] = mapped_column(

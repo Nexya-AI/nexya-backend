@@ -316,3 +316,95 @@ def test_delete_library_item_returns_404_for_non_owner(
 
     response = client.delete(f"/library/{uuid.uuid4()}")
     assert response.status_code == 404
+
+
+# ══════════════════════════════════════════════════════════════
+# 5. Corbeille C3.5 — GET /library/trash + restore + permanent
+# ══════════════════════════════════════════════════════════════
+
+
+def test_list_trash_routes_before_item_id(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`GET /library/trash` doit router vers `list_library_trash` (200), pas
+    vers `get_library_item` qui parserait "trash" en UUID (422)."""
+    item = _make_fake_item()
+    item.deleted_at = datetime(2026, 6, 19, tzinfo=UTC)
+    page = library_service_module.LibraryPageOrm(items=[item], next_cursor="cur-1")
+    mock = AsyncMock(return_value=page)
+    monkeypatch.setattr(LibraryService, "list_trash_for_user", mock)
+
+    response = client.get("/library/trash")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"]["next_cursor"] == "cur-1"
+    assert len(body["data"]["items"]) == 1
+    assert body["data"]["items"][0]["id"] == str(item.id)
+    assert body["data"]["items"][0]["url"] == _FAKE_URL
+
+
+def test_list_trash_forwards_type_filter(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    empty = library_service_module.LibraryPageOrm(items=[], next_cursor=None)
+    mock = AsyncMock(return_value=empty)
+    monkeypatch.setattr(LibraryService, "list_trash_for_user", mock)
+
+    response = client.get("/library/trash?type=image&limit=15")
+    assert response.status_code == 200
+    kwargs = mock.await_args.kwargs
+    assert kwargs["type_"] == "image"
+    assert kwargs["limit"] == 15
+
+
+def test_restore_library_item_returns_200(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    item = _make_fake_item()
+    item.deleted_at = None  # restauré
+    monkeypatch.setattr(LibraryService, "restore", AsyncMock(return_value=item))
+
+    response = client.post(f"/library/{item.id}/restore")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["data"]["id"] == str(item.id)
+    assert body["data"]["url"] == _FAKE_URL
+
+
+def test_restore_library_item_returns_404_when_not_in_trash(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        LibraryService,
+        "restore",
+        AsyncMock(side_effect=ResourceNotFoundException("Média")),
+    )
+
+    response = client.post(f"/library/{uuid.uuid4()}/restore")
+    assert response.status_code == 404
+    assert response.json()["code"] == "RESOURCE_NOT_FOUND"
+
+
+def test_permanent_delete_returns_204(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        LibraryService, "permanent_delete", AsyncMock(return_value=None)
+    )
+
+    response = client.delete(f"/library/{uuid.uuid4()}/permanent")
+    assert response.status_code == 204
+    assert response.content == b""
+
+
+def test_permanent_delete_returns_404_when_not_in_trash(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        LibraryService,
+        "permanent_delete",
+        AsyncMock(side_effect=ResourceNotFoundException("Média")),
+    )
+
+    response = client.delete(f"/library/{uuid.uuid4()}/permanent")
+    assert response.status_code == 404

@@ -49,6 +49,10 @@ from app.core.security.rate_limiter import (
 )
 from app.core.security.sanitizer import clean_email, clean_text
 from app.features.auth.auth_events import log_auth_event
+from app.features.auth.avatar import (
+    build_profile_response,
+    delete_avatar_blob_best_effort,
+)
 from app.features.auth.device_quotas import (
     check_and_consume_device_quota,
     normalize_device_id,
@@ -421,9 +425,15 @@ async def logout(
 # ══════════════════════════════════════════════════════════════
 
 
-def get_profile(user: User) -> UserProfile:
-    """Retourne le profil de l'utilisateur courant."""
-    return UserProfile.model_validate(user)
+async def get_profile(user: User) -> UserProfile:
+    """Retourne le profil de l'utilisateur courant.
+
+    Asynchrone car l'`avatar_url` exposé est une presigned MinIO régénérée
+    fraîche à chaque lecture depuis `avatar_storage_key` (fail-safe : `None`
+    si la presigned échoue, l'avatar dégrade côté client). Cf.
+    `app/features/auth/avatar.py::build_profile_response`.
+    """
+    return await build_profile_response(user)
 
 
 async def update_profile(
@@ -447,6 +457,12 @@ async def update_profile(
             raise AuthUsernameAlreadyExistsException()
 
     update_data = body.model_dump(exclude_none=True)
+    # L'avatar n'est PAS settable en free-text via PUT /user/profile — il
+    # est géré exclusivement par POST/DELETE /user/avatar (validation image
+    # + magic-bytes + storage_key). On retire le champ legacy s'il a été
+    # envoyé, pour empêcher un client de poser une URL arbitraire (vecteur
+    # de phishing/open-redirect si affichée).
+    update_data.pop("avatar_url", None)
     for field, value in update_data.items():
         setattr(user, field, value)
 
@@ -454,7 +470,7 @@ async def update_profile(
     await db.flush()
 
     log.info("auth.profile.updated", user_id=str(user.id), fields=list(update_data.keys()))
-    return UserProfile.model_validate(user)
+    return await build_profile_response(user)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -700,10 +716,15 @@ async def delete_account(
     """
     now = datetime.now(UTC)
 
+    # Capture la clé avatar AVANT de la nuller — le blob MinIO (photo de
+    # visage = PII sensible) sera supprimé immédiatement en best-effort.
+    avatar_key_before = user.avatar_storage_key
+
     user.email = f"deleted_{uuid.uuid4().hex[:12]}@nexya.ai"
     user.username = None
     user.display_name = "Utilisateur supprime"
     user.avatar_url = None
+    user.avatar_storage_key = None
     user.bio = None
     user.password_hash = "DELETED_ACCOUNT"
     user.is_active = False
@@ -711,6 +732,10 @@ async def delete_account(
     user.updated_at = now
 
     await db.flush()
+
+    # Suppression immédiate du blob avatar (RGPD — PII visage). Best-effort :
+    # ne bloque jamais l'anonymisation si MinIO hoquette.
+    await delete_avatar_blob_best_effort(avatar_key_before)
 
     # Blacklist l'access token + révoquer tous les refresh tokens
     await blacklist_token(access_jti, access_exp)

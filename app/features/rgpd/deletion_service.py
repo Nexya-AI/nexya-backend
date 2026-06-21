@@ -38,6 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.errors.exceptions import NexYaException
 from app.features.auth.auth_events import log_auth_event
+from app.features.auth.avatar import delete_avatar_blob_best_effort
 from app.features.auth.models import User
 from app.features.rgpd.models import DeletionRequest
 
@@ -107,12 +108,17 @@ class DeletionRequestService:
         # Capture l'email original AVANT anonymisation pour pouvoir
         # envoyer la confirmation post-purge.
         original_email = user.email
+        # Capture la clé avatar AVANT de la nuller — le blob (photo de
+        # visage = PII sensible) est supprimé immédiatement en best-effort
+        # (cohérent avec le fait que `avatar_url` est nullé tout de suite).
+        avatar_key_before = user.avatar_storage_key
 
         # Anonymisation logique (A1 — préservé).
         user.email = f"deleted_{uuid.uuid4().hex[:12]}@nexya.ai"
         user.username = None
         user.display_name = "Utilisateur supprime"
         user.avatar_url = None
+        user.avatar_storage_key = None
         user.bio = None
         user.is_active = False
         user.deleted_at = now
@@ -136,6 +142,10 @@ class DeletionRequestService:
         await db.flush()
         await db.refresh(request)
         await db.commit()
+
+        # Suppression immédiate du blob avatar (RGPD — PII visage).
+        # Best-effort : ne bloque jamais la demande de suppression.
+        await delete_avatar_blob_best_effort(avatar_key_before)
 
         await log_auth_event(
             db,
