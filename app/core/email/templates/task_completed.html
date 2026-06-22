@@ -1,49 +1,22 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ title }}</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f3f4f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-  <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center"
-         style="width: 100%; max-width: 600px; margin: 32px auto; background-color: #ffffff; border-radius: 8px; overflow: hidden;">
-    <tr>
-      <td style="padding: 32px; background-color: #0066ff; color: #ffffff;">
-        <h1 style="margin: 0; font-size: 24px; font-weight: 600;">
-          ✅ Tâche terminée
-        </h1>
-      </td>
-    </tr>
-    <tr>
-      <td style="padding: 32px; color: #111827; font-size: 16px; line-height: 1.6;">
-        <p style="margin: 0 0 16px;">
-          Bonjour {{ user_name }},
-        </p>
-        <p style="margin: 0 0 16px;">
-          Votre tâche planifiée vient d'être exécutée :
-        </p>
-        <p style="margin: 0 0 16px; padding: 16px; background-color: #f3f4f6; border-left: 4px solid #0066ff; font-weight: 600;">
-          {{ task_title }}
-        </p>
-        {% if result_preview %}
-        <p style="margin: 0 0 8px; color: #6b7280; font-size: 14px;">Aperçu du résultat :</p>
-        <div style="margin: 0 0 16px; padding: 16px; background-color: #f9fafb; border-radius: 6px; white-space: pre-wrap; font-size: 14px; color: #374151;">{{ result_preview }}</div>
-        {% endif %}
-        {% if task_deep_link %}
-        <p style="margin: 24px 0;">
-          <a href="{{ task_deep_link }}"
-             style="display: inline-block; padding: 12px 24px; background-color: #0066ff; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">
-            Voir le résultat complet
-          </a>
-        </p>
-        {% endif %}
-        <p style="margin: 16px 0 0; color: #6b7280;">
-          L'équipe NEXYA
-        </p>
-      </td>
-    </tr>
-    {% include '_layout_footer.html' %}
-  </table>
-</body>
-</html>
+{% extends "_base_email.html" %}
+{% from "_email_macros.html" import button, callout %}
+{% block title %}{{ title }}{% endblock %}
+{% block preheader %}C'est fait — NEXYA vient de terminer ta tâche planifiée.{% endblock %}
+{% block kicker %}✅ Tâche terminée{% endblock %}
+{% block content %}
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#16161d;">C'est fait ✨</h2>
+<p style="margin:0 0 16px 0;">
+  Bonjour{% if user_name %} {{ user_name }}{% endif %}, NEXYA vient d'exécuter ta tâche planifiée&nbsp;:
+</p>
+{{ callout(task_title, "success") }}
+{% if result_preview %}
+<p class="email-muted" style="margin:0 0 8px 0;font-size:14px;color:#6b6b76;">Aperçu du résultat&nbsp;:</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="email-callout" style="background-color:#f6f7f9;border-radius:12px;margin:0 0 8px 0;">
+  <tr><td class="email-text" style="padding:16px 18px;white-space:pre-wrap;font-size:14px;line-height:1.6;color:#3a3a44;">{{ result_preview }}</td></tr>
+</table>
+{% endif %}
+{% if task_deep_link %}
+{{ button(task_deep_link, "Voir le résultat complet", "primary") }}
+{% endif %}
+<p class="email-muted" style="margin:18px 0 0 0;font-size:15px;color:#6b6b76;">L'équipe NEXYA</p>
+{% endblock %}

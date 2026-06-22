@@ -1,15 +1,15 @@
-Paiement confirmé
+{% extends "_base_email.txt" %}
+{% block kicker %}Paiement confirmé{% endblock %}
+{% block content %}Merci, te voilà Pro !
 
-Bonjour {{ user_name }},
+Bonjour{% if user_name %} {{ user_name }}{% endif %}, ton paiement est confirmé et ton
+abonnement NEXYA est désormais actif.
 
-Merci pour votre paiement. Votre abonnement NEXYA est maintenant actif.
-
-{% if plan_name %}Formule : {{ plan_name }}{% endif %}
-{% if amount_formatted %}Montant : {{ amount_formatted }}{% endif %}
-{% if invoice_url %}
-
-Télécharger la facture : {{ invoice_url }}
+{% if plan_name %}Formule : {{ plan_name }}
+{% endif %}{% if amount_formatted %}Montant : {{ amount_formatted }}
+{% endif %}{% if invoice_url %}
+Télécharger ma facture : {{ invoice_url }}
 {% endif %}
+Toutes les fonctionnalités Pro sont débloquées dès maintenant dans l'app.
 
-L'équipe NEXYA
-{% include '_layout_footer.txt' %}
+L'équipe NEXYA{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "_base_email.txt" %}
+{% block kicker %}Jour 3 · Voix & Vision{% endblock %}
+{% block content %}NEXYA fait bien plus que lire{% if user_name %}, {{ user_name }}{% endif %}.
+
+Tu écris à NEXYA depuis quelques jours — parfait. Mais as-tu essayé de lui
+parler, ou de lui montrer une image ?
+
+  - La voix : dicte ta question, écoute la réponse à voix haute. Pratique en
+    déplacement ou les mains occupées.
+  - La vision : prends une photo (un plat, un schéma, un document, un exercice)
+    et NEXYA l'analyse.
+
+Un exemple ? Photographie un plat et demande « c'est quoi cette recette ? ».
+
+L'équipe NEXYA{% endblock %}

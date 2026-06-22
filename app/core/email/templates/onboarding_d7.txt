@@ -1,0 +1,18 @@
+{% extends "_base_email.txt" %}
+{% block kicker %}Jour 7 · Astuces de pro{% endblock %}
+{% block content %}Déjà une semaine ensemble !
+
+Merci de faire partie de l'aventure{% if user_name %}, {{ user_name }}{% endif %}. Voici trois
+fonctionnalités que beaucoup découvrent trop tard :
+
+  - Le planificateur : demande un rappel ou une tâche récurrente —
+    « rappelle-moi de réviser chaque soir à 20h ».
+  - Les projets : regroupe tes conversations et documents par thème,
+    NEXYA garde le contexte.
+  - La mémoire : NEXYA retient ce qui compte pour toi au fil des
+    conversations, sans que tu te répètes.
+
+Une question, une idée, un souci ? On lit tout. Continue à explorer —
+le meilleur est à venir.
+
+L'équipe NEXYA{% endblock %}

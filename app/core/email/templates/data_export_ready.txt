@@ -1,41 +1,26 @@
-Export RGPD prêt — NEXYA
+{% extends "_base_email.txt" %}
+{% block kicker %}Tes données{% endblock %}
+{% block content %}Ton export est prêt.
 
-Bonjour {{ user_name | default("") }},
+Bonjour{% if user_name %} {{ user_name }}{% endif %}, ton archive de données personnelles est
+prête au téléchargement, conformément à ton droit d'accès (Article 15 du RGPD).
 
-Votre archive de données personnelles est prête au téléchargement,
-conformément à votre droit d'accès (Article 15 du RGPD).
-
-{% if download_url %}
-Lien de téléchargement (valide {{ expires_in_days | default(7) }} jours) :
+{% if download_url %}Lien de téléchargement (valide {{ expires_in_days | default(7) }} jours) :
 {{ download_url }}
-{% else %}
-Veuillez vous connecter à NEXYA et reprendre l'export depuis votre profil
-si le lien direct n'est pas inclus dans cet email.
+{% else %}Reconnecte-toi à NEXYA et relance l'export depuis ton profil.
 {% endif %}
+Ce que contient l'archive :
+  - Profil et préférences
+  - Historique des consentements (preuve juridique)
+  - Journal d'authentification (IP anonymisée /24)
+  - Conversations, projets, fichiers, bibliothèque
+  - Mémoires IA, notifications, tâches planifiées
+  - Registre des appels IA (sans le contenu de tes prompts)
 
-Contenu de l'archive
---------------------
-- Profil et préférences
-- Historique des consentements (preuve juridique)
-- Journal d'authentification (IP anonymisée /24)
-- Conversations et messages
-- Projets, fichiers, bibliothèque
-- Mémoires IA, notifications, tâches planifiées
-- Registre des appels IA (sans le contenu de vos prompts)
+Format JSON UTF-8 lisible par machine (Article 20). Les fichiers (images, audio,
+documents) sont accessibles via des liens signés valides {{ blob_ttl_days | default(7) }} jours,
+listés dans le ZIP.
 
-Format : JSON UTF-8 (lisible par machine, conformément à l'Article 20).
+Tu n'as pas demandé cet export ? Contacte immédiatement dpo@nexyalabs.com.
 
-Vie privée
-----------
-Cet export ne contient ni votre mot de passe, ni les données d'autres
-utilisateurs, ni les vecteurs sémantiques internes. Les blobs (images,
-audio, documents) sont accessibles via des URLs signées valides
-{{ blob_ttl_days | default(7) }} jours, listées dans le ZIP.
-
-Délai d'archivage
------------------
-Si vous n'avez pas effectué cet export, contactez immédiatement
-dpo@nexyalabs.com.
-
-L'équipe NEXYA
-{% include '_layout_footer.txt' %}
+L'équipe NEXYA{% endblock %}

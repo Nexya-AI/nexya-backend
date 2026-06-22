@@ -1,17 +1,13 @@
-Rappel NEXYA
+{% extends "_base_email.txt" %}
+{% block kicker %}Rappel{% endblock %}
+{% block content %}Un petit rappel !
 
-Bonjour {{ user_name }},
-
-Ceci est un rappel pour votre tâche planifiée :
+Bonjour{% if user_name %} {{ user_name }}{% endif %}, comme convenu, voici ton rappel :
 
   {{ task_title }}
 
-{% if scheduled_at_human_readable %}
-Prévue pour : {{ scheduled_at_human_readable }}
-{% endif %}
-{% if task_deep_link %}
+{% if scheduled_at_human_readable %}Prévu pour : {{ scheduled_at_human_readable }}
+{% endif %}{% if task_deep_link %}
 Voir la tâche : {{ task_deep_link }}
 {% endif %}
-
-L'équipe NEXYA
-{% include '_layout_footer.txt' %}
+L'équipe NEXYA{% endblock %}

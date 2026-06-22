@@ -29,6 +29,7 @@ import uuid
 from typing import Literal
 
 import structlog
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -120,3 +121,47 @@ async def log_auth_event(
             user_id=str(user_id) if user_id else None,
             error=str(exc),
         )
+
+
+async def is_new_login_device(
+    user_id: uuid.UUID,
+    device_id: str | None,
+    db: AsyncSession,
+) -> bool:
+    """True si une **connexion depuis un appareil inconnu** doit déclencher
+    une alerte sécurité.
+
+    Définition retenue (anti faux-positifs) : l'utilisateur a DÉJÀ eu au moins
+    une authentification réussie (`login_success` ou `register_success`) MAIS
+    jamais depuis ce `device_id`. Conséquences voulues :
+    - Le tout premier login juste après l'inscription n'alerte PAS (le
+      `register_success` a utilisé ce même device → device connu).
+    - Une connexion d'un compte établi depuis un appareil jamais vu alerte.
+
+    Doit être appelée **AVANT** de logger le `login_success` courant (sinon
+    la connexion en cours compterait elle-même comme « device connu »).
+
+    Garde-fous :
+    - `device_id` absent ou sentinelle `"unknown"` → False (on ne peut pas
+      attribuer de façon fiable, ne pas spammer d'alertes).
+    - Fail-safe : la requête est un simple agrégat indexé ; le caller
+      enveloppe l'appel pour ne JAMAIS bloquer le login en cas d'erreur.
+    """
+    if not device_id or device_id == "unknown":
+        return False
+
+    row = (
+        await db.execute(
+            select(
+                func.count().label("total"),
+                func.count().filter(AuthEvent.device_id == device_id).label("same_device"),
+            ).where(
+                AuthEvent.user_id == user_id,
+                AuthEvent.event_type.in_(("login_success", "register_success")),
+            )
+        )
+    ).one()
+
+    total = int(row.total or 0)
+    same_device = int(row.same_device or 0)
+    return total > 0 and same_device == 0

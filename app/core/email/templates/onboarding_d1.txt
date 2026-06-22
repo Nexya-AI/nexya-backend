@@ -1,0 +1,16 @@
+{% extends "_base_email.txt" %}
+{% block kicker %}Jour 1 · Tes experts{% endblock %}
+{% block content %}As-tu rencontré tes experts{% if user_name %}, {{ user_name }}{% endif %} ?
+
+NEXYA, ce n'est pas une seule IA généraliste. C'est 11 modes experts, chacun
+affûté pour un domaine précis. Choisis le bon, et la qualité grimpe d'un cran.
+
+  - Informatique : coder, déboguer, expliquer.
+  - Sciences : maths, physique, démonstrations.
+  - Cuisine : recettes camerounaises et d'ailleurs.
+  - Droit : OHADA, démarches, explications claires.
+
+... et 7 autres (Langues, Finance, Médecine, Productivité...). Ouvre l'app et
+choisis ton mode.
+
+L'équipe NEXYA{% endblock %}

@@ -1,0 +1,118 @@
+{# ════════════════════════════════════════════════════════════════ #}
+{# Layout master des emails NEXYA — design premium « divin ».        #}
+{#                                                                    #}
+{# Chaque template fait `{% extends '_base_email.html' %}` et remplit #}
+{# les blocs : `preheader`, `kicker`, `content`.                      #}
+{#                                                                    #}
+{# Stratégie email-safe (bulletproof hybride) :                       #}
+{#  - Styles INLINE = baseline qui marche partout (Outlook/Gmail).    #}
+{#  - <style> = progressive enhancement (responsive + dark mode) pour #}
+{#    Apple Mail / iOS / clients modernes. Ignoré sans casse ailleurs.#}
+{#  - Gradient header : background-color solide (fallback Outlook) +   #}
+{#    background-image linear-gradient (clients qui le supportent).    #}
+{#                                                                    #}
+{# Seule variable requise du contexte : `unsubscribe_url` (str|None). #}
+{# Tout le reste vit dans les blocs (defaults) → pas de StrictUndefined.#}
+{# ════════════════════════════════════════════════════════════════ #}
+<!DOCTYPE html>
+<html lang="fr" dir="ltr" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="x-apple-disable-message-reformatting">
+  <meta name="color-scheme" content="light dark">
+  <meta name="supported-color-schemes" content="light dark">
+  <title>{% block title %}NEXYA{% endblock %}</title>
+  <style>
+    /* Resets */
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    img { -ms-interpolation-mode: bicubic; border: 0; outline: none; text-decoration: none; }
+    body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+    a { color: #2E9BF0; }
+
+    /* Responsive */
+    @media only screen and (max-width: 600px) {
+      .email-card { width: 100% !important; border-radius: 0 !important; }
+      .email-pad { padding: 28px 22px !important; }
+      .email-header-pad { padding: 30px 22px 26px 22px !important; }
+      .email-wordmark { font-size: 26px !important; }
+      .btn-cell a { display: block !important; }
+    }
+
+    /* Dark mode — Apple Mail / iOS / clients modernes.
+       Gmail ne lit pas prefers-color-scheme (il inverse de son côté). */
+    @media (prefers-color-scheme: dark) {
+      .email-bg { background-color: #0a0a0f !important; }
+      .email-card { background-color: #16161d !important; box-shadow: 0 1px 3px rgba(0,0,0,0.5) !important; }
+      .email-text, .email-text p, .email-text li, .email-text strong, .email-text h2 { color: #e8e8ef !important; }
+      .email-muted { color: #9a9aa6 !important; }
+      .email-divider { border-color: #2a2a33 !important; }
+      .email-callout { background-color: #1e1e27 !important; }
+      .email-footer-text { color: #8a8a96 !important; }
+      .email-meta-label { color: #9a9aa6 !important; }
+      .email-meta-value { color: #e8e8ef !important; }
+    }
+  </style>
+</head>
+<body class="email-bg" style="margin:0;padding:0;background-color:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <!-- Preheader : texte d'aperçu dans la boîte de réception (invisible dans le corps). -->
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f5f7;opacity:0;">
+    {% block preheader %}NEXYA, ton assistant intelligent.{% endblock %}
+    &#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;&#8199;
+  </div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="email-bg" style="background-color:#f4f5f7;">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="email-card" style="width:600px;max-width:600px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(17,24,39,0.06);">
+
+          <!-- ═══ Masthead gradient NEXYA ═══ -->
+          <tr>
+            <td class="email-header-pad" style="padding:36px 40px 0 40px;background-color:#2E9BF0;background-image:linear-gradient(135deg,#2E9BF0 0%,#5566E0 52%,#8A5BD0 100%);">
+              <div class="email-wordmark" style="font-size:30px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;line-height:1;">NEXYA</div>
+              <div style="margin-top:6px;font-size:13px;font-weight:500;color:rgba(255,255,255,0.82);letter-spacing:0.2px;">
+                {% block kicker %}Ton assistant intelligent{% endblock %}
+              </div>
+            </td>
+          </tr>
+          <!-- Liseré or signature (sous le masthead) -->
+          <tr>
+            <td style="height:4px;line-height:4px;font-size:0;background-color:#E8A020;background-image:linear-gradient(90deg,#E8A020 0%,#F2B84B 100%);">&nbsp;</td>
+          </tr>
+
+          <!-- ═══ Contenu ═══ -->
+          <tr>
+            <td class="email-pad email-text" style="padding:40px 40px 8px 40px;color:#2a2a33;font-size:16px;line-height:1.65;">
+              {% block content %}{% endblock %}
+            </td>
+          </tr>
+
+          <!-- ═══ Footer ═══ -->
+          <tr>
+            <td class="email-pad" style="padding:24px 40px 32px 40px;">
+              <div class="email-divider" style="border-top:1px solid #ececf1;padding-top:20px;"></div>
+              <p class="email-footer-text" style="margin:0 0 6px 0;font-size:13px;line-height:1.6;color:#8a8a96;">
+                Envoyé avec soin par <strong style="color:#6b6b76;">NEXYA</strong> — pour l'Afrique et au-delà.
+              </p>
+              <p class="email-footer-text" style="margin:0;font-size:12px;line-height:1.6;color:#a6a6b0;">
+                Gère tes préférences de notification dans l'app : Paramètres → Notifications.
+              </p>
+              {% if unsubscribe_url %}
+              <p style="margin:12px 0 0 0;font-size:12px;line-height:1.6;">
+                <a href="{{ unsubscribe_url }}" style="color:#9a9aa6;text-decoration:underline;">Se désinscrire de cette catégorie</a>
+              </p>
+              {% endif %}
+              <p class="email-footer-text" style="margin:14px 0 0 0;font-size:12px;color:#b4b4be;">
+                © 2026 Nexyalabs. Tous droits réservés.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -1,0 +1,46 @@
+{# ════════════════════════════════════════════════════════════════ #}
+{# Macros réutilisables des emails NEXYA.                            #}
+{# Import dans un template enfant : `{% from '_email_macros.html' import button, callout, meta_table %}` #}
+{# (l'import est traité même dans un template qui fait `{% extends %}`).#}
+{# ════════════════════════════════════════════════════════════════ #}
+
+{# Bouton CTA bulletproof — table + bgcolor (Outlook) + radius.       #}
+{# themes : primary (bleu) / gold / danger (rouge) / success (vert) / neutral #}
+{% macro button(href, label, theme='primary') -%}
+{%- set palette = {'primary': '#2E9BF0', 'gold': '#E8A020', 'danger': '#ef4444', 'success': '#10b981', 'neutral': '#3a3a3c'} -%}
+{%- set bg = palette.get(theme, '#2E9BF0') -%}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0 8px 0;">
+  <tr>
+    <td class="btn-cell" align="center" bgcolor="{{ bg }}" style="border-radius:12px;background-color:{{ bg }};">
+      <a href="{{ href }}" target="_blank" rel="noopener" style="display:inline-block;padding:15px 32px;font-size:16px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:12px;background-color:{{ bg }};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">{{ label }}</a>
+    </td>
+  </tr>
+</table>
+{%- endmacro %}
+
+{# Encart mis en valeur (citation / résultat / info clé).            #}
+{# accent : primary / gold / danger / success / neutral              #}
+{% macro callout(text, accent='primary') -%}
+{%- set palette = {'primary': '#2E9BF0', 'gold': '#E8A020', 'danger': '#ef4444', 'success': '#10b981', 'neutral': '#9aa0aa'} -%}
+{%- set color = palette.get(accent, '#2E9BF0') -%}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="email-callout" style="background-color:#f6f7f9;border-radius:12px;border-left:4px solid {{ color }};margin:4px 0 18px 0;">
+  <tr>
+    <td class="email-text" style="padding:16px 18px;font-size:16px;line-height:1.55;font-weight:600;color:#2a2a33;">{{ text }}</td>
+  </tr>
+</table>
+{%- endmacro %}
+
+{# Tableau clé / valeur (détails sécurité, récap paiement...).        #}
+{# rows = liste de tuples (label, value). Les valeurs None sont ignorées.#}
+{% macro meta_table(rows) -%}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="email-callout" style="background-color:#f6f7f9;border-radius:12px;margin:4px 0 18px 0;">
+  {% for label, value in rows %}
+  {% if value %}
+  <tr>
+    <td class="email-meta-label" style="padding:11px 18px;font-size:13px;color:#6b7280;{% if not loop.first %}border-top:1px solid #ececf1;{% endif %}">{{ label }}</td>
+    <td class="email-meta-value" style="padding:11px 18px;font-size:14px;font-weight:600;color:#2a2a33;text-align:right;word-break:break-word;{% if not loop.first %}border-top:1px solid #ececf1;{% endif %}">{{ value }}</td>
+  </tr>
+  {% endif %}
+  {% endfor %}
+</table>
+{%- endmacro %}

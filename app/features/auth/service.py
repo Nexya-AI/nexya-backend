@@ -48,7 +48,7 @@ from app.core.security.rate_limiter import (
     rate_limit_forgot_password_email,
 )
 from app.core.security.sanitizer import clean_email, clean_text
-from app.features.auth.auth_events import log_auth_event
+from app.features.auth.auth_events import is_new_login_device, log_auth_event
 from app.features.auth.avatar import (
     build_profile_response,
     delete_avatar_blob_best_effort,
@@ -243,6 +243,17 @@ async def register(
         device_id=device_id,
     )
 
+    # ── Email de bienvenue (Phase 1) ──────────────────────────────
+    # Déporté sur arq (pas d'I/O réseau email synchrone dans register).
+    # Fail-safe absolu : ni l'import ni l'enqueue ne doivent faire échouer
+    # une inscription par ailleurs réussie.
+    try:
+        from workers.notification_tasks import enqueue_welcome_email  # noqa: PLC0415
+
+        await enqueue_welcome_email(user.id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("auth.register.welcome_enqueue_failed", user_id=str(user.id), error=str(exc))
+
     log.info("auth.register.success", user_id=str(user.id), device_id=device_id)
     return _build_token_response(access_token, refresh_token)
 
@@ -338,6 +349,17 @@ async def login(
         # Message volontairement vague — ne pas révéler si l'email existe
         raise AuthCredentialsInvalidException()
 
+    # ── Détection appareil inconnu (Phase 1, AVANT le log du login courant) ──
+    # `is_new_login_device` compte les auth réussies passées : si on logguait
+    # d'abord le `login_success` courant, il compterait comme « device connu ».
+    # Fail-safe : ne JAMAIS bloquer un login pour une détection ratée.
+    new_device = False
+    try:
+        new_device = await is_new_login_device(user.id, device_id, db)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("auth.login.device_check_failed", user_id=str(user.id), error=str(exc))
+        new_device = False
+
     access_token = create_access_token(user.id, user.plan)
     refresh_token = await create_refresh_token(user.id, db)
 
@@ -349,6 +371,21 @@ async def login(
         user_agent=user_agent,
         device_id=device_id,
     )
+
+    # ── Alerte sécurité « nouvelle connexion » (Phase 1) ──────────
+    if new_device:
+        try:
+            from workers.notification_tasks import enqueue_security_alert  # noqa: PLC0415
+
+            await enqueue_security_alert(
+                user_id=user.id,
+                event_type="new_device_login",
+                ip=client_ip,
+                user_agent=user_agent,
+                device_id=device_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("auth.login.alert_enqueue_failed", user_id=str(user.id), error=str(exc))
 
     log.info("auth.login.success", user_id=str(user.id), device_id=device_id)
     return _build_token_response(access_token, refresh_token)
@@ -510,6 +547,20 @@ async def change_password(
         ip=client_ip,
         user_agent=user_agent,
     )
+
+    # ── Alerte sécurité « mot de passe modifié » (Phase 1) ────────
+    try:
+        from workers.notification_tasks import enqueue_security_alert  # noqa: PLC0415
+
+        await enqueue_security_alert(
+            user_id=user.id,
+            event_type="password_changed",
+            ip=client_ip,
+            user_agent=user_agent,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("auth.password.alert_enqueue_failed", user_id=str(user.id), error=str(exc))
+
     log.info("auth.password.changed", user_id=str(user.id))
 
 
@@ -677,6 +728,23 @@ async def reset_password(
         ip=client_ip,
         user_agent=user_agent,
     )
+
+    # ── Alerte sécurité « mot de passe modifié » (Phase 1) ────────
+    # Un reset = un mot de passe changé → même alerte que change_password.
+    try:
+        from workers.notification_tasks import enqueue_security_alert  # noqa: PLC0415
+
+        await enqueue_security_alert(
+            user_id=user.id,
+            event_type="password_changed",
+            ip=client_ip,
+            user_agent=user_agent,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "auth.reset_password.alert_enqueue_failed", user_id=str(user.id), error=str(exc)
+        )
+
     log.info("auth.reset_password.success", user_id=str(user.id))
 
 

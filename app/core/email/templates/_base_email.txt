@@ -1,0 +1,14 @@
+{# Layout master texte brut des emails NEXYA. Les enfants remplissent `content`. #}
+{# Seule variable requise : `unsubscribe_url` (str|None).                        #}
+NEXYA — {% block kicker %}Ton assistant intelligent{% endblock %}
+==================================================
+
+{% block content %}{% endblock %}
+
+--
+Envoyé avec soin par NEXYA — pour l'Afrique et au-delà.
+Gère tes préférences de notification dans l'app : Paramètres → Notifications.
+{% if unsubscribe_url %}
+Se désinscrire de cette catégorie : {{ unsubscribe_url }}
+{% endif %}
+© 2026 Nexyalabs. Tous droits réservés.

@@ -1,19 +1,14 @@
-Tâche terminée
+{% extends "_base_email.txt" %}
+{% block kicker %}Tâche terminée{% endblock %}
+{% block content %}C'est fait !
 
-Bonjour {{ user_name }},
-
-Votre tâche planifiée vient d'être exécutée :
+Bonjour{% if user_name %} {{ user_name }}{% endif %}, NEXYA vient d'exécuter ta tâche planifiée :
 
   {{ task_title }}
 
-{% if result_preview %}
-Aperçu du résultat :
+{% if result_preview %}Aperçu du résultat :
 {{ result_preview }}
-{% endif %}
-{% if task_deep_link %}
-
+{% endif %}{% if task_deep_link %}
 Voir le résultat complet : {{ task_deep_link }}
 {% endif %}
-
-L'équipe NEXYA
-{% include '_layout_footer.txt' %}
+L'équipe NEXYA{% endblock %}

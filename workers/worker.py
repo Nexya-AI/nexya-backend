@@ -50,7 +50,9 @@ from workers.auth_tasks import cleanup_refresh_tokens
 from workers.chat_tasks import generate_conversation_title
 from workers.chunk_tasks import index_document_chunks
 from workers.document_tasks import generate_document_async
+from workers.lifecycle_tasks import send_onboarding_emails
 from workers.memory_tasks import extract_durable_facts
+from workers.notification_tasks import send_security_alert, send_welcome_email
 from workers.rgpd_tasks import purge_deleted_accounts
 from workers.scheduler_tasks import (
     cleanup_old_task_results,
@@ -190,6 +192,14 @@ class WorkerSettings:
         # Listé dans `functions` pour permettre un déclenchement manuel
         # via `enqueue_job` depuis un script d'ops (incident recovery).
         purge_deleted_accounts,
+        # Phase 1 — notifications transactionnelles auth. Enqueue depuis
+        # `auth/service.py` : welcome après register, alertes sécurité après
+        # login device inconnu / changement de mot de passe.
+        send_welcome_email,
+        send_security_alert,
+        # Phase 3 — emails lifecycle. Cron quotidien (onboarding J+1/J+3/J+7).
+        # Listé aussi ici pour déclenchement manuel via `enqueue_job` (ops).
+        send_onboarding_emails,
     ]
 
     # Crons — heure UTC. 03:17 évite le créneau 03:00 pile (tempête d'horaires
@@ -298,6 +308,17 @@ class WorkerSettings:
             name="purge_deleted_accounts_daily",
             hour=3,
             minute=47,
+            run_at_startup=False,
+        ),
+        # Phase 3 — onboarding drip J+1/J+3/J+7. Cron quotidien 09:13 UTC
+        # (= 10h13 Cameroun / 11h13 Europe — envoi en matinée, pas en pleine
+        # nuit). Idempotent (table lifecycle_emails) → tourner plusieurs fois
+        # est sans risque.
+        cron(
+            send_onboarding_emails,
+            name="send_onboarding_emails_daily",
+            hour=9,
+            minute=13,
             run_at_startup=False,
         ),
     ]

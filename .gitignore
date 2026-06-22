@@ -55,3 +55,6 @@ docs/*
 
 # Évals IA — rapports transients (la baseline est committée, pas les rapports)
 tests/evals/reports/
+
+# Aperçus emails générés (scripts/preview_emails.py) — dev only
+email_previews/

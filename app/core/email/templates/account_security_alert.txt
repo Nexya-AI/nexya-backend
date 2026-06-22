@@ -1,24 +1,21 @@
-Alerte sécurité NEXYA
+{% extends "_base_email.txt" %}
+{% block kicker %}Sécurité du compte{% endblock %}
+{% block content %}Bonjour{% if user_name %} {{ user_name }}{% endif %},
 
-Bonjour {{ user_name }},
-
-Nous avons détecté une activité importante sur votre compte :
+On veille sur ton compte. Voici ce qu'on vient de détecter :
 
   {{ body }}
 
-{% if event_type %}Type : {{ event_type }}{% endif %}
-{% if event_ip %}Adresse IP : {{ event_ip }}{% endif %}
-{% if event_user_agent_truncated %}Appareil : {{ event_user_agent_truncated }}{% endif %}
-{% if event_time_utc %}Heure (UTC) : {{ event_time_utc }}{% endif %}
+{% if event_type %}Type            : {{ event_type }}
+{% endif %}{% if event_ip %}Adresse IP      : {{ event_ip }}
+{% endif %}{% if event_user_agent_truncated %}Appareil        : {{ event_user_agent_truncated }}
+{% endif %}{% if event_time_utc %}Heure (UTC)     : {{ event_time_utc }}
+{% endif %}
+C'est bien toi ? Parfait, tu peux ignorer ce message — on te l'envoie juste
+pour ta tranquillité d'esprit.
 
-Cette action vient-elle de vous ? Dans ce cas, aucune action n'est nécessaire —
-nous vous envoyons cet email pour votre information.
-
-Sinon, changez immédiatement votre mot de passe et contactez notre support.
+Ce n'est pas toi ? Change ton mot de passe sans attendre et contacte-nous.
 {% if password_reset_url %}
-
 Changer mon mot de passe : {{ password_reset_url }}
 {% endif %}
-
-L'équipe sécurité NEXYA
-{% include '_layout_footer.txt' %}
+L'équipe sécurité NEXYA{% endblock %}

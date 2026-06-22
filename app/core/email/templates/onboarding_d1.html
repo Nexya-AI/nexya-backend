@@ -1,0 +1,36 @@
+{% extends "_base_email.html" %}
+{% block title %}Découvre les experts NEXYA{% endblock %}
+{% block preheader %}11 experts t'attendent — un pour chaque besoin.{% endblock %}
+{% block kicker %}Jour 1 · Tes experts{% endblock %}
+{% block content %}
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#16161d;">
+  As-tu rencontré tes experts{% if user_name %}, {{ user_name }}{% endif %} ?
+</h2>
+<p style="margin:0 0 16px 0;">
+  NEXYA, ce n'est pas une seule IA généraliste. C'est <strong style="color:#16161d;">11 modes
+  experts</strong>, chacun affûté pour un domaine précis. Choisis le bon, et la qualité des
+  réponses grimpe d'un cran.
+</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px 0;">
+  <tr>
+    <td style="padding:8px 0;vertical-align:top;width:34px;font-size:20px;">💻</td>
+    <td class="email-text" style="padding:8px 0;font-size:15px;line-height:1.5;color:#3a3a44;"><strong style="color:#16161d;">Informatique</strong> — coder, déboguer, expliquer.</td>
+  </tr>
+  <tr>
+    <td style="padding:8px 0;vertical-align:top;width:34px;font-size:20px;">🔬</td>
+    <td class="email-text" style="padding:8px 0;font-size:15px;line-height:1.5;color:#3a3a44;"><strong style="color:#16161d;">Sciences</strong> — maths, physique, démonstrations.</td>
+  </tr>
+  <tr>
+    <td style="padding:8px 0;vertical-align:top;width:34px;font-size:20px;">🍲</td>
+    <td class="email-text" style="padding:8px 0;font-size:15px;line-height:1.5;color:#3a3a44;"><strong style="color:#16161d;">Cuisine</strong> — recettes camerounaises et d'ailleurs.</td>
+  </tr>
+  <tr>
+    <td style="padding:8px 0;vertical-align:top;width:34px;font-size:20px;">⚖️</td>
+    <td class="email-text" style="padding:8px 0;font-size:15px;line-height:1.5;color:#3a3a44;"><strong style="color:#16161d;">Droit</strong> — OHADA, démarches, explications claires.</td>
+  </tr>
+</table>
+<p style="margin:0 0 4px 0;">
+  … et 7 autres (Langues, Finance, Médecine, Productivité…). Ouvre l'app et choisis ton mode. 🎯
+</p>
+<p class="email-muted" style="margin:18px 0 0 0;font-size:15px;color:#6b6b76;">L'équipe NEXYA</p>
+{% endblock %}

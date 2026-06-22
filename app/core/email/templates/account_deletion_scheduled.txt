@@ -1,40 +1,25 @@
-Suppression de compte programmée — NEXYA
+{% extends "_base_email.txt" %}
+{% block kicker %}Suppression de compte{% endblock %}
+{% block content %}On a bien reçu ta demande.
 
-Bonjour{% if user_name %} {{ user_name }}{% endif %},
+Bonjour{% if user_name %} {{ user_name }}{% endif %}, ta demande de suppression de compte est
+enregistrée (Article 17 du RGPD — droit à l'oubli). On est triste de te voir
+partir, mais on respecte ton choix.
 
-Nous avons bien reçu votre demande de suppression de compte
-(Article 17 du RGPD — droit à l'oubli).
+Suppression définitive prévue le : {{ scheduled_purge_at }}
 
-Date de suppression définitive : {{ scheduled_purge_at }}
+Tu disposes de {{ grace_period_days | default(30) }} jours pour te rétracter. Au-delà,
+toutes tes données seront définitivement effacées. Cette opération est irréversible.
 
-Vous disposez d'un délai de {{ grace_period_days | default(30) }} jours
-pour vous rétracter. Au-delà de cette date, **toutes vos données seront
-définitivement effacées** (cascade SQL sur 22 tables + suppression
-des blobs MinIO). Cette opération est irréversible.
+Tu changes d'avis ?
+Reconnecte-toi à NEXYA et clique sur « Annuler ma suppression ».
+{% if cancel_url %}
+Annuler ma suppression : {{ cancel_url }}
+{% endif %}
+Après la suppression, plus aucune trace de tes données ne subsistera, hormis les
+journaux d'authentification anonymisés et le registre des appels IA agrégé
+(Article 13 du Règlement IA).
 
-Annuler la demande
-------------------
-Si vous changez d'avis, vous pouvez annuler la suppression à tout
-moment avant la date ci-dessus en :
-- vous reconnectant à NEXYA et cliquant sur « Annuler ma suppression »
-- ou en appelant l'endpoint :
-  POST /rgpd/user/account/delete-request/cancel
+Une question ? Écris à notre délégué à la protection des données : dpo@nexyalabs.com
 
-Votre compte est actuellement gelé : vous ne pouvez plus vous
-connecter ni utiliser l'app, mais vos données sont conservées
-en attente de la purge ou de votre rétractation.
-
-Et après ?
-----------
-Une fois la suppression effectuée, vous recevrez un email de
-confirmation. Plus aucune trace de vos données ne subsistera, à
-l'exception des journaux d'authentification anonymisés et du
-registre des appels IA agrégé (Article 13 du Règlement IA).
-
-Une question ?
---------------
-Contactez le délégué à la protection des données :
-dpo@nexyalabs.com
-
-L'équipe NEXYA
-{% include '_layout_footer.txt' %}
+L'équipe NEXYA{% endblock %}

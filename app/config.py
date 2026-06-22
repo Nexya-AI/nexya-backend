@@ -703,6 +703,17 @@ class Settings(BaseSettings):
     # tôt. 10/h suffit largement pour un legit qui clique ré-clique.
     unsubscribe_rate_limit_per_hour: int = Field(default=10, ge=1, le=1000)
 
+    # ── Emails lifecycle / onboarding (Phase 3) ───────────────
+    # Séquence d'onboarding J+1 / J+3 / J+7 envoyée par cron quotidien.
+    # Kill-switch global (incident / pause produit).
+    onboarding_emails_enabled: bool = True
+    # Tolérance fenêtre : un user créé il y a [N ; N+grace] jours est encore
+    # éligible à l'email J+N (rattrape un cron manqué + évite le mass-backfill
+    # des vieux comptes au 1er déploiement). 2 jours = robuste.
+    onboarding_window_grace_days: int = Field(default=2, ge=0, le=14)
+    # Cap d'users traités par run/étape (volume = nouveaux inscrits/jour, petit).
+    onboarding_batch_size: int = Field(default=500, ge=1, le=10_000)
+
     # ── Email transactionnel (Brevo / Sendinblue) ─────────────
     # En dev/test, si `brevo_api_key` est vide, l'app utilise un
     # MockEmailService qui loggue les emails au lieu de les envoyer.

@@ -1,63 +1,39 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <title>Export RGPD prêt — NEXYA</title>
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.5; color: #222;">
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; margin: 0 auto;">
-    <tr>
-      <td>
-        <h1 style="color: #0066ff; font-size: 24px;">Votre export RGPD est prêt</h1>
-        <p>Bonjour{% if user_name %} {{ user_name }}{% endif %},</p>
-        <p>
-          Votre archive de données personnelles est prête au téléchargement,
-          conformément à votre droit d'accès (<strong>Article 15 du RGPD</strong>).
-        </p>
-
-        {% if download_url %}
-        <p style="margin: 30px 0;">
-          <a href="{{ download_url }}"
-             style="background: #0066ff; color: white; padding: 12px 24px;
-                    text-decoration: none; border-radius: 4px;
-                    display: inline-block; font-weight: bold;">
-            Télécharger mon export
-          </a>
-        </p>
-        <p style="color: #888; font-size: 13px;">
-          Lien valide {{ expires_in_days | default(7) }} jours.
-        </p>
-        {% else %}
-        <p>
-          Connectez-vous à NEXYA et reprenez l'export depuis votre profil.
-        </p>
-        {% endif %}
-
-        <h2 style="font-size: 18px; color: #333;">Contenu de l'archive</h2>
-        <ul>
-          <li>Profil et préférences</li>
-          <li>Historique des consentements (preuve juridique)</li>
-          <li>Journal d'authentification (IP anonymisée /24)</li>
-          <li>Conversations et messages</li>
-          <li>Projets, fichiers, bibliothèque</li>
-          <li>Mémoires IA, notifications, tâches planifiées</li>
-          <li>Registre des appels IA (sans le contenu de vos prompts)</li>
-        </ul>
-
-        <p style="color: #888; font-size: 13px;">
-          Format : JSON UTF-8 (lisible par machine, conformément à
-          l'<strong>Article 20</strong>). Les blobs (images, audio,
-          documents) sont accessibles via des URLs signées valides
-          {{ blob_ttl_days | default(7) }} jours, listées dans le ZIP.
-        </p>
-
-        <p style="color: #cc0000; font-size: 13px;">
-          Si vous n'avez pas effectué cet export, contactez immédiatement
-          <a href="mailto:dpo@nexyalabs.com">dpo@nexyalabs.com</a>.
-        </p>
-      </td>
-    </tr>
-  </table>
-  {% include '_layout_footer.html' %}
-</body>
-</html>
+{% extends "_base_email.html" %}
+{% from "_email_macros.html" import button %}
+{% block title %}Ton export de données est prêt — NEXYA{% endblock %}
+{% block preheader %}Ton archive de données personnelles est prête à télécharger.{% endblock %}
+{% block kicker %}Tes données{% endblock %}
+{% block content %}
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#16161d;">Ton export est prêt 📦</h2>
+<p style="margin:0 0 16px 0;">
+  Bonjour{% if user_name %} {{ user_name }}{% endif %}, ton archive de données personnelles est
+  prête au téléchargement, conformément à ton droit d'accès (<strong>Article 15 du RGPD</strong>).
+</p>
+{% if download_url %}
+{{ button(download_url, "Télécharger mon export", "primary") }}
+<p class="email-muted" style="margin:6px 0 16px 0;font-size:13px;color:#8a8a96;">
+  Lien valide {{ expires_in_days | default(7) }} jours.
+</p>
+{% else %}
+<p style="margin:0 0 16px 0;">
+  Reconnecte-toi à NEXYA et relance l'export depuis ton profil.
+</p>
+{% endif %}
+<p style="margin:0 0 8px 0;font-weight:600;color:#16161d;">Ce que contient l'archive&nbsp;:</p>
+<ul class="email-text" style="margin:0 0 16px 0;padding-left:20px;font-size:15px;line-height:1.7;color:#3a3a44;">
+  <li>Profil et préférences</li>
+  <li>Historique des consentements (preuve juridique)</li>
+  <li>Journal d'authentification (IP anonymisée /24)</li>
+  <li>Conversations, projets, fichiers, bibliothèque</li>
+  <li>Mémoires IA, notifications, tâches planifiées</li>
+  <li>Registre des appels IA (sans le contenu de tes prompts)</li>
+</ul>
+<p class="email-muted" style="margin:0 0 12px 0;font-size:13px;line-height:1.6;color:#8a8a96;">
+  Format JSON UTF-8 lisible par machine (Article 20). Les fichiers (images, audio, documents)
+  sont accessibles via des liens signés valides {{ blob_ttl_days | default(7) }} jours, listés dans le ZIP.
+</p>
+<p style="margin:0;font-size:13px;line-height:1.6;color:#d23f3f;">
+  Tu n'as pas demandé cet export&nbsp;? Contacte immédiatement
+  <a href="mailto:dpo@nexyalabs.com" style="color:#d23f3f;">dpo@nexyalabs.com</a>.
+</p>
+{% endblock %}

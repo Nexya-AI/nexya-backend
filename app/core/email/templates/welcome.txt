@@ -1,0 +1,17 @@
+{% extends "_base_email.txt" %}
+{% block kicker %}Bienvenue 👋{% endblock %}
+{% block content %}Ravis de t'avoir{% if user_name %}, {{ user_name }}{% endif %} !
+
+Ton compte NEXYA est prêt. NEXYA, c'est ton assistant intelligent : il répond,
+rédige, code, traduit, analyse tes images et t'aide au quotidien — pensé pour
+l'Afrique, et au-delà.
+
+Trois façons de te lancer :
+  - Pose ta première question, sur absolument n'importe quel sujet.
+  - Choisis un mode expert : Informatique, Sciences, Cuisine, Langues, Droit...
+  - Parle, montre une photo, planifie un rappel — NEXYA suit le mouvement.
+
+Ouvre l'app et lance-toi. On a hâte de voir ce que tu vas construire avec NEXYA.
+
+À très vite,
+L'équipe NEXYA{% endblock %}

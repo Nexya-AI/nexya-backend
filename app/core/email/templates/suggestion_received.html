@@ -1,59 +1,23 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <title>Nouvelle suggestion utilisateur — NEXYA</title>
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.5; color: #222;">
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 600px; margin: 0 auto;">
-    <tr>
-      <td>
-        <h1 style="color: #0066ff; font-size: 22px;">
-          📬 Nouvelle suggestion utilisateur
-        </h1>
-
-        <table width="100%" cellpadding="8" cellspacing="0" border="0"
-               style="background: #f7f7fa; border-radius: 6px;
-                      margin: 20px 0; font-size: 14px;">
-          <tr>
-            <td style="font-weight: bold; width: 130px;">Type</td>
-            <td><strong>{{ suggestion_type }}</strong></td>
-          </tr>
-          <tr>
-            <td style="font-weight: bold;">User email</td>
-            <td>{{ user_email }}</td>
-          </tr>
-          <tr>
-            <td style="font-weight: bold;">User ID</td>
-            <td><code>{{ user_id }}</code></td>
-          </tr>
-          <tr>
-            <td style="font-weight: bold;">IP (anonymisée)</td>
-            <td>{{ ip_anonymized | default('—') }}</td>
-          </tr>
-          <tr>
-            <td style="font-weight: bold;">Reçu le</td>
-            <td>{{ created_at }}</td>
-          </tr>
-        </table>
-
-        <h2 style="font-size: 16px; color: #333; margin-top: 24px;">
-          Message
-        </h2>
-        <div style="background: #fff; border: 1px solid #e1e4e8;
-                    border-radius: 6px; padding: 16px;
-                    white-space: pre-wrap; font-family: ui-monospace, monospace;
-                    font-size: 13px; color: #1c2024;">{{ body }}</div>
-
-        <p style="color: #888; font-size: 12px; margin-top: 24px;">
-          Pour traiter cette suggestion, mettez à jour
-          <code>processing_status</code> dans la table
-          <code>user_suggestions</code> via la console DB ou un futur
-          endpoint admin (V2).
-        </p>
-      </td>
-    </tr>
-  </table>
-  {% include '_layout_footer.html' %}
-</body>
-</html>
+{% extends "_base_email.html" %}
+{% from "_email_macros.html" import meta_table %}
+{% block title %}Nouvelle suggestion utilisateur — NEXYA{% endblock %}
+{% block preheader %}Nouvelle suggestion soumise via l'application.{% endblock %}
+{% block kicker %}📬 Suggestion équipe{% endblock %}
+{% block content %}
+<h2 style="margin:0 0 16px 0;font-size:22px;font-weight:700;color:#16161d;">Nouvelle suggestion utilisateur</h2>
+{{ meta_table([
+  ("Type", suggestion_type),
+  ("Email", user_email),
+  ("User ID", user_id),
+  ("IP (anonymisée)", ip_anonymized | default('—')),
+  ("Reçu le", created_at),
+]) }}
+<p style="margin:0 0 8px 0;font-weight:600;color:#16161d;">Message&nbsp;:</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 16px 0;">
+  <tr><td style="padding:16px 18px;background-color:#ffffff;border:1px solid #e1e4e8;border-radius:10px;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.55;color:#1c2024;">{{ body }}</td></tr>
+</table>
+<p class="email-muted" style="margin:0;font-size:12px;line-height:1.6;color:#8a8a96;">
+  Pour traiter : mettre à jour <code>processing_status</code> dans <code>user_suggestions</code>
+  (console DB ou futur endpoint admin V2).
+</p>
+{% endblock %}

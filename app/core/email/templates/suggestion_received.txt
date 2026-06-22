@@ -1,9 +1,9 @@
-Nouvelle suggestion utilisateur — NEXYA
-
-Une nouvelle suggestion a été soumise via l'application.
+{% extends "_base_email.txt" %}
+{% block kicker %}Suggestion équipe{% endblock %}
+{% block content %}Nouvelle suggestion utilisateur
 
 Type            : {{ suggestion_type }}
-User email      : {{ user_email }}
+Email           : {{ user_email }}
 User ID         : {{ user_id }}
 IP (anonymisée) : {{ ip_anonymized | default('—') }}
 Reçu le         : {{ created_at }}
@@ -16,7 +16,5 @@ Message
 
 ────────────────────────────────────────────────────────
 
-Pour traiter cette suggestion, mettre à jour `processing_status`
-dans la table `user_suggestions` via la console DB ou un futur
-endpoint admin (V2).
-{% include '_layout_footer.txt' %}
+Pour traiter : mettre à jour `processing_status` dans la table
+`user_suggestions` (console DB ou futur endpoint admin V2).{% endblock %}
