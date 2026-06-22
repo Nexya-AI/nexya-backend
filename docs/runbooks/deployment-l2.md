@@ -2,14 +2,14 @@
 
 > **Pour qui** : Ivan + futur SRE. Procédure pour déployer NEXYA
 > backend sur Hetzner CCX23 staging (Phase L2). Prévoit un
-> environnement isolé staging.nexya.ai avant prod.
+> environnement isolé staging.nexyalabs.com avant prod.
 
 ---
 
 ## Pré-requis
 
 - Compte Hetzner Cloud
-- Domaine `nexya.ai` (Cloudflare DNS)
+- Domaine `nexyalabs.com` (Cloudflare DNS)
 - Secrets manager au choix (Doppler / 1Password / AWS SSM / sops+age)
 - GitHub repo accessible avec secrets configurés
 - Image Docker GHCR `ghcr.io/nexyalabs/nexya-backend:vX.Y.Z` (build par
@@ -214,7 +214,7 @@ APP_COMMIT_SHA=<git SHA>
 
 DATABASE_URL=postgresql+psycopg://nexya:<strong-pwd>@postgres:5432/nexya
 REDIS_URL=redis://redis:6379/0
-ALLOWED_ORIGINS=https://app.nexya.ai
+ALLOWED_ORIGINS=https://app.nexyalabs.com
 
 JWT_PRIVATE_KEY=<contenu private.pem>
 JWT_PUBLIC_KEY=<contenu public.pem>
@@ -246,7 +246,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.your-collector.io
 SECURITY_HEADERS_PRESET=prod  # IMPÉRATIF en prod (cf. O1)
 
 # RGPD (J1)
-RGPD_ADMIN_EMAILS=dpo@nexya.ai,ivan@nexya.ai
+RGPD_ADMIN_EMAILS=dpo@nexyalabs.com,lothngassa@nexyalabs.com
 ```
 
 ### 5. Build & push image GHCR (CI auto)
@@ -286,15 +286,15 @@ docker compose -f docker/docker-compose.prod.yml run --rm backend \
 docker compose -f docker/docker-compose.prod.yml up -d
 
 # Vérifier healthz
-curl https://api-staging.nexya.ai/healthz
-curl https://api-staging.nexya.ai/ready  # 200 attendu
-curl https://api-staging.nexya.ai/version  # version + commit_sha
+curl https://api-staging.nexyalabs.com/healthz
+curl https://api-staging.nexyalabs.com/ready  # 200 attendu
+curl https://api-staging.nexyalabs.com/version  # version + commit_sha
 ```
 
 ### 7. Smoke tests post-deploy (10 min)
 
 ```bash
-bash scripts/smoke_test.sh https://api-staging.nexya.ai
+bash scripts/smoke_test.sh https://api-staging.nexyalabs.com
 # - /healthz, /ready, /metrics, /observability/status
 # - POST /auth/register staging-only (cf. ENV=staging)
 # - GET /docs accessible (Swagger UI)
@@ -374,7 +374,7 @@ BACKUP_DIR=/backups
 S3_BUCKET=nexya-backups-prod
 S3_REGION=eu-central-1
 BACKUP_RETENTION_DAYS=7
-BACKUP_GPG_RECIPIENT=ops@nexya.ai      # active le chiffrement GPG
+BACKUP_GPG_RECIPIENT=admin@nexyalabs.com      # active le chiffrement GPG
 ```
 
 Voir [`scripts/backup_db.sh`](../../scripts/backup_db.sh) +

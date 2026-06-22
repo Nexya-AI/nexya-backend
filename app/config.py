@@ -117,7 +117,7 @@ class Settings(BaseSettings):
     # dans les dashboards OpenRouter, non bloquants (vides = absents).
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    openrouter_referer: str = "https://nexya.ai"
+    openrouter_referer: str = "https://nexyalabs.com"
     openrouter_app_title: str = "NEXYA"
 
     # ── Storage (MinIO / S3 / R2) ──────────────────────────────
@@ -696,8 +696,8 @@ class Settings(BaseSettings):
     # URL publique de la page d'unsubscribe (Flutter/web) qui reçoit le
     # token en query param et appelle ensuite POST /notifications/unsubscribe/
     # {token} côté backend. Mobile = scheme `nexya://unsubscribe?token=...`,
-    # web fallback = https://app.nexya.ai/unsubscribe.
-    frontend_unsubscribe_url: str = "https://app.nexya.ai/unsubscribe"
+    # web fallback = https://app.nexyalabs.com/unsubscribe.
+    frontend_unsubscribe_url: str = "https://app.nexyalabs.com/unsubscribe"
     # Rate limit IP sur `POST /notifications/unsubscribe/{token}` (public,
     # sans auth). Un attaquant qui brute-force des tokens doit être coupé
     # tôt. 10/h suffit largement pour un legit qui clique ré-clique.
@@ -707,14 +707,14 @@ class Settings(BaseSettings):
     # En dev/test, si `brevo_api_key` est vide, l'app utilise un
     # MockEmailService qui loggue les emails au lieu de les envoyer.
     brevo_api_key: str = ""
-    brevo_sender_email: str = "no-reply@nexya.ai"
+    brevo_sender_email: str = "no-reply@nexyalabs.com"
     brevo_sender_name: str = "NEXYA"
 
     # URL publique du frontend — sert à construire les deep links
     # envoyés dans les emails (reset password, confirmation, etc.).
     # En mobile, le Flutter interceptera le scheme `nexya://` ;
-    # la version web fallback sur `https://app.nexya.ai/...`.
-    frontend_password_reset_url: str = "https://app.nexya.ai/reset-password"
+    # la version web fallback sur `https://app.nexyalabs.com/...`.
+    frontend_password_reset_url: str = "https://app.nexyalabs.com/reset-password"
 
     # ── Captcha — hCaptcha (anti-bot à l'inscription) ─────────
     # En dev/test, si `hcaptcha_secret_key` est vide OU `hcaptcha_enabled=False`,
@@ -936,9 +936,9 @@ class Settings(BaseSettings):
     # ── N1 — Endpoints divers (feedback / suggestions / models) ──
     # Email de l'équipe NEXYA recevant les suggestions user via
     # `POST /suggestions`. Recommandation prod : créer un alias
-    # `feedback@nexya.ai` qui pointe vers la boîte d'Ivan / DPO V1,
+    # `feedback@nexyalabs.com` qui pointe vers la boîte d'Ivan / DPO V1,
     # remplacer par une mailing-list équipe Phase 14.
-    feedback_team_email: str = Field(default="feedback@nexya.ai")
+    feedback_team_email: str = Field(default="feedback@nexyalabs.com")
     # Anti-spam suggestions user (5 submits / jour / user, sliding
     # window Redis 24 h). Au 6ᵉ → 429 `RATE_LIMIT_ABUSE`.
     suggestions_rate_limit_per_day: int = Field(default=5, ge=1, le=100)

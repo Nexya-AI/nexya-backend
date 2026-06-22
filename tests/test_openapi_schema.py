@@ -48,7 +48,7 @@ def test_info_block_filled_in_french(schema: dict) -> None:
     assert "description" in info
     # FR : on cherche des marqueurs francophones
     assert "Africa" in info["description"] or "RGPD" in info["description"]
-    assert info["contact"]["email"] == "support@nexya.ai"
+    assert info["contact"]["email"] == "support@nexyalabs.com"
     assert "license" in info
     assert "termsOfService" in info
 
@@ -67,7 +67,7 @@ def test_servers_list_has_dev_staging_prod(schema: dict) -> None:
     urls = [s["url"] for s in servers]
     assert any("localhost" in u for u in urls)
     assert any("staging" in u for u in urls)
-    assert any("api.nexya.ai" in u for u in urls)
+    assert any("api.nexyalabs.com" in u for u in urls)
 
 
 # ══════════════════════════════════════════════════════════════

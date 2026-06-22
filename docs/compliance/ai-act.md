@@ -197,7 +197,7 @@ NEXYA expose les droits user via l'endpoint suivant :
 | Rectification | `PUT /user/profile` |
 | Effacement | `/rgpd/user/account/delete-request` (Article 17) |
 | Portabilité | `/rgpd/user/data-export` JSON ZIP (Article 20) |
-| Limitation | Pas d'endpoint dédié V1 — l'user supprime via Art. 17 ou contact support@nexya.ai |
+| Limitation | Pas d'endpoint dédié V1 — l'user supprime via Art. 17 ou contact support@nexyalabs.com |
 | Opposition | `/rgpd/user/consent DELETE {type}` (retrait consentement) |
 
 Voir [`rgpd.md`](rgpd.md).

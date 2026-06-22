@@ -272,7 +272,7 @@ task`. Voir [`docs/architecture/security-posture.md`](security-posture.md)
 | CinetPay | Créer compte CinetPay marchand + récupérer `apikey` + `site_id` sandbox |
 | CinetPay webhook | URL public exposée (staging L2) + clé HMAC partagée |
 | NotchPay | Créer compte développeur + clés publique/secrète sandbox |
-| Domaines | Configurer `api.nexya.ai` + cert SSL (post L2) pour les callbacks providers (sandbox tolère HTTP local) |
+| Domaines | Configurer `api.nexyalabs.com` + cert SSL (post L2) pour les callbacks providers (sandbox tolère HTTP local) |
 
 ---
 

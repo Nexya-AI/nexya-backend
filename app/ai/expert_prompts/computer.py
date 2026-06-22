@@ -217,7 +217,7 @@ _FEW_SHOT_EXAMPLES: Final[tuple[FewShotExample, ...]] = (
             "    r = await client.get(url)  # ← le loop file ailleurs ici\n"
             "    return r.status_code\n\n"
             "async def main() -> None:\n"
-            "    urls = ['https://nexya.ai', 'https://google.com', 'https://github.com']\n"
+            "    urls = ['https://nexyalabs.com', 'https://google.com', 'https://github.com']\n"
             "    async with httpx.AsyncClient() as client:\n"
             "        results = await asyncio.gather(*(fetch_url(client, u) for u in urls))\n"
             "    print(results)\n\n"

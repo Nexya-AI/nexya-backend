@@ -3,7 +3,7 @@ name = "nexya-backend"
 version = "1.1.6"
 description = "NEXYA AI Assistant — Production API (FastAPI + SSE)"
 requires-python = ">=3.12"
-authors = [{ name = "Loth Ivan Ngassa Yimga", email = "ngassayimgal@gmail.com" }]
+authors = [{ name = "Loth Ivan Ngassa Yimga", email = "lothngassa@nexyalabs.com" }]
 
 dependencies = [
     # ── Web framework ──────────────────────────────────────────
