@@ -74,7 +74,7 @@ def _install_fake_genai(
 
     monkeypatch.setattr(settings, "gemini_api_key", "fake-key", raising=False)
     monkeypatch.setattr(settings, "gcp_project_id", "nexya", raising=False)
-    monkeypatch.setattr(settings, "gcp_location", "us-central1", raising=False)
+    monkeypatch.setattr(settings, "gcp_region", "us-central1", raising=False)
 
     return client, types_mod
 
@@ -94,11 +94,11 @@ async def test_gemini_analyze_flash_happy_path_with_cost(
     provider = GeminiVisionProvider()
     result = await provider.analyze_images([_img()], "décris", tier="flash")
     assert result.text == "Une image d'un chat roux."
-    assert result.model == "gemini-2.0-flash"
+    assert result.model == "gemini-2.5-flash"
     assert result.tokens_input == 300
     assert result.tokens_output == 50
-    # Cost flash = 300*0.075/1M + 50*0.30/1M = 0.0000225 + 0.000015 = 0.0000375.
-    assert result.cost_usd == round(300 * 0.075 / 1_000_000 + 50 * 0.30 / 1_000_000, 6)
+    # Cost flash = 300*0.30/1M + 50*2.50/1M.
+    assert result.cost_usd == round(300 * 0.30 / 1_000_000 + 50 * 2.50 / 1_000_000, 6)
 
 
 @pytest.mark.asyncio
@@ -115,9 +115,9 @@ async def test_gemini_analyze_pro_uses_pro_model_and_pricing(
 
     provider = GeminiVisionProvider()
     result = await provider.analyze_images([_img()], "q", tier="pro")
-    assert result.model == "gemini-2.0-pro"
-    # Cost pro = 1000*1.25/1M + 200*5.0/1M = 0.00125 + 0.001 = 0.00225.
-    assert result.cost_usd == round(1000 * 1.25 / 1_000_000 + 200 * 5.0 / 1_000_000, 6)
+    assert result.model == "gemini-2.5-pro"
+    # Cost pro = 1000*1.25/1M + 200*10.0/1M.
+    assert result.cost_usd == round(1000 * 1.25 / 1_000_000 + 200 * 10.0 / 1_000_000, 6)
 
 
 @pytest.mark.asyncio

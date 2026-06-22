@@ -43,7 +43,7 @@ def _make_fake_analysis() -> VisionAnalysis:
         prompt_sha256="b" * 64,
         prompt="décris",
         analysis_text="C'est un chat roux.",
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         provider="gemini",
         tokens_input=400,
         tokens_output=80,
@@ -104,7 +104,7 @@ def test_analyze_201_returns_analysis(client: TestClient, monkeypatch: pytest.Mo
     body = r.json()
     assert body["success"] is True
     assert body["data"]["analysis_text"] == "C'est un chat roux."
-    assert body["data"]["model"] == "gemini-2.0-flash"
+    assert body["data"]["model"] == "gemini-2.5-flash"
     assert body["data"]["tokens_input"] == 400
 
 

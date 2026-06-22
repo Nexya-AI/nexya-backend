@@ -70,8 +70,6 @@ class Settings(BaseSettings):
 
     # ── IA — Gemini (Vertex AI) ────────────────────────────────
     gemini_api_key: str = ""
-    gcp_project_id: str = "nexya-ai"
-    gcp_location: str = "us-central1"
 
     # ── IA — Replicate (fallback Flux 1.1 Pro pour célébrités) ──
     # Activé en fallback automatique sur `ProviderContentFilteredError`
@@ -296,7 +294,9 @@ class Settings(BaseSettings):
     # login` avant le démarrage de l'API.
     gemini_use_vertex: bool = False
     # Project GCP utilisé en mode Vertex AI (ignoré en mode AI Studio).
-    gcp_project_id: str = ""
+    # Déclaration unique (avant 2026-06-22 il existait un doublon dans le bloc
+    # « Gemini API key » qui shadowait cette valeur à "").
+    gcp_project_id: str = "nexya-ai"
     # Region GCP utilisée en mode Vertex AI. `us-central1` est le plus
     # standard + le moins cher + le mieux disponible. Autres possibilités :
     # `europe-west4` (Belgique), `asia-southeast1` (Singapour).
@@ -466,8 +466,8 @@ class Settings(BaseSettings):
         ]
     )
     vision_mock_enabled: bool = False
-    vision_default_flash_model: str = "gemini-2.0-flash"
-    vision_default_pro_model: str = "gemini-2.0-pro"
+    vision_default_flash_model: str = "gemini-2.5-flash"
+    vision_default_pro_model: str = "gemini-2.5-pro"
     vision_pro_provider: str = "gemini"  # 'gemini' | 'openai'
 
     # ── Planner Scheduler (Bloc F1) ─────────────────────────────

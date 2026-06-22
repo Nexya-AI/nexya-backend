@@ -6,8 +6,8 @@ Réutilise le pattern client singleton lazy de `app/ai/providers/gemini.py`
 multimodal usage : `types.Part.from_bytes(data=..., mime_type=...)`).
 
 Tiers supportés :
-- `flash` → `gemini-2.0-flash` ($0.075/1M in + $0.30/1M out)
-- `pro`   → `gemini-2.0-pro`   ($1.25/1M in  + $5.00/1M out)
+- `flash` → `gemini-2.5-flash` ($0.30/1M in + $2.50/1M out)
+- `pro`   → `gemini-2.5-pro`   ($1.25/1M in + $10.00/1M out)
 
 Prix tracé par row via `cost_usd` — permet le benchmark a posteriori
 `SUM(cost_usd) GROUP BY model` contre un futur `PixtralVisionProvider`
@@ -41,9 +41,12 @@ log = structlog.get_logger()
 
 _GEMINI_PRICES: Final[dict[str, tuple[float, float]]] = {
     # model → (input_price_per_1M, output_price_per_1M)
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-2.5-pro": (1.25, 10.00),
+    # Compat historique (modèles dépréciés, conservés pour le tracking de
+    # coût sur d'anciennes rows `vision_analyses`).
     "gemini-2.0-flash": (0.075, 0.30),
     "gemini-2.0-pro": (1.25, 5.00),
-    # Fallback 1.5 au cas où (compat historique)
     "gemini-1.5-flash": (0.075, 0.30),
     "gemini-1.5-pro": (1.25, 5.00),
 }
@@ -84,13 +87,13 @@ def _get_client():
         _client = genai.Client(
             vertexai=True,
             project=settings.gcp_project_id,
-            location=settings.gcp_location,
+            location=settings.gcp_region,
         )
         log.info(
             "vision.gemini.client_initialized",
             mode="vertex",
             project=settings.gcp_project_id,
-            location=settings.gcp_location,
+            location=settings.gcp_region,
         )
     else:
         _client = genai.Client(api_key=settings.gemini_api_key)
@@ -148,8 +151,8 @@ class GeminiVisionProvider(VisionProvider):
     def __init__(
         self,
         *,
-        flash_model: str = "gemini-2.0-flash",
-        pro_model: str = "gemini-2.0-pro",
+        flash_model: str = "gemini-2.5-flash",
+        pro_model: str = "gemini-2.5-pro",
     ) -> None:
         self._flash_model = flash_model
         self._pro_model = pro_model

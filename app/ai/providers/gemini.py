@@ -84,13 +84,13 @@ def _get_client() -> Client:
             _client = genai.Client(
                 vertexai=True,
                 project=settings.gcp_project_id,
-                location=settings.gcp_location,
+                location=settings.gcp_region,
             )
             log.info(
                 "ai.provider.gemini.client_initialized",
                 mode="vertex",
                 project=settings.gcp_project_id,
-                location=settings.gcp_location,
+                location=settings.gcp_region,
             )
         else:
             _client = genai.Client(api_key=settings.gemini_api_key)
@@ -154,8 +154,16 @@ def _map_sdk_exception(exc: Exception, *, model: str) -> ProviderError:
     if status_code == 429:
         return ProviderRateLimitError(message, provider="gemini", model=model)
     if status_code == 400:
-        # Les 400 sur Gemini sont souvent des violations de safety
-        if "safety" in message.lower() or "blocked" in message.lower():
+        low = message.lower()
+        # Un 400 INVALID_ARGUMENT qui mentionne un paramètre non supporté
+        # (ex: « Only block_low_and_above is supported for safetySetting ») est
+        # une erreur de CONFIGURATION, PAS un filtre de contenu - même si le
+        # mot « safety » y apparaît. La router vers ContentFiltered l'enverrait
+        # vers le fallback Replicate et masquerait le vrai bug (terrain
+        # 2026-06-22 : log trompeur `imagen_filtered_no_fallback`).
+        if "invalid_argument" in low or "is supported" in low or "not supported" in low:
+            return ProviderInvalidRequestError(message, provider="gemini", model=model)
+        if "safety" in low or "blocked" in low:
             return ProviderContentFilteredError(message, provider="gemini", model=model)
         return ProviderInvalidRequestError(message, provider="gemini", model=model)
 
@@ -408,11 +416,22 @@ class GeminiImageProvider(ImageProvider):
         # Note : la reconnaissance des célébrités nommées (politiciens, dirigeants)
         # passe par une couche Trust & Safety séparée chez Google, indépendante
         # de ces paramètres. Reformuler par description sans nom propre.
+        # AI Studio (mode api_key) n'accepte QUE `block_low_and_above` pour
+        # safetyFilterLevel. Les niveaux plus permissifs (`block_only_high`,
+        # `block_medium_and_above`) sont reserves a Vertex AI. En prod NEXYA
+        # tourne en AI Studio (`GEMINI_USE_VERTEX=false`), donc poser
+        # `block_only_high` declenchait un 400 INVALID_ARGUMENT systematique
+        # (« Only block_low_and_above is supported for safetySetting ») -> toute
+        # generation d'image echouait (bug terrain 2026-06-22). On adapte le
+        # niveau de filtre au mode actif.
+        safety_filter_level = (
+            "block_only_high" if settings.gemini_use_vertex else "block_low_and_above"
+        )
         config_kwargs: dict[str, Any] = {
             "numberOfImages": count,
             "aspectRatio": request.aspect_ratio,
             "outputMimeType": "image/jpeg",
-            "safetyFilterLevel": "block_only_high",
+            "safetyFilterLevel": safety_filter_level,
             "personGeneration": "allow_adult",
         }
         if request.negative_prompt:
