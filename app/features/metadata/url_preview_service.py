@@ -44,7 +44,9 @@ _MAX_CONTENT_BYTES: Final[int] = 500 * 1024  # 500 KB
 _MAX_REDIRECTS: Final[int] = 3
 _CACHE_TTL_SECONDS: Final[int] = 7 * 24 * 3600  # 7 jours
 _CACHE_KEY_PREFIX: Final[str] = "url_preview:"
-_USER_AGENT: Final[str] = "Mozilla/5.0 (compatible; NEXYA-URLPreview/1.0; +https://nexyalabs.com/bot)"
+_USER_AGENT: Final[str] = (
+    "Mozilla/5.0 (compatible; NEXYA-URLPreview/1.0; +https://nexyalabs.com/bot)"
+)
 
 # ── Regex parsing OG (strict, anti-greedy, case-insensitive) ──────
 _META_TAG_RE = re.compile(
