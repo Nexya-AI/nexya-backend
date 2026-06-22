@@ -54,7 +54,7 @@ Quand V2 est introduit :
 3. Header de réponse Deprecation:
    Deprecation: true
    Sunset: 2027-04-01
-   Link: <https://nexya.ai/api-changelog>; rel="deprecation"
+   Link: <https://nexyalabs.com/api-changelog>; rel="deprecation"
 4. Notification email aux developers via support
 5. Suppression V1 après 6+ mois
 ```

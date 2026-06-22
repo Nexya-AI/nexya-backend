@@ -72,7 +72,7 @@ atteint un volume justifiant).
 ### 1. Parties
 
 - **Responsable du traitement** : Nexyalabs SARL (à créer/préciser),
-  numéro RCS [TODO], siège [TODO], DPO `dpo@nexya.ai`
+  numéro RCS [TODO], siège [TODO], DPO `dpo@nexyalabs.com`
 - **Sous-traitant** : [Nom officiel du provider, RCS/numéro
   d'identification, siège, contact DPO]
 
@@ -204,7 +204,7 @@ Juridiction de Paris ou siège du provider.]
 
 1. **Créer Nexyalabs SARL** (ou structure juridique) si pas déjà fait
 2. **Désigner DPO interne** (Ivan V1, externe V2 post 50k users)
-3. **Créer alias `dpo@nexya.ai`** + `support@nexya.ai`
+3. **Créer alias `dpo@nexyalabs.com`** + `support@nexyalabs.com`
 4. **Engager consultant DPO/avocat RGPD** Phase M3 pour DPIA + DPA
    sur-mesure des principaux providers
 5. **Établir le registre des activités de traitement** Article 30

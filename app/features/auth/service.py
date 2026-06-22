@@ -704,7 +704,7 @@ async def delete_account(
     """Supprime (anonymise) le compte utilisateur — RGPD.
 
     On ne supprime PAS les données — on anonymise :
-    - email → deleted_<uuid>@nexya.ai
+    - email → deleted_<uuid>@nexyalabs.com
     - username → None
     - display_name → "Utilisateur supprimé"
     - password_hash → chaîne invalide (impossible de se reconnecter)
@@ -720,7 +720,7 @@ async def delete_account(
     # visage = PII sensible) sera supprimé immédiatement en best-effort.
     avatar_key_before = user.avatar_storage_key
 
-    user.email = f"deleted_{uuid.uuid4().hex[:12]}@nexya.ai"
+    user.email = f"deleted_{uuid.uuid4().hex[:12]}@nexyalabs.com"
     user.username = None
     user.display_name = "Utilisateur supprime"
     user.avatar_url = None

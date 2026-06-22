@@ -35,7 +35,7 @@ audio, documents) sont accessibles via des URLs signées valides
 Délai d'archivage
 -----------------
 Si vous n'avez pas effectué cet export, contactez immédiatement
-dpo@nexya.ai.
+dpo@nexyalabs.com.
 
 L'équipe NEXYA
 {% include '_layout_footer.txt' %}

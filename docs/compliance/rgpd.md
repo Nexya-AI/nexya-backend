@@ -271,7 +271,7 @@ risque ».
 
 **Placeholder V1** :
 - DPO interne = Ivan (responsabilité juridique).
-- Email de contact : `dpo@nexya.ai` (à créer avant prod).
+- Email de contact : `dpo@nexyalabs.com` (à créer avant prod).
 - `RGPD_ADMIN_EMAILS` env var liste les emails autorisés à accéder
   `/rgpd/admin/*` (production safety guard fail-fast au boot si vide).
 

@@ -114,7 +114,7 @@ class DeletionRequestService:
         avatar_key_before = user.avatar_storage_key
 
         # Anonymisation logique (A1 — préservé).
-        user.email = f"deleted_{uuid.uuid4().hex[:12]}@nexya.ai"
+        user.email = f"deleted_{uuid.uuid4().hex[:12]}@nexyalabs.com"
         user.username = None
         user.display_name = "Utilisateur supprime"
         user.avatar_url = None

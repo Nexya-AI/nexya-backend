@@ -24,7 +24,7 @@ sur 5 min OU alerte `Nexya5xxRateHigh` déclenchée.
 **Procédure** :
 1. **Vérifier `/observability/status`** :
    ```bash
-   curl https://api.nexya.ai/observability/status \
+   curl https://api.nexyalabs.com/observability/status \
      -H "X-Prometheus-Token: $TOKEN"
    ```
 2. **Identifier le provider en panne** dans Grafana
@@ -144,7 +144,7 @@ Crisp escalation Phase 18 hook avec category=`payment`.
 
 | Outil | URL |
 |---|---|
-| Grafana | https://grafana.nexya.ai (post L2) |
+| Grafana | https://grafana.nexyalabs.com (post L2) |
 | Prometheus | http://prometheus.internal (post L2) |
 | Sentry | https://sentry.io/orgs/nexyalabs/ (post L2) |
 | Cloudflare | https://dash.cloudflare.com |

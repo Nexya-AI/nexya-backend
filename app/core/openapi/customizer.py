@@ -268,19 +268,19 @@ def _apply_info(schema: dict[str, Any]) -> None:
         "Africa-first, RGPD/AI Act compliant."
     )
     info["description"] = _NEXYA_DESCRIPTION_FR
-    info["termsOfService"] = "https://nexya.ai/terms"  # placeholder
+    info["termsOfService"] = "https://nexyalabs.com/terms"  # placeholder
     info["contact"] = {
         "name": "Équipe NEXYA",
-        "email": "support@nexya.ai",
-        "url": "https://nexya.ai",
+        "email": "support@nexyalabs.com",
+        "url": "https://nexyalabs.com",
     }
     info["license"] = {
         "name": "Proprietary — Nexyalabs",
-        "url": "https://nexya.ai/license",
+        "url": "https://nexyalabs.com/license",
     }
     # x-logo : extension ReDoc pour afficher le logo en haut à gauche.
     info["x-logo"] = {
-        "url": "https://nexya.ai/static/logo.png",  # placeholder
+        "url": "https://nexyalabs.com/static/logo.png",  # placeholder
         "altText": "NEXYA",
         "backgroundColor": "#0066ff",
     }
@@ -294,11 +294,11 @@ def _apply_servers(schema: dict[str, Any]) -> None:
             "description": "Développement local (Docker compose)",
         },
         {
-            "url": "https://api-staging.nexya.ai",
+            "url": "https://api-staging.nexyalabs.com",
             "description": "Staging (post-L2)",
         },
         {
-            "url": "https://api.nexya.ai",
+            "url": "https://api.nexyalabs.com",
             "description": "Production",
         },
     ]
@@ -460,7 +460,7 @@ Le backend est calibré pour :
 
 ### 💬 Support
 
-- `support@nexya.ai`
-- [docs.nexya.ai](https://nexya.ai/docs) (placeholder)
+- `support@nexyalabs.com`
+- [docs.nexyalabs.com](https://nexyalabs.com/docs) (placeholder)
 - Tickets auto via Crisp pour incidents critiques Pro (Phase 18).
 """

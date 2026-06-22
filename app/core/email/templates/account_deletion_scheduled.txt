@@ -34,7 +34,7 @@ registre des appels IA agrégé (Article 13 du Règlement IA).
 Une question ?
 --------------
 Contactez le délégué à la protection des données :
-dpo@nexya.ai
+dpo@nexyalabs.com
 
 L'équipe NEXYA
 {% include '_layout_footer.txt' %}

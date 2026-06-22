@@ -281,7 +281,7 @@ Chaque décision tient compte :
 
 ## 💬 Support
 
-- Email : support@nexya.ai
+- Email : support@nexyalabs.com
 - Issues : GitHub Issues
 - Incidents critiques : escalation auto Crisp pour users Pro (Phase 18 / N4)
 

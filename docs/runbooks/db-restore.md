@@ -157,8 +157,8 @@ docker exec -i nexya-postgres psql -U nexya postgres -c \
 docker compose -f docker/docker-compose.prod.yml start backend arq
 
 # 11. Smoke test
-curl https://api.nexya.ai/healthz
-curl https://api.nexya.ai/ready
+curl https://api.nexyalabs.com/healthz
+curl https://api.nexyalabs.com/ready
 
 # 12. Si tout OK, drop nexya_old après 24h
 docker exec -i nexya-postgres psql -U nexya postgres -c \

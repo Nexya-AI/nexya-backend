@@ -614,7 +614,7 @@ délai.
 Questions ?
 -----------
 Contactez le délégué à la protection des données (DPO) de NEXYA en
-écrivant à : dpo@nexya.ai
+écrivant à : dpo@nexyalabs.com
 
 Date de génération de cet export : voir `manifest.json` champ `exported_at`.
 """
