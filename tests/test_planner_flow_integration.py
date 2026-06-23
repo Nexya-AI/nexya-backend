@@ -66,6 +66,12 @@ def _fake_task(task_id: uuid.UUID | None = None, *, status: str = "idle") -> Mag
     task.deleted_at = None
     task.created_at = datetime.now(UTC)
     task.updated_at = datetime.now(UTC)
+    # `output_kind` vit dans metadata_json (pas une colonne ORM) — un vrai
+    # ScheduledTask n'a donc PAS d'attribut `output_kind`. On reproduit ce
+    # comportement pour que serialize_task dérive le kind depuis metadata_json
+    # au lieu de lire un MagicMock auto-généré (invalide pour le Literal).
+    task.metadata_json = {"output_kind": "generation"}
+    del task.output_kind
     return task
 
 

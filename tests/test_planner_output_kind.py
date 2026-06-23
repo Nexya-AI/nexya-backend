@@ -7,7 +7,6 @@ import pytest
 from app.features.planner import output_kind as ok_mod
 from app.features.planner.output_kind import detect_task_output_kind, extract_output_kind
 
-
 # ══════════════════════════════════════════════════════════════
 # detect_task_output_kind — inputs réels
 # ══════════════════════════════════════════════════════════════
