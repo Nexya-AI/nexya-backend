@@ -18,10 +18,11 @@ from app.features.auth.models import User
 from app.features.planner.schemas import (
     TaskCreate,
     TaskResponse,
-    TaskResultResponse,
     TaskResultsPage,
     TasksPage,
     TaskUpdate,
+    serialize_result,
+    serialize_task,
 )
 from app.features.planner.service import TaskSchedulerService
 from app.shared.schemas import NexyaResponse
@@ -45,7 +46,7 @@ async def create_task(
     db: AsyncSession = Depends(get_db),
 ) -> NexyaResponse[TaskResponse]:
     task = await TaskSchedulerService.create_task(current_user, body, db)
-    return NexyaResponse(success=True, data=TaskResponse.model_validate(task))
+    return NexyaResponse(success=True, data=serialize_task(task))
 
 
 # ══════════════════════════════════════════════════════════════
@@ -71,7 +72,7 @@ async def list_tasks(
     return NexyaResponse(
         success=True,
         data=TasksPage(
-            items=[TaskResponse.model_validate(t) for t in page.items],
+            items=[serialize_task(t) for t in page.items],
             next_cursor=page.next_cursor,
         ),
     )
@@ -89,7 +90,7 @@ async def get_task(
     db: AsyncSession = Depends(get_db),
 ) -> NexyaResponse[TaskResponse]:
     task = await TaskSchedulerService.get_task(task_id, current_user, db)
-    return NexyaResponse(success=True, data=TaskResponse.model_validate(task))
+    return NexyaResponse(success=True, data=serialize_task(task))
 
 
 # ══════════════════════════════════════════════════════════════
@@ -105,7 +106,7 @@ async def update_task(
     db: AsyncSession = Depends(get_db),
 ) -> NexyaResponse[TaskResponse]:
     task = await TaskSchedulerService.update_task(task_id, current_user, body, db)
-    return NexyaResponse(success=True, data=TaskResponse.model_validate(task))
+    return NexyaResponse(success=True, data=serialize_task(task))
 
 
 # ══════════════════════════════════════════════════════════════
@@ -139,7 +140,7 @@ async def pause_task(
     db: AsyncSession = Depends(get_db),
 ) -> NexyaResponse[TaskResponse]:
     task = await TaskSchedulerService.pause_task(task_id, current_user, db)
-    return NexyaResponse(success=True, data=TaskResponse.model_validate(task))
+    return NexyaResponse(success=True, data=serialize_task(task))
 
 
 # ══════════════════════════════════════════════════════════════
@@ -154,7 +155,7 @@ async def resume_task(
     db: AsyncSession = Depends(get_db),
 ) -> NexyaResponse[TaskResponse]:
     task = await TaskSchedulerService.resume_task(task_id, current_user, db)
-    return NexyaResponse(success=True, data=TaskResponse.model_validate(task))
+    return NexyaResponse(success=True, data=serialize_task(task))
 
 
 # ══════════════════════════════════════════════════════════════
@@ -179,7 +180,7 @@ async def list_task_results(
     return NexyaResponse(
         success=True,
         data=TaskResultsPage(
-            items=[TaskResultResponse.model_validate(r) for r in page.items],
+            items=[serialize_result(r) for r in page.items],
             next_cursor=page.next_cursor,
         ),
     )

@@ -36,6 +36,7 @@ from app.core.errors.exceptions import (
 )
 from app.features.auth.models import User
 from app.features.planner.models import ScheduledTask, ScheduledTaskResult
+from app.features.planner.output_kind import detect_task_output_kind
 from app.features.planner.scheduler import compute_next_run
 from app.features.planner.schemas import (
     ScheduleConfig,
@@ -160,6 +161,12 @@ class TaskSchedulerService:
                 "La tâche ne peut pas être planifiée dans le passé ou le schedule est invalide."
             )
 
+        # 2.5. Détection adaptative du livrable (LOT B2). Stockée dans
+        # metadata_json (JSONB nullable existant → aucune migration). Le worker
+        # la relit pour choisir le pipeline de production ; le frontend l'expose
+        # en badge sur la carte tâche + carte de résultat adaptative.
+        output_kind = detect_task_output_kind(body.prompt)
+
         # 3. INSERT.
         task = ScheduledTask(
             user_id=user.id,
@@ -174,6 +181,7 @@ class TaskSchedulerService:
             status="idle",
             active=True,
             paused=False,
+            metadata_json={"output_kind": output_kind},
         )
         db.add(task)
         await db.commit()
@@ -184,6 +192,7 @@ class TaskSchedulerService:
             user_id=str(user.id),
             task_id=str(task.id),
             schedule_type=schedule_type,
+            output_kind=output_kind,
             next_run_at=next_run.isoformat() if next_run else None,
             plan=plan_label,
         )
@@ -252,6 +261,11 @@ class TaskSchedulerService:
             task.title = changes["title"]
         if "prompt" in changes and changes["prompt"] is not None:
             task.prompt = changes["prompt"]
+            # Re-détecte le output_kind quand le prompt change (LOT B2). On
+            # réassigne un nouveau dict (pas de mutation in-place) pour que
+            # SQLAlchemy détecte le changement sur la colonne JSONB.
+            new_kind = detect_task_output_kind(changes["prompt"])
+            task.metadata_json = {**(task.metadata_json or {}), "output_kind": new_kind}
         if "expert_id" in changes and changes["expert_id"] is not None:
             task.expert_id = changes["expert_id"]
         if "auto_delete_after_run" in changes and changes["auto_delete_after_run"] is not None:

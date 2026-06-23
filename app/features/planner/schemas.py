@@ -28,6 +28,9 @@ from pydantic import (
     model_validator,
 )
 
+from app.features.document_generator.download import build_document_download_path
+from app.features.planner.output_kind import OutputKind, extract_output_kind
+
 # ══════════════════════════════════════════════════════════════
 # Literals partagés
 # ══════════════════════════════════════════════════════════════
@@ -372,7 +375,14 @@ class TaskUpdate(BaseModel):
 
 
 class TaskResponse(BaseModel):
-    """Task sérialisée pour le client."""
+    """Task sérialisée pour le client.
+
+    `output_kind` est dérivé de `metadata_json["output_kind"]` — il n'existe
+    PAS comme attribut ORM direct, donc `model_validate(task)` seul renverrait
+    le défaut. Le router doit passer par `serialize_task(task)` (qui patche le
+    bon kind). Le défaut `"generation"` couvre les tâches créées avant la
+    feature (LOT B2).
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -380,6 +390,7 @@ class TaskResponse(BaseModel):
     title: str
     prompt: str
     expert_id: str
+    output_kind: OutputKind = "generation"
     schedule_type: ScheduleType
     schedule_config: dict[str, Any]
     timezone: str
@@ -403,8 +414,36 @@ class TasksPage(BaseModel):
     next_cursor: str | None = None
 
 
+class TaskDocumentResult(BaseModel):
+    """Bloc document d'un résultat (output_kind="document", LOT B3).
+
+    Le worker rend le Markdown en PDF/DOCX, le stocke dans la Bibliothèque
+    (`library_id`) et écrit ce bloc dans `result.metadata_json["document"]`.
+    `download_url` n'est PAS persistée : le sérialiseur la régénère depuis le
+    `library_id` via `build_document_download_path` — chemin RELATIF vers
+    l'endpoint authentifié `GET /generate/document/download/{library_id}`
+    (fix P0 2026-06-10 : le presigned MinIO est injoignable depuis le device en
+    prod, MinIO n'ayant aucun port public). Le dio Flutter résout le chemin
+    contre `baseUrl` + attache le Bearer.
+    """
+
+    library_id: uuid.UUID
+    filename: str
+    format: Literal["pdf", "docx"]
+    download_url: str | None = None
+    pages: int | None = None
+    size_bytes: int | None = None
+    truncated: bool | None = None
+
+
 class TaskResultResponse(BaseModel):
-    """Résultat d'une exécution sérialisé."""
+    """Résultat d'une exécution sérialisé.
+
+    `output_kind` + `document` sont dérivés de `result.metadata_json` — passer
+    par `serialize_result(...)`. La `download_url` du bloc document dérive du
+    `library_id` (chemin relatif authentifié, fonction pure), donc le sérialiseur
+    reste synchrone (aucun lookup DB ni presigned MinIO).
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -413,8 +452,10 @@ class TaskResultResponse(BaseModel):
     ran_at: datetime
     duration_ms: int
     status: ResultStatus
+    output_kind: OutputKind = "generation"
     result_text: str | None
     error_text: str | None
+    document: TaskDocumentResult | None = None
     tokens_input: int
     tokens_output: int
     cost_usd: Decimal
@@ -425,3 +466,85 @@ class TaskResultResponse(BaseModel):
 class TaskResultsPage(BaseModel):
     items: list[TaskResultResponse]
     next_cursor: str | None = None
+
+
+# ══════════════════════════════════════════════════════════════
+# Sérialiseurs (dérivation output_kind / document depuis metadata_json)
+# ══════════════════════════════════════════════════════════════
+
+
+def serialize_task(task: Any) -> TaskResponse:
+    """Sérialise une `ScheduledTask` ORM en `TaskResponse` avec `output_kind`.
+
+    `output_kind` n'est pas un attribut ORM : on construit la base via
+    `from_attributes` puis on patche le kind extrait de `metadata_json`
+    (pattern aligné `_build_messages_with_live_task_status` du chat router).
+    """
+    base = TaskResponse.model_validate(task)
+    kind = extract_output_kind(getattr(task, "metadata_json", None))
+    return base.model_copy(update={"output_kind": kind})
+
+
+def _build_document_result(metadata_json: Any) -> TaskDocumentResult | None:
+    """Reconstruit le bloc `document` d'un résultat depuis `metadata_json` (B3).
+
+    Le worker stocke `metadata_json["document"] = {library_id, filename, format,
+    pages, size_bytes, truncated}` quand un PDF a été rendu. La `download_url`
+    n'est PAS persistée : on la régénère FRAÎCHE via `build_document_download_path`
+    — chemin RELATIF vers l'endpoint authentifié `GET /generate/document/download/
+    {library_id}` (fix P0 2026-06-10, le dio Flutter résout contre `baseUrl` +
+    attache le Bearer). Fonction pure → aucun lookup DB, `serialize_result` reste
+    synchrone (zéro N+1).
+
+    Tolérant à toute corruption : metadata absente/non-dict, clé `document`
+    absente/non-dict, ou `library_id` manquant/invalide → None (la carte frontend
+    retombe alors sur le rendu Markdown générique).
+    """
+    if not isinstance(metadata_json, dict):
+        return None
+    raw = metadata_json.get("document")
+    if not isinstance(raw, dict):
+        return None
+    library_id_raw = raw.get("library_id")
+    if not library_id_raw:
+        return None
+    try:
+        library_id = uuid.UUID(str(library_id_raw))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+    fmt = raw.get("format")
+    if fmt not in ("pdf", "docx"):
+        fmt = "pdf"  # défaut défensif (métadonnée legacy/corrompue)
+
+    pages = raw.get("pages")
+    size_bytes = raw.get("size_bytes")
+    truncated = raw.get("truncated")
+    return TaskDocumentResult(
+        library_id=library_id,
+        filename=str(raw.get("filename") or f"document.{fmt}"),
+        format=fmt,
+        download_url=build_document_download_path(library_id),
+        # `bool` est sous-classe de `int` → on exclut explicitement les bool des
+        # champs numériques pour ne pas accepter `True` comme `pages`.
+        pages=pages if isinstance(pages, int) and not isinstance(pages, bool) else None,
+        size_bytes=(
+            size_bytes if isinstance(size_bytes, int) and not isinstance(size_bytes, bool) else None
+        ),
+        truncated=truncated if isinstance(truncated, bool) else None,
+    )
+
+
+def serialize_result(result: Any) -> TaskResultResponse:
+    """Sérialise un `ScheduledTaskResult` ORM avec `output_kind` + `document` (B2/B3).
+
+    `output_kind` et le bloc `document` sont dérivés de `result.metadata_json` (le
+    worker y écrit `{output_kind, document?}`). La `download_url` du document est
+    régénérée FRAÎCHE depuis le `library_id` (chemin relatif authentifié, fonction
+    pure) → pas de lookup DB ni de presigned MinIO, le sérialiseur reste synchrone.
+    """
+    base = TaskResultResponse.model_validate(result)
+    meta = getattr(result, "metadata_json", None)
+    kind = extract_output_kind(meta)
+    document = _build_document_result(meta)
+    return base.model_copy(update={"output_kind": kind, "document": document})

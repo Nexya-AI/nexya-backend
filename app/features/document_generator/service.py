@@ -592,6 +592,238 @@ class DocumentGeneratorService:
         )
 
     @staticmethod
+    async def generate_from_markdown(
+        user: User,
+        db: AsyncSession,
+        *,
+        markdown: str,
+        title: str | None,
+        output_format: str = "pdf",
+        template: str = "minimal",
+        options: DocumentGenerateOptions | None = None,
+        remove_watermark: bool = False,
+    ) -> DocumentGenerateResponse:
+        """Rend un document directement depuis du Markdown (LOT B3 — Planner).
+
+        Point d'entrée **markdown-direct** : contrairement à `generate` qui
+        re-fetch le markdown depuis un Message persisté `(conversation_id,
+        message_id)`, ici le markdown est fourni par l'appelant. Utilisé par le
+        worker Planner (`output_kind="document"`) où le contenu est produit par
+        le LLM hors de toute conversation — il n'y a pas de Message à re-fetcher.
+
+        Réutilise exactement les mêmes briques que `generate` (branding C4.8 +
+        watermark C4.7d + C2PA AI Act + stockage Library) sans toucher à
+        `generate` (préserve ses 237 tests). Spécificités markdown-direct :
+        pas de versioning (chaque run de tâche = doc indépendant,
+        `parent_library_id=None`), pas de `source_conversation_id`/`message_id`,
+        pas de gate watermark (le Planner force `remove_watermark=False`).
+
+        Raises:
+            DocumentSourceTooLongError: 413 si markdown > cap.
+            DocumentRenderFailedError: 503 si WeasyPrint/python-docx KO.
+            DocumentStorageUnavailableError / LibraryQuotaExceeded / FileTooLarge:
+                remontées par LibraryService (le worker les capte en fail-safe).
+        """
+        opts = options or DocumentGenerateOptions()
+
+        # Cap source (anti CPU exhaust + anti PDF géant) — même seuil que generate.
+        max_chars = settings.documents_generator_max_source_chars
+        if len(markdown) > max_chars:
+            log.warning(
+                "documents.from_markdown.source_too_long",
+                source_chars=len(markdown),
+                max_chars=max_chars,
+                user_id=str(user.id),
+            )
+            raise DocumentSourceTooLongError(
+                f"Le contenu source dépasse {max_chars} caractères "
+                f"(actuel : {len(markdown)})."
+            )
+
+        apply_watermark = settings.documents_generator_watermark_enabled and not remove_watermark
+
+        branding_context = None
+        if settings.documents_generator_branding_enabled:
+            branding_context = build_branding_context(template=template, title=title, locale="fr")
+
+        # Rendu format-spécifique (dispatch PDF vs DOCX) — mêmes renderers.
+        if output_format == "pdf":
+            html_content = render_document_html(
+                template_name=template,
+                title=title,
+                markdown_source=markdown,
+                options=opts,
+                apply_watermark=apply_watermark,
+                branding_context=branding_context,
+            )
+            rendered_pdf = await render_html_to_pdf(
+                html_content,
+                timeout_seconds=settings.documents_generator_render_timeout_seconds,
+                max_pages=settings.documents_generator_max_pages,
+                branding_context=branding_context,
+            )
+            output_bytes = rendered_pdf.pdf_bytes
+            output_pages = rendered_pdf.pages
+            output_truncated = rendered_pdf.truncated
+            output_size = rendered_pdf.size_bytes
+            file_extension = "pdf"
+            mime_type = "application/pdf"
+            provider_name = "weasyprint"
+            file_type_for_library = "pdf"
+            from .watermark_assets import get_watermark_data_url
+
+            watermark_applied = apply_watermark and (get_watermark_data_url() is not None)
+        else:  # docx
+            rendered_docx = await render_markdown_to_docx(
+                template_name=template,
+                title=title,
+                markdown_source=markdown,
+                options=opts,
+                timeout_seconds=settings.documents_generator_render_timeout_seconds,
+                max_pages=settings.documents_generator_max_pages,
+                apply_watermark=apply_watermark,
+                branding_context=branding_context,
+            )
+            output_bytes = rendered_docx.docx_bytes
+            output_pages = rendered_docx.pages
+            output_truncated = rendered_docx.truncated
+            output_size = rendered_docx.size_bytes
+            file_extension = "docx"
+            mime_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            provider_name = "python-docx"
+            file_type_for_library = "docx"
+            watermark_applied = rendered_docx.watermark_applied
+
+        # C2PA AI Act (PDF uniquement, fail-safe absolu — mêmes règles que generate).
+        c2pa_applied = False
+        c2pa_manifest_id: str | None = None
+        c2pa_signed_at: datetime | None = None
+        c2pa_skip_reason: str | None = None
+        if output_format == "docx":
+            c2pa_skip_reason = "unsupported_format_docx"
+        else:
+            try:
+                manifest_provider = get_manifest_provider()
+                c2pa_request = C2PASignRequest(
+                    prompt=f"NEXYA document template={template}",
+                    provider=provider_name,
+                    model=f"template_{template}",
+                    generation_timestamp=datetime.now(UTC),
+                    watermark_applied=watermark_applied,
+                    watermark_version=(WATERMARK_VERSION if watermark_applied else None),
+                )
+                c2pa_result: C2PASignResult = await manifest_provider.sign_image(
+                    image_bytes=output_bytes,
+                    mime_type=mime_type,
+                    request=c2pa_request,
+                )
+                if c2pa_result.applied:
+                    output_bytes = c2pa_result.image_bytes
+                    output_size = len(output_bytes)
+                    c2pa_applied = True
+                    c2pa_manifest_id = c2pa_result.manifest_id
+                    c2pa_signed_at = c2pa_result.signed_at
+                else:
+                    c2pa_skip_reason = c2pa_result.skip_reason or "unknown"
+            except C2PAError as exc:
+                c2pa_skip_reason = "sign_error"
+                log.warning(
+                    "documents.from_markdown.c2pa_failed",
+                    error=str(exc),
+                    user_id=str(user.id),
+                )
+            except Exception as exc:  # noqa: BLE001 — fail-safe absolu
+                c2pa_skip_reason = "sign_error"
+                log.warning(
+                    "documents.from_markdown.c2pa_failed_unexpected",
+                    error=str(exc),
+                    user_id=str(user.id),
+                )
+
+        # Filename intelligent (branding) ou fallback.
+        title_for_filename = title or (f"document_{datetime.now(UTC).strftime('%Y-%m-%d')}")
+        safe_basename = _sanitize_filename(title_for_filename, fallback="document")
+        if branding_context is not None:
+            filename = generate_intelligent_filename(branding_context, extension=file_extension)
+        else:
+            filename = f"{safe_basename}.{file_extension}"
+
+        # Persistance Library (pas de versioning ni source ids — doc Planner
+        # indépendant). Les exceptions storage/quota remontent au worker
+        # (fail-safe absolu côté worker).
+        library_item = await LibraryService.create_from_bytes(
+            user,
+            db,
+            type_="document",
+            file_type=file_type_for_library,
+            title=title or safe_basename,
+            data=output_bytes,
+            mime_type=mime_type,
+            source="generated",
+            provider=provider_name,
+            model=f"template_{template}",
+            prompt=None,
+            source_conversation_id=None,
+            source_message_id=None,
+            parent_library_id=None,
+            metadata_json={
+                "template": template,
+                "pages": output_pages,
+                "truncated": output_truncated,
+                "format": output_format,
+                "generator_version": "c48-v1",
+                "options": opts.model_dump(exclude_none=True),
+                "origin": "planner",  # tracé : doc produit par une tâche planifiée
+                "has_watermark": watermark_applied,
+                "watermark_version": (WATERMARK_VERSION if watermark_applied else None),
+                "no_watermark_was_requested": False,
+                "has_c2pa": c2pa_applied,
+                "c2pa_manifest_id": c2pa_manifest_id,
+                "c2pa_signed_at": (c2pa_signed_at.isoformat() if c2pa_signed_at else None),
+                "c2pa_skip_reason": c2pa_skip_reason,
+                "branding_version": (BRANDING_VERSION if branding_context is not None else None),
+                "has_branding": branding_context is not None,
+            },
+        )
+
+        download_url = build_document_download_path(library_item.id)
+        now = datetime.now(UTC)
+        expires_at = datetime.fromtimestamp(
+            now.timestamp() + settings.documents_generator_presigned_ttl_seconds,
+            tz=UTC,
+        )
+
+        log.info(
+            "documents.from_markdown.success",
+            user_id=str(user.id),
+            library_id=str(library_item.id),
+            template=template,
+            format=output_format,
+            pages=output_pages,
+            size_bytes=output_size,
+            truncated=output_truncated,
+            source_chars=len(markdown),
+            watermark_applied=watermark_applied,
+            c2pa_applied=c2pa_applied,
+        )
+
+        return DocumentGenerateResponse(
+            library_id=library_item.id,
+            download_url=download_url,
+            filename=filename,
+            size_bytes=output_size,
+            pages=output_pages,
+            truncated=output_truncated,
+            expires_at=expires_at,
+            generated_at=now,
+            watermark_applied=watermark_applied,
+            watermark_version=(WATERMARK_VERSION if watermark_applied else None),
+            c2pa_applied=c2pa_applied,
+            c2pa_manifest_id=c2pa_manifest_id,
+            c2pa_skip_reason=c2pa_skip_reason,
+        )
+
+    @staticmethod
     async def generate_or_enqueue(
         user: User,
         body: DocumentGenerateRequest,

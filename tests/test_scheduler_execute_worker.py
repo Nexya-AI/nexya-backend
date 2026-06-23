@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.ai.experts import get_expert_config
 from app.ai.providers.base import ProviderUnavailableError
 from app.core.errors.exceptions import RateLimitExceededException
 from app.features.planner.models import ScheduledTask
@@ -232,6 +233,10 @@ async def test_execute_happy_path_llm_success(patch_db, monkeypatch: pytest.Monk
     resolution = MagicMock()
     resolution.provider = provider
     resolution.model = "gemini-2.5-flash"
+    # B1 — le worker lit `resolution.config` (ExpertConfig réel) pour
+    # assembler la pile qualité. Un MagicMock nu casserait le join du
+    # system_prompt (non-str). On fournit la vraie config "general".
+    resolution.config = get_expert_config("general")
 
     router_mock = MagicMock()
     router_mock.resolve = MagicMock(return_value=resolution)
@@ -273,6 +278,10 @@ async def test_execute_provider_unavailable_triggers_retry(
     resolution = MagicMock()
     resolution.provider = provider
     resolution.model = "gemini-2.5-flash"
+    # B1 — le worker lit `resolution.config` (ExpertConfig réel) pour
+    # assembler la pile qualité. Un MagicMock nu casserait le join du
+    # system_prompt (non-str). On fournit la vraie config "general".
+    resolution.config = get_expert_config("general")
     router_mock = MagicMock()
     router_mock.resolve = MagicMock(return_value=resolution)
     monkeypatch.setattr(scheduler_tasks, "get_ai_router", lambda: router_mock)
@@ -314,6 +323,10 @@ async def test_execute_max_retries_reached_final_failure(
     resolution = MagicMock()
     resolution.provider = provider
     resolution.model = "gemini-2.5-flash"
+    # B1 — le worker lit `resolution.config` (ExpertConfig réel) pour
+    # assembler la pile qualité. Un MagicMock nu casserait le join du
+    # system_prompt (non-str). On fournit la vraie config "general".
+    resolution.config = get_expert_config("general")
     router_mock = MagicMock()
     router_mock.resolve = MagicMock(return_value=resolution)
     monkeypatch.setattr(scheduler_tasks, "get_ai_router", lambda: router_mock)
@@ -357,6 +370,10 @@ async def test_execute_once_auto_delete_after_success(
     resolution = MagicMock()
     resolution.provider = provider
     resolution.model = "gemini-2.5-flash"
+    # B1 — le worker lit `resolution.config` (ExpertConfig réel) pour
+    # assembler la pile qualité. Un MagicMock nu casserait le join du
+    # system_prompt (non-str). On fournit la vraie config "general".
+    resolution.config = get_expert_config("general")
     router_mock = MagicMock()
     router_mock.resolve = MagicMock(return_value=resolution)
     monkeypatch.setattr(scheduler_tasks, "get_ai_router", lambda: router_mock)
@@ -371,3 +388,273 @@ async def test_execute_once_auto_delete_after_success(
     # dont `at` < NOW, mais Pydantic le rejetterait à la création.
     # On se contente ici de vérifier le pipeline success + recompute.
     assert task.run_count == 1
+
+
+# ══════════════════════════════════════════════════════════════
+# 11. LOT B1 — Pile qualité NEXYA injectée + disable_thinking +
+#     max_tokens par-expert (fin du `EXECUTION_MAX_OUTPUT_TOKENS=2048`)
+# ══════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_execute_injects_nexya_quality_stack(
+    patch_db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le worker rejoue la recette `_run_link` : le system_prompt envoyé au
+    provider contient le contexte temporel (preuve d'injection de la pile),
+    `extra.disable_thinking=True`, et `max_tokens=config.max_tokens` (par-expert,
+    plus le 2048 codé en dur qui vidait les experts Pro à thinking)."""
+    task = _make_task()
+    user = _make_user()
+    patch_db(task=task, user=user)
+
+    class _NoBudget:
+        async def check_and_consume_chat(self, uid, cost=1):
+            return 1
+
+    monkeypatch.setattr(scheduler_tasks, "get_budget_tracker", lambda: _NoBudget())
+
+    captured: dict[str, Any] = {}
+
+    async def _capturing_stream(req):
+        captured["req"] = req
+        yield MagicMock(
+            delta="Réponse divine.",
+            usage=MagicMock(prompt_tokens=10, completion_tokens=20),
+            finish_reason=None,
+        )
+
+    config = get_expert_config("general")
+    provider = MagicMock()
+    provider.name = "gemini"
+    provider.stream_chat = _capturing_stream
+    resolution = MagicMock()
+    resolution.provider = provider
+    resolution.model = config.primary_model
+    resolution.config = config
+    router_mock = MagicMock()
+    router_mock.resolve = MagicMock(return_value=resolution)
+    monkeypatch.setattr(scheduler_tasks, "get_ai_router", lambda: router_mock)
+
+    result = await scheduler_tasks.execute_scheduled_task({}, str(task.id))
+
+    assert result["status"] == "success"
+    req = captured["req"]
+    # Pile qualité : le bloc temporel (marqueur distinctif, absent des prompts
+    # experts statiques) est injecté dans le system_prompt.
+    assert req.system_prompt is not None
+    assert "[Contexte temporel" in req.system_prompt
+    # max_tokens = cap par-expert (4096 pour general), plus le 2048 codé en dur.
+    assert req.max_tokens == config.max_tokens
+    assert req.max_tokens != 2048
+    # disable_thinking propagé (general = True) → fini le « réponse vide » Pro.
+    assert req.extra.get("disable_thinking") is True
+    # Température de l'expert, plus le 0.2 hardcodé.
+    assert req.temperature == config.temperature
+
+
+# ══════════════════════════════════════════════════════════════
+# 12. LOT B2 — output_kind="reminder" → persona nudge + cap 256 +
+#     thinking off + output_kind stocké dans le résultat
+# ══════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_execute_reminder_uses_nudge_persona_and_cap(
+    patch_db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task = _make_task()
+    task.metadata_json = {"output_kind": "reminder"}
+    user = _make_user()
+    db = patch_db(task=task, user=user)
+
+    class _NoBudget:
+        async def check_and_consume_chat(self, uid, cost=1):
+            return 1
+
+    monkeypatch.setattr(scheduler_tasks, "get_budget_tracker", lambda: _NoBudget())
+
+    captured: dict[str, Any] = {}
+
+    async def _capturing_stream(req):
+        captured["req"] = req
+        yield MagicMock(delta="C'est l'heure d'étudier !", usage=None, finish_reason=None)
+
+    config = get_expert_config("general")
+    provider = MagicMock()
+    provider.name = "gemini"
+    provider.stream_chat = _capturing_stream
+    resolution = MagicMock()
+    resolution.provider = provider
+    resolution.model = config.primary_model
+    resolution.config = config
+    router_mock = MagicMock()
+    router_mock.resolve = MagicMock(return_value=resolution)
+    monkeypatch.setattr(scheduler_tasks, "get_ai_router", lambda: router_mock)
+
+    result = await scheduler_tasks.execute_scheduled_task({}, str(task.id))
+
+    assert result["status"] == "success"
+    req = captured["req"]
+    # Persona « nudge » injectée (remplace la persona experte).
+    assert "RAPPEL court et chaleureux" in req.system_prompt
+    # Cap reminder dédié (256), pas le max_tokens de l'expert.
+    assert req.max_tokens == scheduler_tasks.REMINDER_MAX_OUTPUT_TOKENS
+    assert req.max_tokens == 256
+    # Thinking off pour un rappel (aucun raisonnement requis).
+    assert req.extra.get("disable_thinking") is True
+    # Le résultat porte output_kind="reminder" pour la carte adaptative frontend.
+    result_rows = [r for r in db.added if hasattr(r, "status")]
+    assert any(
+        (getattr(r, "metadata_json", None) or {}).get("output_kind") == "reminder"
+        for r in result_rows
+    )
+
+
+# ══════════════════════════════════════════════════════════════
+# 13. LOT B3 — output_kind="document" → LLM produit le markdown,
+#     generate_from_markdown rend le PDF, le résultat porte le bloc document
+# ══════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_execute_document_renders_and_stores_block(
+    patch_db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le worker produit le Markdown via le LLM (pile qualité), puis le rend en
+    PDF via `generate_from_markdown` et stocke `{library_id, filename, format,
+    pages, size_bytes, truncated}` dans `result.metadata_json["document"]`."""
+    task = _make_task()
+    task.title = "Rapport hebdo"
+    task.metadata_json = {"output_kind": "document"}
+    user = _make_user()
+    db = patch_db(task=task, user=user)
+
+    class _NoBudget:
+        async def check_and_consume_chat(self, uid, cost=1):
+            return 1
+
+    monkeypatch.setattr(scheduler_tasks, "get_budget_tracker", lambda: _NoBudget())
+
+    async def _stream(req):
+        yield MagicMock(delta="# Rapport\n\nContenu détaillé.", usage=None, finish_reason=None)
+
+    config = get_expert_config("general")
+    provider = MagicMock()
+    provider.name = "gemini"
+    provider.stream_chat = _stream
+    resolution = MagicMock()
+    resolution.provider = provider
+    resolution.model = config.primary_model
+    resolution.config = config
+    router_mock = MagicMock()
+    router_mock.resolve = MagicMock(return_value=resolution)
+    monkeypatch.setattr(scheduler_tasks, "get_ai_router", lambda: router_mock)
+
+    lib_id = uuid.uuid4()
+    captured_doc: dict[str, Any] = {}
+
+    async def _fake_generate_from_markdown(
+        doc_user, doc_db, *, markdown, title, output_format, template
+    ):
+        captured_doc["markdown"] = markdown
+        captured_doc["title"] = title
+        captured_doc["output_format"] = output_format
+        captured_doc["template"] = template
+        return MagicMock(
+            library_id=lib_id,
+            filename="nexya_minimal_rapport-hebdo_2026-06-23.pdf",
+            pages=2,
+            size_bytes=34567,
+            truncated=False,
+        )
+
+    monkeypatch.setattr(
+        "app.features.document_generator.service.DocumentGeneratorService.generate_from_markdown",
+        _fake_generate_from_markdown,
+    )
+
+    result = await scheduler_tasks.execute_scheduled_task({}, str(task.id))
+
+    assert result["status"] == "success"
+    # Le markdown produit par le LLM + le titre de la tâche sont transmis au rendu.
+    assert captured_doc["markdown"] == "# Rapport\n\nContenu détaillé."
+    assert captured_doc["title"] == "Rapport hebdo"
+    assert captured_doc["output_format"] == "pdf"
+    assert captured_doc["template"] == "minimal"
+    # Le résultat persisté porte le bloc document complet.
+    result_rows = [r for r in db.added if hasattr(r, "status")]
+    doc_rows = [
+        r
+        for r in result_rows
+        if (getattr(r, "metadata_json", None) or {}).get("document") is not None
+    ]
+    assert len(doc_rows) == 1
+    doc_meta = doc_rows[0].metadata_json["document"]
+    assert doc_meta["library_id"] == str(lib_id)
+    assert doc_meta["filename"] == "nexya_minimal_rapport-hebdo_2026-06-23.pdf"
+    assert doc_meta["format"] == "pdf"
+    assert doc_meta["pages"] == 2
+    assert doc_meta["size_bytes"] == 34567
+    assert doc_meta["truncated"] is False
+    assert doc_rows[0].metadata_json["output_kind"] == "document"
+
+
+# ══════════════════════════════════════════════════════════════
+# 14. LOT B3 — échec de rendu document = fail-safe : la tâche reste 'success'
+#     (le markdown reste exploitable), aucun bloc document
+# ══════════════════════════════════════════════════════════════
+
+
+@pytest.mark.asyncio
+async def test_execute_document_render_failure_is_failsafe(
+    patch_db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un crash du rendu (WeasyPrint OOM, storage down, quota Library) ne dégrade
+    PAS la tâche : le résultat reste 'success' avec le Markdown, et metadata ne
+    contient AUCUN bloc document. Le worker ne lève jamais."""
+    task = _make_task()
+    task.metadata_json = {"output_kind": "document"}
+    user = _make_user()
+    db = patch_db(task=task, user=user)
+
+    class _NoBudget:
+        async def check_and_consume_chat(self, uid, cost=1):
+            return 1
+
+    monkeypatch.setattr(scheduler_tasks, "get_budget_tracker", lambda: _NoBudget())
+
+    async def _stream(req):
+        yield MagicMock(delta="# Doc\n\nok.", usage=None, finish_reason=None)
+
+    config = get_expert_config("general")
+    provider = MagicMock()
+    provider.name = "gemini"
+    provider.stream_chat = _stream
+    resolution = MagicMock()
+    resolution.provider = provider
+    resolution.model = config.primary_model
+    resolution.config = config
+    router_mock = MagicMock()
+    router_mock.resolve = MagicMock(return_value=resolution)
+    monkeypatch.setattr(scheduler_tasks, "get_ai_router", lambda: router_mock)
+
+    async def _boom(doc_user, doc_db, *, markdown, title, output_format, template):
+        raise RuntimeError("WeasyPrint OOM")
+
+    monkeypatch.setattr(
+        "app.features.document_generator.service.DocumentGeneratorService.generate_from_markdown",
+        _boom,
+    )
+
+    result = await scheduler_tasks.execute_scheduled_task({}, str(task.id))
+
+    # La tâche reste un succès (le markdown reste exploitable + notifié).
+    assert result["status"] == "success"
+    result_rows = [r for r in db.added if hasattr(r, "status")]
+    assert any(r.status == "success" for r in result_rows)
+    # Aucun bloc document (rendu échoué fail-safe), mais output_kind préservé.
+    for r in result_rows:
+        meta = getattr(r, "metadata_json", None) or {}
+        assert meta.get("document") is None
+        assert meta.get("output_kind") == "document"

@@ -11684,6 +11684,79 @@
         "title": "TaskCreate",
         "description": "Body de `POST /tasks`."
       },
+      "TaskDocumentResult": {
+        "properties": {
+          "library_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Library Id"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "pdf",
+              "docx"
+            ],
+            "title": "Format"
+          },
+          "download_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Url"
+          },
+          "pages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pages"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "truncated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Truncated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "library_id",
+          "filename",
+          "format"
+        ],
+        "title": "TaskDocumentResult",
+        "description": "Bloc document d'un résultat (output_kind=\"document\", LOT B3).\n\nLe worker rend le Markdown en PDF/DOCX, le stocke dans la Bibliothèque\n(`library_id`) et écrit ce bloc dans `result.metadata_json[\"document\"]`.\n`download_url` n'est PAS persistée : le sérialiseur la régénère depuis le\n`library_id` via `build_document_download_path` — chemin RELATIF vers\nl'endpoint authentifié `GET /generate/document/download/{library_id}`\n(fix P0 2026-06-10 : le presigned MinIO est injoignable depuis le device en\nprod, MinIO n'ayant aucun port public). Le dio Flutter résout le chemin\ncontre `baseUrl` + attache le Bearer."
+      },
       "TaskResponse": {
         "properties": {
           "id": {
@@ -11702,6 +11775,16 @@
           "expert_id": {
             "type": "string",
             "title": "Expert Id"
+          },
+          "output_kind": {
+            "type": "string",
+            "enum": [
+              "reminder",
+              "generation",
+              "document"
+            ],
+            "title": "Output Kind",
+            "default": "generation"
           },
           "schedule_type": {
             "type": "string",
@@ -11821,7 +11904,7 @@
           "updated_at"
         ],
         "title": "TaskResponse",
-        "description": "Task sérialisée pour le client."
+        "description": "Task sérialisée pour le client.\n\n`output_kind` est dérivé de `metadata_json[\"output_kind\"]` — il n'existe\nPAS comme attribut ORM direct, donc `model_validate(task)` seul renverrait\nle défaut. Le router doit passer par `serialize_task(task)` (qui patche le\nbon kind). Le défaut `\"generation\"` couvre les tâches créées avant la\nfeature (LOT B2)."
       },
       "TaskResultResponse": {
         "properties": {
@@ -11852,6 +11935,16 @@
             ],
             "title": "Status"
           },
+          "output_kind": {
+            "type": "string",
+            "enum": [
+              "reminder",
+              "generation",
+              "document"
+            ],
+            "title": "Output Kind",
+            "default": "generation"
+          },
           "result_text": {
             "anyOf": [
               {
@@ -11873,6 +11966,16 @@
               }
             ],
             "title": "Error Text"
+          },
+          "document": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TaskDocumentResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "tokens_input": {
             "type": "integer",
@@ -11926,7 +12029,7 @@
           "provider"
         ],
         "title": "TaskResultResponse",
-        "description": "Résultat d'une exécution sérialisé."
+        "description": "Résultat d'une exécution sérialisé.\n\n`output_kind` + `document` sont dérivés de `result.metadata_json` — passer\npar `serialize_result(...)`. La `download_url` du bloc document dérive du\n`library_id` (chemin relatif authentifié, fonction pure), donc le sérialiseur\nreste synchrone (aucun lookup DB ni presigned MinIO)."
       },
       "TaskResultsPage": {
         "properties": {
