@@ -636,8 +636,7 @@ class DocumentGeneratorService:
                 user_id=str(user.id),
             )
             raise DocumentSourceTooLongError(
-                f"Le contenu source dépasse {max_chars} caractères "
-                f"(actuel : {len(markdown)})."
+                f"Le contenu source dépasse {max_chars} caractères (actuel : {len(markdown)})."
             )
 
         apply_watermark = settings.documents_generator_watermark_enabled and not remove_watermark

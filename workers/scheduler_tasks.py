@@ -281,7 +281,9 @@ def _assemble_system_prompt(
     `reminder` (LOT B2) qui injecte un prompt « nudge » dédié tout en gardant
     le préambule + le contexte temporel + la mémoire.
     """
-    expert_block = system_override if system_override is not None else (config.system_prompt or None)
+    expert_block = (
+        system_override if system_override is not None else (config.system_prompt or None)
+    )
     parts = [
         nexya_preamble,
         temporal_block,
@@ -590,9 +592,7 @@ async def execute_scheduled_task(ctx: dict[str, Any], task_id: str) -> dict[str,
             )
 
             async with AsyncSessionLocal() as doc_db:
-                doc_user_result = await doc_db.execute(
-                    select(User).where(User.id == task_user_id)
-                )
+                doc_user_result = await doc_db.execute(select(User).where(User.id == task_user_id))
                 doc_user = doc_user_result.scalar_one_or_none()
                 if doc_user is not None:
                     doc_response = await DocumentGeneratorService.generate_from_markdown(
