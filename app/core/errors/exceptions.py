@@ -271,6 +271,69 @@ class LlmQuotaExceededException(NexYaException):
         )
 
 
+class ChatMessageQuotaExceededException(NexYaException):
+    """Free a atteint son quota de messages chat (fenêtre fixe 3h).
+
+    Pro n'a JAMAIS ce quota (illimité). Décision Ivan 2026-06-24. Status 402
+    (paywall) + `data={current, max, plan, retry_after}` pour que le Flutter
+    affiche la modale « limite atteinte, reset dans Xh, passe à Pro ».
+
+    `__init__` n'accepte que `retry_after` (contrat `check_user_rate_limit`
+    `on_exceeded`) ; `max`/`current` sont dérivés du settings (le user a
+    atteint le cap, donc `current == max`).
+    """
+
+    def __init__(self, retry_after: int = 10_800) -> None:
+        from app.config import settings  # import local — évite tout cycle
+
+        cap = settings.chat_messages_free_per_window
+        super().__init__(
+            code="CHAT_MESSAGE_QUOTA_EXCEEDED",
+            message=(
+                "Tu as atteint ta limite de messages. Reviens bientôt ou "
+                "passe à Pro pour discuter sans limite."
+            ),
+            status_code=402,
+            data={
+                "current": cap,
+                "max": cap,
+                "plan": "free",
+                "retry_after": retry_after,
+            },
+        )
+
+
+class ImageQuotaExceededException(NexYaException):
+    """Quota de génération d'images atteint (Free 7/jour, Pro 21/jour).
+
+    Décision Ivan 2026-06-24. Status 402 (paywall) + `data={current, max,
+    plan, reset_at}` pour la modale « limite atteinte, reset demain, passe à
+    Pro ». Remplace le 429 RATE_LIMIT_EXCEEDED générique pour ce cas précis
+    (UX paywall avec compteur + CTA upgrade, cohérente avec le chat).
+    """
+
+    def __init__(
+        self,
+        *,
+        current: int,
+        max_: int,
+        plan: str,
+        reset_at: datetime | None = None,
+    ) -> None:
+        data: dict = {"current": current, "max": max_, "plan": plan}
+        if reset_at is not None:
+            data["reset_at"] = reset_at.isoformat()
+        super().__init__(
+            code="IMAGE_QUOTA_EXCEEDED",
+            message=(
+                "Tu as atteint ta limite de générations d'images. "
+                "Reviens demain ou passe à Pro pour en générer plus."
+            ),
+            status_code=402,
+            data=data,
+        )
+
+
 # ══════════════════════════════════════════════════════════════
 # PLAN / PERMISSION — 403
 # ══════════════════════════════════════════════════════════════
@@ -629,12 +692,14 @@ class LibraryStorageExceededException(NexYaException):
             if max_bytes >= 1024 * 1024 * 1024
             else f"{max_bytes // (1024 * 1024)} MB"
         )
+        # Upsell uniquement pour Free (un Pro qui sature ne « passe » pas à
+        # Pro). Pro = 5 GB depuis le 2026-06-24 (réduit de 10 GB).
+        upsell = "" if plan == "pro" else " Passez à Pro pour 5 GB de stockage."
         super().__init__(
             code="LIBRARY_STORAGE_EXCEEDED",
             message=(
                 f"Vous avez atteint la limite de stockage du plan {plan} "
-                f"({current_mb} MB sur {max_label}). "
-                "Passez à Pro pour 10 GB de stockage."
+                f"({current_mb} MB sur {max_label})." + upsell
             ),
             status_code=402,
             data={

@@ -580,8 +580,15 @@ async def image_generate(
     if body.remove_watermark and not current_user.is_pro:
         raise PlanRequiredException(feature="Image sans watermark")
 
-    # 1. Budget image/jour (cost = nombre d'images demandées)
-    await get_budget_tracker().check_and_consume_image(user_id, cost=body.count)
+    # 1. Budget image/jour — cap PAR PLAN (Free 7 / Pro 21, décision Ivan
+    #    2026-06-24). Dépassement → 402 IMAGE_QUOTA_EXCEEDED (modale paywall).
+    image_limit = settings.image_gen_max_pro if current_user.is_pro else settings.image_gen_max_free
+    await get_budget_tracker().check_and_consume_image(
+        user_id,
+        cost=body.count,
+        limit=image_limit,
+        plan="pro" if current_user.is_pro else "free",
+    )
 
     # 2. Modération du prompt
     decision = await get_moderation_service().check(

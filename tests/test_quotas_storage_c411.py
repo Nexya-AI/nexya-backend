@@ -24,8 +24,8 @@ Couverture ciblée (decision Ivan tests focused, ~13 tests groupés) :
        « 95 MB sur 10 GB »
    12. `test_storage_pre_flight_free_blocks_at_cap` — Free 95MB +
        upload 10MB → 402
-   13. `test_storage_pre_flight_pro_allows_under_cap` — Pro 5GB +
-       upload 100MB → OK
+   13. `test_storage_pre_flight_pro_allows_under_cap` — Pro 2GB +
+       upload 5MB < cap 5GB → OK
 """
 
 from __future__ import annotations
@@ -250,7 +250,7 @@ async def test_storage_pre_flight_free_blocks_at_cap() -> None:
 
 @pytest.mark.asyncio
 async def test_storage_pre_flight_pro_allows_under_cap() -> None:
-    """Pro 5 GB cumulé + upload 5 MB < 10 GB cap → pas de raise.
+    """Pro 2 GB cumulé + upload 5 MB < 5 GB cap → pas de raise.
 
     On utilise 5 MB (sous le cap unitaire `s3_max_upload_bytes=20MB`)
     pour valider que les pré-flights storage cap passent quand le user
@@ -266,7 +266,7 @@ async def test_storage_pre_flight_pro_allows_under_cap() -> None:
     db.execute = AsyncMock(
         side_effect=[
             _ScalarResult(scalar_value=20),
-            _ScalarResult(scalar_value=5 * 1024 * 1024 * 1024),
+            _ScalarResult(scalar_value=2 * 1024 * 1024 * 1024),  # 2 GB < cap Pro 5 GB
             RuntimeError("Pre-flights passed — sentinel"),
         ]
     )

@@ -60,5 +60,13 @@ async def get_user_quotas(
             library_storage_max_bytes=snapshot.library_storage_max_bytes,
             reset_at=snapshot.reset_at,
             plan=snapshot.plan,
+            chat_messages_used=snapshot.chat_messages_used,
+            chat_messages_max=snapshot.chat_messages_max,
+            chat_reset_at=snapshot.chat_reset_at,
+            images_used_today=snapshot.images_used_today,
+            images_max_day=snapshot.images_max_day,
+            vision_used_today=snapshot.vision_used_today,
+            vision_max_day=snapshot.vision_max_day,
+            daily_reset_at=snapshot.daily_reset_at,
         ),
     )

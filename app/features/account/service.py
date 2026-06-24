@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from sqlalchemy import func, select
@@ -54,6 +54,18 @@ class UserQuotasSnapshot:
     library_storage_max_bytes: int
     reset_at: datetime
     plan: str
+    # ── Chat texte (Free only — None pour Pro = illimité) ──────
+    chat_messages_used: int | None
+    chat_messages_max: int | None
+    chat_reset_at: datetime | None
+    # ── Images générées today (les deux plans) ─────────────────
+    images_used_today: int
+    images_max_day: int
+    # ── Vision analyse today (les deux plans) ──────────────────
+    vision_used_today: int
+    vision_max_day: int
+    # ── Reset journalier UTC (images / vision / voix) ──────────
+    daily_reset_at: datetime
 
 
 # ══════════════════════════════════════════════════════════════
@@ -85,6 +97,12 @@ def _start_of_current_month_utc() -> datetime:
     """1er du mois courant UTC à minuit (borne basse pour COUNT docs)."""
     now = datetime.now(UTC)
     return datetime(now.year, now.month, 1, 0, 0, 0, tzinfo=UTC)
+
+
+def _next_midnight_utc() -> datetime:
+    """Prochain minuit UTC — reset journalier images / vision / voix."""
+    tomorrow = datetime.now(UTC) + timedelta(days=1)
+    return datetime(tomorrow.year, tomorrow.month, tomorrow.day, 0, 0, 0, tzinfo=UTC)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -131,6 +149,29 @@ class QuotasService:
             else settings.library_storage_max_bytes_free
         )
 
+        # 4. Chat texte (Free only — Pro illimité → None, carte cachée côté UI).
+        chat_used: int | None = None
+        chat_max: int | None = None
+        chat_reset: datetime | None = None
+        if not user.is_pro:
+            count, ttl = await QuotasService._get_chat_usage(user.id)
+            chat_used = count
+            chat_max = settings.chat_messages_free_per_window
+            if ttl > 0:
+                chat_reset = datetime.now(UTC) + timedelta(seconds=ttl)
+
+        # 5. Images générées today (les deux plans, reset minuit UTC).
+        images_used = await QuotasService._get_budget_count_today(user.id, "image")
+        images_max = settings.image_gen_max_pro if user.is_pro else settings.image_gen_max_free
+
+        # 6. Vision (analyse d'images) today (les deux plans).
+        vision_used = await QuotasService._get_budget_count_today(user.id, "vision_images")
+        vision_max = (
+            settings.vision_images_pro_per_day
+            if user.is_pro
+            else settings.vision_images_free_per_day
+        )
+
         return UserQuotasSnapshot(
             docs_generated_this_month=docs_count,
             docs_max_month=docs_max,
@@ -140,6 +181,14 @@ class QuotasService:
             library_storage_max_bytes=storage_max,
             reset_at=_next_month_utc_midnight(),
             plan=plan,
+            chat_messages_used=chat_used,
+            chat_messages_max=chat_max,
+            chat_reset_at=chat_reset,
+            images_used_today=images_used,
+            images_max_day=images_max,
+            vision_used_today=vision_used,
+            vision_max_day=vision_max,
+            daily_reset_at=_next_midnight_utc(),
         )
 
     @staticmethod
@@ -187,11 +236,67 @@ class QuotasService:
             )
             return 0
 
+    @staticmethod
+    async def _get_chat_usage(user_id: uuid.UUID) -> tuple[int, int]:
+        """`(count, ttl_seconds)` du quota chat Free.
+
+        Lit la clé `check_user_rate_limit` `rate:user:chat_message:{uid}`
+        (action `chat_message`, fenêtre 3h). `ttl` = secondes avant reset.
+        Fail-safe absolu → `(0, 0)` (dashboard reste consultable).
+        """
+        try:
+            redis_client = get_redis()
+            if redis_client is None:
+                return (0, 0)
+            key = f"rate:user:chat_message:{user_id}"
+            raw = await redis_client.get(key)
+            count = 0
+            if raw is not None:
+                if isinstance(raw, bytes):
+                    raw = raw.decode("ascii", errors="ignore")
+                count = int(raw)
+            ttl = await redis_client.ttl(key)
+            return (count, max(int(ttl), 0))
+        except Exception as exc:  # noqa: BLE001 fail-safe absolu
+            log.warning(
+                "quotas.chat.redis_failed",
+                user_id=str(user_id),
+                error_type=type(exc).__name__,
+            )
+            return (0, 0)
+
+    @staticmethod
+    async def _get_budget_count_today(user_id: uuid.UUID, kind: str) -> int:
+        """Compteur journalier BudgetTracker `budget:user:{uid}:{kind}:{YYYY-MM-DD}`.
+
+        `kind` ∈ {'image', 'vision_images'}. Fail-safe absolu → 0.
+        """
+        try:
+            redis_client = get_redis()
+            if redis_client is None:
+                return 0
+            key = f"budget:user:{user_id}:{kind}:{_today_utc_str()}"
+            raw = await redis_client.get(key)
+            if raw is None:
+                return 0
+            if isinstance(raw, bytes):
+                raw = raw.decode("ascii", errors="ignore")
+            return int(raw)
+        except Exception as exc:  # noqa: BLE001 fail-safe absolu
+            log.warning(
+                "quotas.budget_count.redis_failed",
+                kind=kind,
+                user_id=str(user_id),
+                error_type=type(exc).__name__,
+            )
+            return 0
+
 
 # Re-exports utilitaires pour les helpers de date (utilisés par tests)
 __all__ = [
     "QuotasService",
     "UserQuotasSnapshot",
+    "_next_midnight_utc",
     "_next_month_utc_midnight",
     "_start_of_current_month_utc",
 ]

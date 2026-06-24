@@ -35,7 +35,10 @@ import redis.asyncio as aioredis
 import structlog
 
 from app.core.database.redis import get_redis
-from app.core.errors.exceptions import RateLimitExceededException
+from app.core.errors.exceptions import (
+    ImageQuotaExceededException,
+    RateLimitExceededException,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -146,17 +149,42 @@ class BudgetTracker:
             reset_at=_next_midnight_utc(),
         )
 
-    async def check_and_consume_image(self, user_id: str, *, cost: int = 1) -> int:
-        """Idem pour la génération d'images. `cost` = nombre d'images demandées."""
-        return await self._check_and_incr(
-            key=self._user_day_key(user_id, kind="image"),
-            cost=cost,
-            limit=self.user_image_per_day,
-            ttl_seconds=_DAY_TTL_SECONDS,
-            scope="user_image_day",
-            metadata={"user_id": user_id, "count": cost},
-            reset_at=_next_midnight_utc(),
-        )
+    async def check_and_consume_image(
+        self,
+        user_id: str,
+        *,
+        cost: int = 1,
+        limit: int | None = None,
+        plan: str = "free",
+    ) -> int:
+        """Idem pour la génération d'images. `cost` = nombre d'images demandées.
+
+        `limit` override le défaut `user_image_per_day` — décision Ivan
+        2026-06-24 : cap PAR PLAN (Free 7 / Pro 21). Sur dépassement, lève
+        `ImageQuotaExceededException` (402 paywall, compteur + reset + CTA Pro)
+        plutôt que le 429 RATE_LIMIT_EXCEEDED générique — UX cohérente avec le
+        quota chat. Le rollback atomique de `_check_and_incr` a déjà eu lieu
+        (le compteur n'est pas sur-consommé) avant qu'on re-mappe l'exception.
+        """
+        effective_limit = limit if limit is not None else self.user_image_per_day
+        reset_at = _next_midnight_utc()
+        try:
+            return await self._check_and_incr(
+                key=self._user_day_key(user_id, kind="image"),
+                cost=cost,
+                limit=effective_limit,
+                ttl_seconds=_DAY_TTL_SECONDS,
+                scope="user_image_day",
+                metadata={"user_id": user_id, "count": cost},
+                reset_at=reset_at,
+            )
+        except RateLimitExceededException as exc:
+            raise ImageQuotaExceededException(
+                current=effective_limit,
+                max_=effective_limit,
+                plan=plan,
+                reset_at=reset_at,
+            ) from exc
 
     async def check_and_consume_embeddings(self, user_id: str, *, cost: int = 1) -> int:
         """Compteur journalier d'appels `embed()` côté user (Session D1).

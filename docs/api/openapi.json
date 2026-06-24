@@ -12950,6 +12950,75 @@
             "minLength": 1,
             "title": "Plan",
             "description": "Plan actif user : 'free' ou 'pro'."
+          },
+          "chat_messages_used": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Messages Used",
+            "description": "Messages chat consommés dans la fenêtre 3h. Null pour Pro (illimité)."
+          },
+          "chat_messages_max": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Messages Max",
+            "description": "Cap messages Free par fenêtre 3h (30). Null pour Pro."
+          },
+          "chat_reset_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Reset At",
+            "description": "Fin de la fenêtre 3h (reset du quota chat). Null pour Pro ou si 0 message."
+          },
+          "images_used_today": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Images Used Today",
+            "description": "Images générées today UTC."
+          },
+          "images_max_day": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Images Max Day",
+            "description": "Cap images/jour selon plan (Free 7 / Pro 21)."
+          },
+          "vision_used_today": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Vision Used Today",
+            "description": "Analyses Vision today UTC."
+          },
+          "vision_max_day": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Vision Max Day",
+            "description": "Cap Vision/jour selon plan (Free 7 / Pro 50)."
+          },
+          "daily_reset_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Daily Reset At",
+            "description": "Prochain minuit UTC (reset journalier images/vision/voix)."
           }
         },
         "type": "object",
@@ -12959,7 +13028,12 @@
           "library_storage_bytes",
           "library_storage_max_bytes",
           "reset_at",
-          "plan"
+          "plan",
+          "images_used_today",
+          "images_max_day",
+          "vision_used_today",
+          "vision_max_day",
+          "daily_reset_at"
         ],
         "title": "UserQuotasResponse",
         "description": "Snapshot complet des quotas user pour le dashboard Account.\n\nTous les compteurs sont `int >= 0`. Les caps `*_max_*` reflètent le\nplan actif (Free vs Pro). `reset_at` = prochain reset mensuel UTC\npour les compteurs docs/storage. Les compteurs voice resettent à\nminuit UTC (pas exposé V1)."

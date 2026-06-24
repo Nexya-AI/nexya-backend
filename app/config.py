@@ -182,15 +182,31 @@ class Settings(BaseSettings):
     # projets multi-fichiers). Au-delà, V2 si signal user (Pro Premium
     # 100 GB add-on payant).
     library_storage_max_bytes_free: int = 100 * 1024 * 1024  # 100 MB
-    library_storage_max_bytes_pro: int = 10 * 1024 * 1024 * 1024  # 10 GB
+    library_storage_max_bytes_pro: int = (
+        5 * 1024 * 1024 * 1024
+    )  # 5 GB (réduit 10→5, décision Ivan 2026-06-24)
 
     # ── Documents quotas mensuels (C4.11 dashboard) ─────────────
     # Plafond mensuel de docs PDF+DOCX générés via /generate/document.
     # Compteur reset 1er du mois UTC. Dépassement → 402
     # DOCUMENTS_QUOTA_EXCEEDED (déjà géré par DocumentGeneratorService).
     # Affiché dans le dashboard quotas user `GET /user/quotas`.
-    documents_quota_max_free: int = Field(default=5, ge=1)
+    documents_quota_max_free: int = Field(default=7, ge=1)  # 5→7 (décision Ivan 2026-06-24)
     documents_quota_max_pro: int = Field(default=100, ge=1)
+
+    # ── Chat & Image quotas par plan (décision Ivan 2026-06-24) ─
+    # Chat texte : Free plafonné par fenêtre fixe Redis (check_user_rate_limit).
+    # Pro = ILLIMITÉ (jamais ce quota). Dépassement Free → 402
+    # CHAT_MESSAGE_QUOTA_EXCEEDED (compteur + retry_after + CTA Pro). L'anti-bot
+    # 100 msg/min (chat_message_per_minute_limit) reste actif pour TOUS les plans.
+    chat_messages_free_per_window: int = Field(default=30, ge=1)
+    chat_quota_window_seconds: int = Field(default=10_800, ge=60)  # 3 heures
+
+    # Génération d'images : Free 7/jour, Pro 21/jour (reset minuit UTC). Cap
+    # par plan passé à BudgetTracker.check_and_consume_image(limit=...).
+    # Dépassement → 402 IMAGE_QUOTA_EXCEEDED.
+    image_gen_max_free: int = Field(default=7, ge=1)
+    image_gen_max_pro: int = Field(default=21, ge=1)
 
     # ── Files (upload, extraction, virus scan) — Session E3 ─────
     # Cap dur applicatif pour un upload unitaire. Les PDFs enterprise
@@ -442,7 +458,7 @@ class Settings(BaseSettings):
     # tente tier='pro'.
     #
     # PRICING — TODO(Ivan): valider lors du pricing final (provisoire)
-    vision_images_free_per_day: int = Field(default=3, ge=0)  # TODO(Ivan): provisoire
+    vision_images_free_per_day: int = Field(default=7, ge=0)  # 3→7 (décision Ivan 2026-06-24)
     vision_images_pro_per_day: int = Field(default=50, ge=0)  # TODO(Ivan): provisoire
     vision_max_images_per_request: int = Field(
         default=5, ge=1, le=20

@@ -83,4 +83,37 @@ class UserQuotasResponse(BaseModel):
         description="Plan actif user : 'free' ou 'pro'.",
     )
 
+    # ── Chat texte (Free only — null pour Pro = illimité) ──────
+    chat_messages_used: int | None = Field(
+        default=None,
+        ge=0,
+        description="Messages chat consommés dans la fenêtre 3h. Null pour Pro (illimité).",
+    )
+    chat_messages_max: int | None = Field(
+        default=None,
+        ge=0,
+        description="Cap messages Free par fenêtre 3h (30). Null pour Pro.",
+    )
+    chat_reset_at: datetime | None = Field(
+        default=None,
+        description="Fin de la fenêtre 3h (reset du quota chat). Null pour Pro ou si 0 message.",
+    )
+
+    # ── Images générées today (les deux plans) ─────────────────
+    images_used_today: int = Field(..., ge=0, description="Images générées today UTC.")
+    images_max_day: int = Field(
+        ..., ge=0, description="Cap images/jour selon plan (Free 7 / Pro 21)."
+    )
+
+    # ── Vision (analyse d'images) today (les deux plans) ───────
+    vision_used_today: int = Field(..., ge=0, description="Analyses Vision today UTC.")
+    vision_max_day: int = Field(
+        ..., ge=0, description="Cap Vision/jour selon plan (Free 7 / Pro 50)."
+    )
+
+    # ── Reset journalier UTC (images / vision / voix) ──────────
+    daily_reset_at: datetime = Field(
+        ..., description="Prochain minuit UTC (reset journalier images/vision/voix)."
+    )
+
     model_config = {"from_attributes": True}

@@ -73,9 +73,17 @@ from app.ai.tools import get_tool_registry
 from app.config import settings
 from app.core.auth.guards import get_current_user
 from app.core.database.postgres import AsyncSessionLocal, get_db
-from app.core.errors.exceptions import LlmQuotaExceededException
+from app.core.errors.exceptions import (
+    ChatMessageQuotaExceededException,
+    LlmQuotaExceededException,
+    NexYaException,
+)
 from app.core.observability.trace import get_trace_id
-from app.core.security.rate_limiter import rate_limit_abuse_reports
+from app.core.security.rate_limiter import (
+    check_user_rate_limit,
+    rate_limit_abuse_reports,
+    rate_limit_chat_messages,
+)
 from app.features.auth.models import User
 from app.features.chat.models import Conversation, Message
 from app.features.chat.schemas import (
@@ -622,6 +630,34 @@ async def chat_stream(
 
     # ── 1. Budget : cap absolu user/jour (pré-consommation) ──────────
     await get_budget_tracker().check_and_consume_chat(user_id_str)
+
+    # ── 1bis. Anti-bot (100 msg/min, TOUS plans) + quota messages Free
+    #          (30 / fenêtre fixe 3h ; Pro = ILLIMITÉ). Décision Ivan 2026-06-24.
+    #          L'anti-bot est désormais réellement câblé (il ne l'était pas).
+    #          Le quota Free lève un 402 CHAT_MESSAGE_QUOTA_EXCEEDED AVANT tout
+    #          travail LLM → le Flutter affiche la modale paywall (compteur +
+    #          reset + CTA Pro). Le SSE n'a pas encore démarré : c'est une
+    #          réponse HTTP 402 JSON classique (handler global NexYaException).
+    #          FAIL-OPEN : si Redis tombe, on NE bloque PAS le chat (un quota
+    #          ne doit jamais 500 une conversation). On ne propage que les
+    #          exceptions métier (402 quota / 429 anti-bot), on absorbe les
+    #          pannes d'infra Redis (aligné le fail-open du BudgetTracker).
+    try:
+        await rate_limit_chat_messages(
+            current_user.id, max_per_minute=settings.chat_message_per_minute_limit
+        )
+        if not current_user.is_pro:
+            await check_user_rate_limit(
+                current_user.id,
+                action="chat_message",
+                max_requests=settings.chat_messages_free_per_window,
+                window_seconds=settings.chat_quota_window_seconds,
+                on_exceeded=ChatMessageQuotaExceededException,
+            )
+    except NexYaException:
+        raise  # quota Free (402) ou anti-bot (429) — propage tel quel
+    except Exception as exc:  # noqa: BLE001 — Redis down → fail-open
+        log.warning("chat.rate_limit.failed_open", error=str(exc))
 
     # ── 2. [Perf 2026-06-21] B1 — Modération (httpx OpenAI) + recherche
     # mémoire D3 (pgvector) lancées EN PARALLÈLE. Avant, elles étaient
