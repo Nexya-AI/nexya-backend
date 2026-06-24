@@ -357,9 +357,23 @@ async def ready() -> JSONResponse:
         extended = await ExtendedHealthService.compute(db=None, redis=redis_client)
 
     all_ok = extended.status == "ok"
+    data = extended.model_dump(mode="json")
+    # Diagnostic push : mode du provider FCM. `mock` = aucun push réel envoyé
+    # (service account Firebase absent/invalide) ; `firebase` = opérationnel.
+    # Aucun secret exposé. `get_fcm_provider()` ne lève jamais (fallback Mock).
+    try:
+        from app.ai.fcm import get_fcm_provider  # noqa: PLC0415
+
+        data["fcm"] = {
+            "mode": "firebase"
+            if type(get_fcm_provider()).__name__ == "FirebaseFCMProvider"
+            else "mock"
+        }
+    except Exception:  # noqa: BLE001 — diagnostic best-effort, ne casse pas /ready
+        data["fcm"] = {"mode": "error"}
     payload = NexyaResponse(
         success=all_ok,
-        data=extended.model_dump(mode="json"),
+        data=data,
     )
     return JSONResponse(
         status_code=200 if all_ok else 503,
