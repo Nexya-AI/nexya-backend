@@ -749,7 +749,14 @@ class Settings(BaseSettings):
     # et rejette "mock-fail". `hcaptcha_enabled=False` sert aussi de kill-switch
     # en prod : en cas d'incident hCaptcha, on préfère ouvrir les inscriptions
     # plutôt que tout bloquer (on a d'autres couches : rate limit IP + device quota).
-    hcaptcha_enabled: bool = True
+    #
+    # [2026-06-24] DÉSACTIVÉ par défaut pour le lancement Play Store : onboarding
+    # sans friction (Africa-first, la WebView hCaptcha freine sur 2G/3G). Le front
+    # est aligné (site key vide => MockCaptchaService, aucune WebView). L'inscription
+    # reste protégée par 3 couches : 5/min/IP + 5/jour/IP + device quota.
+    # RÉACTIVER quand voulu : poser `HCAPTCHA_ENABLED=true` dans l'env de prod
+    # (+ remettre HCAPTCHA_SITE_KEY côté build front). Zéro autre changement.
+    hcaptcha_enabled: bool = False
     hcaptcha_secret_key: str = ""
     hcaptcha_site_key: str = ""
 
