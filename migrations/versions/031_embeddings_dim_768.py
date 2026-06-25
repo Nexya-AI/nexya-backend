@@ -33,7 +33,10 @@ from __future__ import annotations
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "031_align_embeddings_dim_gemini_768"
+# NB : l'id doit tenir dans `alembic_version.version_num` VARCHAR(32) — d'où
+# la forme courte `031_embeddings_dim_768` (l'ancien `031_align_embeddings_dim
+# _gemini_768` faisait 35 chars → StringDataRightTruncation).
+revision = "031_embeddings_dim_768"
 down_revision = "030_lifecycle_emails"
 branch_labels = None
 depends_on = None

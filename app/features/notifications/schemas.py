@@ -18,9 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # Types partagés — alignés 1:1 sur les CHECK SQL
 # ═══════════════════════════════════════════════════════════════════
 
-NotificationCategory = Literal[
-    "tasks", "payments", "security", "digest", "product", "documents"
-]
+NotificationCategory = Literal["tasks", "payments", "security", "digest", "product", "documents"]
 """Catégorie RGPD — sert de discriminateur de préférences et d'index.
 
 - `tasks` : exécution d'une tâche planifiée.
