@@ -83,6 +83,18 @@ docker compose version >/dev/null 2>&1 || fail "le plugin 'docker compose' est i
 export IMAGE_TAG="$TAG"
 export GHCR_OWNER="${GHCR_OWNER:-nexya-ai}"
 
+# Persiste le tag dans .env.production : un recreate manuel ulterieur (simple
+# changement d'env, sans IMAGE_TAG en ligne) reutilisera CE tag et jamais le
+# ':latest' du compose. Anti-downgrade silencieux de la prod (incident
+# 2026-06-25 : un recreate sans IMAGE_TAG a fait retomber l'API sur une vieille
+# image ':latest', supprimant des routes et des correctifs deja deployes).
+if grep -q '^IMAGE_TAG=' "$ENV_FILE"; then
+  sed -i "s/^IMAGE_TAG=.*/IMAGE_TAG=$TAG/" "$ENV_FILE"
+else
+  printf '\nIMAGE_TAG=%s\n' "$TAG" >> "$ENV_FILE"
+fi
+log "IMAGE_TAG=$TAG persiste dans $ENV_FILE (garde-fou anti ':latest')."
+
 # Helper : `docker compose` préfixé du fichier prod + env-file.
 dc() { docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
 

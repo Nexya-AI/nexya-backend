@@ -775,14 +775,20 @@ class Settings(BaseSettings):
     # internes ET reste clairement détectable (11 comptes/jour sur le même
     # téléphone = abus).
     device_registration_daily_limit: int = 10
-    # Limite IP journalière pour /auth/register — couche 2 (la couche 1 est
-    # le sliding window 5/min déjà en place).
-    # ⚠️ NAT carrier (Orange/MTN Cameroun) : des MILLIERS de vrais users
-    # partagent la même IP publique → 5/jour bloquerait des inscriptions
-    # légitimes au lancement (cybercafé, réseau mobile partagé). On monte à
-    # 50/jour/IP (NAT-safe) ; l'anti-abus réel repose sur le device quota
-    # ci-dessus, pas sur l'IP. Réglable via REGISTER_DAILY_IP_LIMIT.
-    register_daily_ip_limit: int = 50
+    # Limite IP PAR MINUTE pour /auth/register - couche 1 (anti-rafale).
+    # NAT carrier (Orange/MTN Cameroun) + cybercafe : des MILLIERS de vrais
+    # users partagent une IP publique -> un seuil serre bloquerait des
+    # inscriptions legitimes simultanees. 30/min laisse ~6x de marge aux
+    # bursts humains partages tout en coupant un flood scripte. L'anti-abus
+    # reel = device quota (NAT-immune). Reglable via REGISTER_PER_MINUTE_IP_LIMIT.
+    register_per_minute_ip_limit: int = 30
+    # Limite IP JOURNALIERE pour /auth/register - couche 2 (slow & low).
+    # NAT carrier (Orange/MTN Cameroun) : des MILLIERS de vrais users partagent
+    # la meme IP publique -> un seuil bas bloquerait des inscriptions legitimes
+    # au lancement (cybercafe, reseau mobile partage). 300/jour/IP (NAT-safe) ;
+    # l'anti-abus reel repose sur le device quota ci-dessus, pas sur l'IP.
+    # Reglable via REGISTER_DAILY_IP_LIMIT.
+    register_daily_ip_limit: int = 300
     # Limite messages chat user-scoped : >100 msg/min indique un bot — on
     # bloque avant même d'appeler le LLM (économise tokens + protège rerank).
     chat_message_per_minute_limit: int = 100

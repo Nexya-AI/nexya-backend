@@ -39,10 +39,24 @@ USER_RATE_LIMIT_PREFIX = "rate:user:"
 
 
 def _get_client_ip(request: Request) -> str:
-    """Extrait l'IP du client, en tenant compte des proxies (X-Forwarded-For)."""
+    """IP client derriere EXACTEMENT un proxy de confiance (Caddy).
+
+    Caddy (`reverse_proxy`) AJOUTE l'IP du pair TCP verifie a la fin de
+    `X-Forwarded-For`. L'entree la plus a DROITE est donc la seule fiable ;
+    l'entree de gauche est fournie par le client et NE DOIT JAMAIS servir au
+    rate limiting (un attaquant la falsifie pour obtenir une cle Redis
+    differente a chaque requete et contourner toutes les limites IP). On lit
+    donc `parts[-1]`.
+
+    Valable car le nombre de hops de confiance est fige a 1. Si un CDN
+    (Cloudflare) est un jour place DEVANT Caddy, basculer sur un header dedie
+    pose par Caddy (`header_up X-Real-IP {remote_host}`) plutot qu'un index.
+    """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
+        if parts:
+            return parts[-1]
     return request.client.host if request.client else "unknown"
 
 
@@ -92,8 +106,14 @@ async def rate_limit_login(request: Request) -> None:
 
 
 async def rate_limit_register(request: Request) -> None:
-    """Rate limit pour POST /auth/register — 5 requêtes/minute par IP."""
-    await check_ip_rate_limit(request, action="register", max_requests=5)
+    """Rate limit pour POST /auth/register - settings.register_per_minute_ip_limit/min/IP (defaut 30)."""
+    from app.config import settings  # noqa: PLC0415 - evite import circulaire
+
+    await check_ip_rate_limit(
+        request,
+        action="register",
+        max_requests=settings.register_per_minute_ip_limit,
+    )
 
 
 async def rate_limit_refresh(request: Request) -> None:

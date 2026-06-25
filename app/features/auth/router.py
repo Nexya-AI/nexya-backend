@@ -106,10 +106,10 @@ async def register(
     """Inscription d'un nouvel utilisateur.
 
     Défense en profondeur :
-    - Couche 1 : rate limit 5/min/IP (`rate_limit_register`) — bloque les
-      raffales courtes.
-    - Couche 2 : rate limit 5/jour/IP (`rate_limit_register_daily_ip`) —
-      bloque les attaques « slow & low » qui espacent leurs requêtes.
+    - Couche 1 : rate limit register_per_minute_ip_limit/min/IP (defaut 30,
+      env REGISTER_PER_MINUTE_IP_LIMIT) - bloque les rafales courtes.
+    - Couche 2 : rate limit register_daily_ip_limit/jour/IP (defaut 300, env
+      REGISTER_DAILY_IP_LIMIT) - bloque les attaques « slow & low ».
     - Couche 3 : device quota (`device_quotas`) — bloque l'attaque
       distribuée (IPs tournantes, même device_id).
     - Couche 4 : captcha hCaptcha — coupe les bots avant l'INSERT user.
