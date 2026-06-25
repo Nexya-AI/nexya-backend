@@ -257,9 +257,11 @@ class Settings(BaseSettings):
     # `embeddings_mock_enabled=True` (force mock en CI/tests).
     openai_embedding_model: str = "text-embedding-3-small"
     embeddings_mock_enabled: bool = False
-    # Dimension figée v1 au DDL (colonne `vector(1536)` en migration).
-    # Changer cette valeur implique une migration backfill — prévu Phase 12.
-    embeddings_dim: int = 1536
+    # Dimension figée au DDL. Aligné sur Gemini `gemini-embedding-001` (768)
+    # depuis la migration 031 (2026-06-25) : en prod seule la clé Gemini est
+    # dispo, qui produit du 768. `memories` + `document_chunks` migrés
+    # 1536->768 pour matcher (avant : INSERT mémoire échouait sur le mismatch).
+    embeddings_dim: int = 768
     # Cap applicatif sur `content` d'une mémoire — 2000 chars ≈ 500 tokens,
     # largement suffisant pour un fait durable (« Ivan est dev Flutter
     # basé au Cameroun depuis 2023, il code NEXYA avec Claude Code… »).
@@ -767,11 +769,20 @@ class Settings(BaseSettings):
     # par fenêtre de 24 h — bloque les fermes d'inscriptions automatisées.
     # Si le header est absent, on considère le device "unknown" et on
     # applique une limite plus stricte (même clé pour tous les unknowns).
-    device_registration_daily_limit: int = 3
+    # 10/jour/appareil : garde-fou anti-ferme d'inscriptions FIABLE (un
+    # device physique = un UUID stable, immunisé au NAT carrier). C'est la
+    # couche d'anti-abus PRINCIPALE. 10 laisse de la marge pour les tests
+    # internes ET reste clairement détectable (11 comptes/jour sur le même
+    # téléphone = abus).
+    device_registration_daily_limit: int = 10
     # Limite IP journalière pour /auth/register — couche 2 (la couche 1 est
-    # le sliding window 5/min déjà en place). 5/jour suffit : une personne
-    # normale ne crée pas 6 comptes/jour sur un même réseau.
-    register_daily_ip_limit: int = 5
+    # le sliding window 5/min déjà en place).
+    # ⚠️ NAT carrier (Orange/MTN Cameroun) : des MILLIERS de vrais users
+    # partagent la même IP publique → 5/jour bloquerait des inscriptions
+    # légitimes au lancement (cybercafé, réseau mobile partagé). On monte à
+    # 50/jour/IP (NAT-safe) ; l'anti-abus réel repose sur le device quota
+    # ci-dessus, pas sur l'IP. Réglable via REGISTER_DAILY_IP_LIMIT.
+    register_daily_ip_limit: int = 50
     # Limite messages chat user-scoped : >100 msg/min indique un bot — on
     # bloque avant même d'appeler le LLM (économise tokens + protège rerank).
     chat_message_per_minute_limit: int = 100

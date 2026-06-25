@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -299,6 +299,33 @@ async def delete_avatar(
     """
     profile = await AvatarService.delete_avatar(current_user, db)
     return NexyaResponse(success=True, data=profile)
+
+
+@router.get("/user/avatar")
+async def get_avatar(
+    current_user: User = Depends(get_current_user),
+) -> Response:
+    """Stream la photo de profil de l'utilisateur courant (proxy authentifié).
+
+    `build_profile_response` renvoie `avatar_url = /user/avatar?v=…` (chemin
+    relatif) au lieu d'un presigned MinIO injoignable depuis le device. Cet
+    endpoint stream le blob depuis MinIO interne (le backend est dans le réseau
+    Docker), et le dio Flutter le résout en y injectant le JWT.
+
+    Pas de réponse `NexyaResponse[T]` : on renvoie le binaire brut (image/jpeg
+    …) directement, c'est un asset, pas une donnée JSON. Le query param `?v=…`
+    (cache-bust) est ignoré côté serveur — il ne sert qu'à varier la clé de
+    cache image côté client.
+
+    Erreurs : 404 `RESOURCE_NOT_FOUND` si pas d'avatar / blob purgé,
+    503 `STORAGE_UNAVAILABLE` si MinIO est down.
+    """
+    data, content_type = await AvatarService.fetch_avatar_blob(current_user)
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @router.put("/user/password", response_model=NexyaResponse[dict])

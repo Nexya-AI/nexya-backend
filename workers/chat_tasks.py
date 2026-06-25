@@ -59,7 +59,8 @@ TITLE_PROMPT = (
     "- Pas de verbe conjugué.\n"
     '- Pas de phrase narrative comme "L\'utilisateur veut..." ou '
     '"Discussion sur...".\n'
-    "- En français.\n"
+    "- Dans la MÊME langue que la conversation (français, anglais, etc.).\n"
+    "- Évocateur et agréable à lire, qui donne envie de rouvrir la discussion.\n"
     "\n"
     "EXEMPLES VALIDES :\n"
     '- "Configuration émulateur Flutter"\n'
@@ -168,12 +169,16 @@ async def generate_conversation_title(ctx: dict[str, Any], conversation_id: str)
 
         # Double-check sentinelle : un autre worker a peut-être déjà
         # tourné, ou la conv a été soft-deletée entre-temps.
-        if conversation.title_generated_at is not None or conversation.title is not None:
+        # **2026-06-25** : on ne teste QUE `title_generated_at` (plus
+        # `title IS NULL`) — le titre déterministe est désormais un
+        # PLACEHOLDER toujours posé à l'INSERT, qu'on vient justement
+        # raffiner ici. La sentinelle `title_generated_at` (posée à la fin
+        # de ce worker) garantit le one-shot anti-relance.
+        if conversation.title_generated_at is not None:
             log.info(
                 "chat.title.already_generated",
                 conversation_id=conversation_id,
-                has_title=conversation.title is not None,
-                has_sentinel=conversation.title_generated_at is not None,
+                has_sentinel=True,
             )
             return {"skipped": True, "reason": "already_generated"}
 
@@ -268,6 +273,12 @@ async def _call_llm_for_title(history: list[AiChatMessage]) -> str:
         model=resolution.model,
         temperature=0.4,
         max_tokens=TITLE_MAX_TOKENS,
+        # **2026-06-25** — Désactive le thinking mode Gemini 2.5 Flash. Sans
+        # ça, le modèle brûlait son budget tokens en raisonnement interne et
+        # ressortait `parts=[]` → titre vide → fallback placeholder (bug
+        # « titres pas générés »). Avec disable_thinking, le titre sort direct
+        # et fiable. (cf. Bug-experts-Pro 2026-05-23 même mécanisme.)
+        extra={"disable_thinking": True},
     )
     parts: list[str] = []
     try:

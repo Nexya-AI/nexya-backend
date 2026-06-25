@@ -235,25 +235,30 @@ async def rate_limit_abuse_reports(user_id: uuid.UUID | str) -> None:
     )
 
 
-async def rate_limit_register_daily_ip(request: Request, *, max_per_day: int = 5) -> None:
+async def rate_limit_register_daily_ip(request: Request, *, max_per_day: int | None = None) -> None:
     """Rate limit IP pour POST /auth/register — fenêtre 24 h (couche 2).
 
     Couche 1 : `rate_limit_register` (sliding window 5/min) — bloque les
     raffales courtes de type brute-force.
-    Couche 2 (ici) : 5/jour/IP — bloque le cas où un attaquant espace
-    ses requêtes dans le temps pour passer sous le radar du rate limit
-    minute mais continue à spammer des comptes. Complémentaire, pas
-    redondant : une IP légitime ne crée pas 6 comptes/jour.
+    Couche 2 (ici) : `register_daily_ip_limit`/jour/IP — bloque le cas où un
+    attaquant espace ses requêtes pour passer sous le radar du rate limit
+    minute mais continue à spammer des comptes.
 
-    Sur NAT carrier (beaucoup de users derrière une même IP mobile),
-    5/jour est suffisamment haut pour ne pas faire de faux positifs —
-    c'est la raison pour laquelle on combine avec un quota device-level
-    plus strict côté `device_quotas`.
+    ⚠️ NAT carrier (Orange/MTN Cameroun) : des milliers de vrais users
+    partagent la même IP publique. Cette limite est donc volontairement
+    HAUTE (50/jour par défaut, cf. `settings.register_daily_ip_limit`) —
+    l'anti-abus réel repose sur le quota **device-level** (`device_quotas`,
+    immunisé au NAT). [Fix 2026-06-25 : la valeur était hardcodée à 5 et
+    ignorait `settings.register_daily_ip_limit` → vrais users + tests
+    bloqués au 6ᵉ compte.]
     """
+    from app.config import settings  # noqa: PLC0415 — évite import circulaire
+
+    limit = max_per_day if max_per_day is not None else settings.register_daily_ip_limit
     await check_ip_rate_limit(
         request,
         action="register_daily",
-        max_requests=max_per_day,
+        max_requests=limit,
         window_seconds=86400,
     )
 

@@ -80,13 +80,13 @@ class DocumentChunk(Base):
     end_char_offset: Mapped[int] = mapped_column(Integer, nullable=False)
     page_number: Mapped[int | None] = mapped_column(Integer)
 
-    # pgvector colonne 1536 dim — même dim que D1 memories (alignement
-    # OpenAI `text-embedding-3-small`).
-    embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
+    # pgvector colonne 768 dim — même dim que D1 memories (alignement
+    # Gemini `gemini-embedding-001`, migration 031 2026-06-25).
+    embedding: Mapped[list[float]] = mapped_column(Vector(768), nullable=False)
     embedding_model: Mapped[str] = mapped_column(
         String(64),
-        server_default="text-embedding-3-small",
-        default="text-embedding-3-small",
+        server_default="gemini-embedding-001",
+        default="gemini-embedding-001",
         nullable=False,
     )
 

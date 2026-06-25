@@ -989,6 +989,17 @@ async def chat_stream(
     )
 
     response_headers["X-Conversation-Id"] = str(conversation.id)
+    # **2026-06-25** — Titre déterministe (placeholder posé à l'INSERT)
+    # renvoyé dans un header pour que le Flutter affiche le titre dans le
+    # drawer historique DÈS la 1ʳᵉ question, sans attendre un refresh
+    # backend (« la discussion traîne à apparaître »). URL-encodé car le
+    # titre peut contenir des accents (header HTTP = ASCII/latin-1 strict) ;
+    # le client décode via `Uri.decodeComponent`. Le worker LLM raffinera
+    # le titre ensuite — le drawer pull la version finale au prochain refresh.
+    if conversation.title:
+        from urllib.parse import quote  # noqa: PLC0415
+
+        response_headers["X-Conversation-Title"] = quote(conversation.title, safe="")
     # C2-fix (2026-05-02) — UUID backend du message assistant fraîchement
     # persisté en DB par `start_stream_turn` ci-dessus. Permet au client
     # Flutter de cibler ce message pour `POST /chat/messages/{id}/feedback`
@@ -1285,21 +1296,19 @@ async def _finalize_in_fresh_session(
             # commitée — on ne déclenche que sur une fin propre, et tant
             # que la sentinelle DB n'a pas été posée par un précédent run.
             #
-            # **2026-05-15 — Bug-040 stable fix** : depuis l'introduction
-            # du titre déterministe au INSERT (cf.
-            # `ConversationService.ensure_conversation_for_stream`), les
-            # 2 conditions `title_generated_at IS NULL AND title IS NULL`
-            # sont **toujours false** sur les conv créées via /chat/stream
-            # → l'enqueue est naturellement no-op (gratuit, pas de Redis
-            # call gaspillé). Le code reste pour V2 raffinement LLM
-            # conditionnel (ex: conv >= 50 messages, l'IA peut générer
-            # un meilleur titre que le déterministe).
+            # **2026-06-25 — Raffinement LLM réactivé** : le titre déterministe
+            # est posé en PLACEHOLDER à l'INSERT mais `title_generated_at` reste
+            # NULL (cf. `ensure_conversation_for_stream`). On enqueue donc le
+            # worker dès le 1ᵉʳ échange complet pour qu'il génère un titre court
+            # et évocateur (Gemini Flash, disable_thinking) qui ÉCRASE le
+            # placeholder. La condition `title IS NULL` est retirée — sinon le
+            # placeholder bloquerait à jamais l'enqueue. La sentinelle
+            # `title_generated_at` (posée par le worker) garantit le one-shot.
             if status_final == "completed":
                 conv = await db.get(Conversation, conversation_id)
                 should_enqueue_title = bool(
                     conv
                     and conv.title_generated_at is None
-                    and conv.title is None
                     and conv.message_count >= _TITLE_AUTOGENERATE_THRESHOLD
                 )
                 # Décide d'enqueuer l'extraction de faits durables (D2)

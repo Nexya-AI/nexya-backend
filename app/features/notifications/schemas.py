@@ -18,7 +18,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # Types partagés — alignés 1:1 sur les CHECK SQL
 # ═══════════════════════════════════════════════════════════════════
 
-NotificationCategory = Literal["tasks", "payments", "security", "digest", "product"]
+NotificationCategory = Literal[
+    "tasks", "payments", "security", "digest", "product", "documents"
+]
 """Catégorie RGPD — sert de discriminateur de préférences et d'index.
 
 - `tasks` : exécution d'une tâche planifiée.
@@ -29,6 +31,10 @@ NotificationCategory = Literal["tasks", "payments", "security", "digest", "produ
 - `digest` : récapitulatif hebdomadaire / mensuel (Phase 12+).
 - `product` : annonces produit (`update`/`feature`/`promo`/`tip` côté
   Flutter via `data_json.subtype`).
+- `documents` : génération asynchrone de document lourd prête (C4.12).
+  **Doit rester aligné sur `preferences.py::CATEGORIES`** — sinon le
+  service renvoie une catégorie que ce Literal rejette → ValidationError
+  500 sur GET/PUT `/user/notification-preferences` (bug 2026-06-25).
 """
 
 NotificationChannel = Literal["push", "email", "both", "none"]
@@ -170,7 +176,7 @@ class NotificationPreferencesResponse(BaseModel):
 
     preferences: list[NotificationPreferenceItem] = Field(
         ...,
-        description="5 catégories RGPD, toutes toujours présentes.",
+        description="6 catégories RGPD, toutes toujours présentes.",
     )
 
 

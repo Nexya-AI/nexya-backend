@@ -863,28 +863,28 @@ class ConversationService:
         if project_id is not None:
             await ProjectService._get_owned_project(project_id, user.id, db)
 
-        # **2026-05-15 — Titre déterministe au INSERT** (Bug-040 stable fix).
-        # Évite définitivement les 2 symptômes constatés en V1 :
-        #   - « Nouvelle discussion » placeholder qui reste 30-75s avant que
-        #     le worker arq LLM ne réussisse (ou jamais sur panne Redis).
-        #   - Titres dégénérés Gemini Flash (« ses objectifs principaux sont. »)
-        #     causés par le thinking mode + prompt strict mal interprété.
+        # **2026-06-25 — Titre déterministe en PLACEHOLDER + raffinement LLM.**
+        # (Évolution du Bug-040 stable fix sur retour terrain Ivan « les noms
+        #  de discussion ne sont pas assez beaux ».)
+        #
         # Le helper `derive_deterministic_title` retourne TOUJOURS une string
-        # non-vide (fallback "Discussion" si message vide / juste prefix /
-        # ponctuation seule). Pose `title_generated_at = NOW()` pour empêcher
-        # le worker arq legacy (`workers/chat_tasks.py`) de re-overrider plus
-        # tard si un futur enqueue stale tournait — sentinelle one-shot stricte.
-        # **V2 raffinement LLM** : si signal user émerge (« titres trop simples,
-        # je veux que l'IA les améliore »), réactiver le worker conditionnellement
-        # (ex: `message_count >= 50 AND title_generated_at < NOW() - 1 day`),
-        # le code worker reste intact, juste son enqueue est retiré V1.
+        # non-vide (fallback "Discussion") → titre lisible IMMÉDIATEMENT, plus
+        # jamais de « Nouvelle discussion » fantôme.
+        #
+        # MAIS on laisse `title_generated_at = NULL` (≠ ancienne V1 qui le
+        # posait à NOW() et neutralisait le worker). Conséquence : après le
+        # 1ᵉʳ échange complet, le worker arq `generate_conversation_title`
+        # tourne (Gemini Flash, `disable_thinking=True` → stable), produit un
+        # titre court et évocateur (3-5 mots), **écrase le placeholder** et
+        # pose enfin `title_generated_at` (sentinelle one-shot anti-relance).
+        # Le placeholder déterministe reste donc le filet de sécurité si le
+        # worker échoue/Redis down — jamais de conv sans titre.
         deterministic_title = derive_deterministic_title(first_message) if first_message else None
-        title_generated_at = datetime.now(UTC) if deterministic_title else None
 
         conversation = Conversation(
             user_id=user.id,
             title=deterministic_title,
-            title_generated_at=title_generated_at,
+            title_generated_at=None,  # ← worker LLM raffine ensuite (cf. ci-dessus)
             expert_id=expert_id_hint or "general",
             project_id=project_id,
         )

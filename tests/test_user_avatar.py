@@ -5,7 +5,11 @@ Couverture :
   - `AvatarService.upload_avatar` : happy PNG/JPEG/WebP, 415 MIME, 413 size,
     415 magic mismatch / unknown, ré-upload extension différente → delete old
   - `AvatarService.delete_avatar` : happy + idempotent
-  - `build_profile_response` : avec clé (presigned), sans clé (None), fail-safe
+  - `build_avatar_url` / `build_profile_response` : chemin relatif authentifié
+    `/user/avatar?v=…` (PAS presigned — proxy backend), cache-bust via updated_at,
+    None sans clé
+  - `fetch_avatar_blob` : happy (bytes + content_type), 404 sans clé, 404 si blob
+    purgé de MinIO
   - `delete_avatar_blob_best_effort` : None + fail-safe
 
 Tout est mock-store (zéro MinIO réel) — on instancie `MockObjectStore` et on
@@ -25,12 +29,14 @@ from app.core.errors.exceptions import (
     FileContentMismatchException,
     FileTypeNotAllowedException,
     ImageTooLargeException,
+    ResourceNotFoundException,
 )
 from app.core.storage.object_store import MockObjectStore
 from app.features.auth.avatar import (
     AvatarService,
     _build_avatar_storage_key,
     _ext_for_mime,
+    build_avatar_url,
     build_profile_response,
     delete_avatar_blob_best_effort,
 )
@@ -126,8 +132,9 @@ async def test_upload_avatar_happy_png_sets_key_and_uploads_blob() -> None:
     assert user.avatar_storage_key == expected_key
     assert user.avatar_url is None  # colonne legacy jamais écrite
     assert store._fetch_raw(expected_key) == _PNG
+    # Avatar URL = chemin relatif authentifié vers le proxy (PAS presigned).
     assert profile.avatar_url is not None
-    assert profile.avatar_url.startswith("mock://")
+    assert profile.avatar_url.startswith("/user/avatar?v=")
     db.flush.assert_awaited()
 
 
@@ -284,39 +291,97 @@ async def test_delete_avatar_idempotent_when_no_avatar() -> None:
 
 
 # ══════════════════════════════════════════════════════════════
-# build_profile_response
+# build_avatar_url / build_profile_response (chemin relatif authentifié)
 # ══════════════════════════════════════════════════════════════
 
 
+def test_build_avatar_url_returns_relative_path_with_cache_bust() -> None:
+    user = _make_user(avatar_storage_key=f"users/{uuid.uuid4()}/avatar.jpg")
+    user.updated_at = datetime(2026, 6, 25, 12, 0, 0, tzinfo=UTC)
+    url = build_avatar_url(user)
+    assert url is not None
+    # Chemin RELATIF (le dio Flutter le résout contre baseUrl + JWT), JAMAIS
+    # une URL absolue MinIO injoignable depuis le device.
+    assert url.startswith("/user/avatar?v=")
+    assert "minio" not in url
+    assert "http" not in url
+    assert str(int(user.updated_at.timestamp())) in url
+
+
+def test_build_avatar_url_none_without_key() -> None:
+    assert build_avatar_url(_make_user(avatar_storage_key=None)) is None
+
+
+def test_build_avatar_url_cache_bust_changes_with_updated_at() -> None:
+    key = f"users/{uuid.uuid4()}/avatar.jpg"
+    u1 = _make_user(avatar_storage_key=key)
+    u1.updated_at = datetime(2026, 6, 25, 12, 0, 0, tzinfo=UTC)
+    u2 = _make_user(avatar_storage_key=key)
+    u2.updated_at = datetime(2026, 6, 25, 12, 5, 0, tzinfo=UTC)
+    # Même clé MinIO (overwrite) mais updated_at différent → URL différente, donc
+    # le ImageCache Flutter (clé = chemin) re-télécharge la nouvelle photo.
+    assert build_avatar_url(u1) != build_avatar_url(u2)
+
+
 @pytest.mark.asyncio
-async def test_build_profile_response_with_key_regenerates_presigned() -> None:
+async def test_build_profile_response_with_key_returns_relative_path() -> None:
     key = f"users/{uuid.uuid4()}/avatar.jpg"
     user = _make_user(avatar_storage_key=key)
-    store = MockObjectStore()
-    profile = await build_profile_response(user, store=store)
+    profile = await build_profile_response(user)
     assert profile.avatar_url is not None
-    assert profile.avatar_url.startswith("mock://")
-    assert key in profile.avatar_url
+    assert profile.avatar_url.startswith("/user/avatar?v=")
 
 
 @pytest.mark.asyncio
 async def test_build_profile_response_without_key_returns_none() -> None:
     user = _make_user(avatar_storage_key=None)
-    store = MagicMock()
-    store.generate_presigned_url = AsyncMock()
-    profile = await build_profile_response(user, store=store)
+    profile = await build_profile_response(user)
     assert profile.avatar_url is None
-    store.generate_presigned_url.assert_not_awaited()  # pas d'appel inutile
+
+
+# ══════════════════════════════════════════════════════════════
+# fetch_avatar_blob (proxy GET /user/avatar)
+# ══════════════════════════════════════════════════════════════
 
 
 @pytest.mark.asyncio
-async def test_build_profile_response_failsafe_on_presign_error() -> None:
-    user = _make_user(avatar_storage_key="users/x/avatar.jpg")
-    store = MagicMock()
-    store.generate_presigned_url = AsyncMock(side_effect=RuntimeError("minio down"))
-    # Ne lève PAS — dégrade en avatar_url None.
-    profile = await build_profile_response(user, store=store)
-    assert profile.avatar_url is None
+async def test_fetch_avatar_blob_happy_returns_bytes_and_content_type() -> None:
+    user = _make_user()
+    store = MockObjectStore()
+    await AvatarService.upload_avatar(
+        user, _make_db(), upload_file=_FakeUploadFile(_PNG, "image/png"), store=store
+    )
+    data, content_type = await AvatarService.fetch_avatar_blob(user, store=store)
+    assert data == _PNG
+    assert content_type == "image/png"
+
+
+@pytest.mark.asyncio
+async def test_fetch_avatar_blob_404_without_key() -> None:
+    user = _make_user(avatar_storage_key=None)
+    store = MockObjectStore()
+    with pytest.raises(ResourceNotFoundException):
+        await AvatarService.fetch_avatar_blob(user, store=store)
+
+
+@pytest.mark.asyncio
+async def test_fetch_avatar_blob_404_when_blob_purged() -> None:
+    # Clé en DB mais blob absent de MinIO (purge / désync) → 404, pas 500.
+    user = _make_user(avatar_storage_key=f"users/{uuid.uuid4()}/avatar.jpg")
+    store = MockObjectStore()  # store vide → download_bytes lève FileNotFoundError
+    with pytest.raises(ResourceNotFoundException):
+        await AvatarService.fetch_avatar_blob(user, store=store)
+
+
+@pytest.mark.asyncio
+async def test_fetch_avatar_blob_webp_content_type() -> None:
+    user = _make_user()
+    store = MockObjectStore()
+    await AvatarService.upload_avatar(
+        user, _make_db(), upload_file=_FakeUploadFile(_WEBP, "image/webp"), store=store
+    )
+    _, content_type = await AvatarService.fetch_avatar_blob(user, store=store)
+    assert content_type == "image/webp"
 
 
 # ══════════════════════════════════════════════════════════════

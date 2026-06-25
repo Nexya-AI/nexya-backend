@@ -38,6 +38,7 @@ from app.core.errors.exceptions import (
     FileContentMismatchException,
     FileTypeNotAllowedException,
     ImageTooLargeException,
+    ResourceNotFoundException,
 )
 from app.core.storage import (
     ObjectStore,
@@ -68,6 +69,46 @@ def _ext_for_mime(mime: str) -> str:
     return _MIME_TO_EXT.get(mime.lower(), "jpg")
 
 
+# Chemin de l'endpoint API qui stream l'avatar (proxy authentifié). Doit rester
+# aligné sur le `@router.get(...)` correspondant dans `auth/router.py`.
+AVATAR_ROUTE: Final[str] = "/user/avatar"
+
+# Reverse map extension → MIME, pour servir le bon Content-Type au stream.
+_EXT_TO_MIME: Final[dict[str, str]] = {
+    "jpg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+}
+
+
+def _mime_for_key(key: str) -> str:
+    """MIME dérivé de l'extension de la clé MinIO (`users/{id}/avatar.{ext}`)."""
+    ext = key.rsplit(".", 1)[-1].lower() if "." in key else "jpg"
+    return _EXT_TO_MIME.get(ext, "application/octet-stream")
+
+
+def build_avatar_url(user: User) -> str | None:
+    """Chemin RELATIF authentifié vers l'avatar — **PAS** un presigned MinIO.
+
+    En prod, MinIO n'a aucun port public (réseau Docker interne) : un presigned
+    `http://minio:9000/...` est physiquement **injoignable depuis le téléphone**
+    (même cause racine que le bug doc-download du 2026-06-10). On renvoie donc un
+    chemin relatif vers `GET /user/avatar` — endpoint API authentifié qui stream
+    le blob depuis MinIO interne (le backend, lui, est dans le réseau Docker).
+    Le dio Flutter (`apiClientProvider`, baseUrl=api.nexyalabs.com + JWT Bearer)
+    le résout et y attache le token.
+
+    Cache-bust `?v={updated_at}` : un ré-upload bump `users.updated_at`
+    (UUIDMixin `onupdate`) → l'URL change → le client re-télécharge la nouvelle
+    photo. Sans ce token, Flutter ImageCache (clé = chemin) servirait l'ancienne
+    image décodée (clé identique = cache HIT) malgré le changement de photo.
+    """
+    if not user.avatar_storage_key:
+        return None
+    version = int(user.updated_at.timestamp()) if user.updated_at else 0
+    return f"{AVATAR_ROUTE}?v={version}"
+
+
 def _build_avatar_storage_key(user_id: uuid.UUID, mime: str) -> str:
     """Clé MinIO FIXE par user — un ré-upload écrase le blob précédent."""
     return f"users/{user_id}/avatar.{_ext_for_mime(mime)}"
@@ -93,39 +134,22 @@ async def _read_capped(upload_file: UploadFile, *, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
-async def build_profile_response(user: User, *, store: ObjectStore | None = None) -> UserProfile:
-    """Construit le `UserProfile` avec une presigned avatar FRAÎCHE.
+async def build_profile_response(user: User) -> UserProfile:
+    """Construit le `UserProfile` avec l'URL avatar relative authentifiée.
 
-    Source de vérité = `user.avatar_storage_key`. Si présente, on régénère
-    une presigned (TTL `avatar_presigned_ttl_seconds`) et on l'injecte dans
-    `avatar_url`. Sinon → `avatar_url = None` (on ignore la colonne legacy
-    `avatar_url` qui n'est plus écrite).
+    Source de vérité = `user.avatar_storage_key`. Si présente → chemin relatif
+    vers le proxy API `GET /user/avatar` (cf. `build_avatar_url`). Sinon →
+    `avatar_url = None`. La colonne legacy `avatar_url` (désormais toujours NULL)
+    est ignorée.
 
-    **Fail-safe absolu** : si la génération de presigned échoue (MinIO down,
-    erreur de signature), on log + retourne `avatar_url = None`. Le profil
-    reste lisible — l'avatar dégrade vers l'asset/initiales côté Flutter,
-    jamais une 503 sur un simple GET profil.
+    Reste `async` pour préserver la signature de tous les call-sites (`await …`),
+    même si plus aucun I/O n'est requis : l'URL n'est plus une presigned MinIO
+    (injoignable depuis le device) mais un simple chemin relatif. Conséquence :
+    plus aucune dépendance au store ici, et un `GET /user/profile` ne peut plus
+    jamais échouer sur une presign ratée.
     """
     profile = UserProfile.model_validate(user)
-    key = user.avatar_storage_key
-    if not key:
-        return profile.model_copy(update={"avatar_url": None})
-    try:
-        st = store if store is not None else get_object_store()
-        url = await st.generate_presigned_url(
-            key,
-            ttl_seconds=settings.avatar_presigned_ttl_seconds,
-            method="GET",
-        )
-        return profile.model_copy(update={"avatar_url": url})
-    except Exception as exc:  # noqa: BLE001
-        log.warning(
-            "avatar.presign_failed",
-            user_id=str(user.id),
-            error=str(exc),
-            error_type=type(exc).__name__,
-        )
-        return profile.model_copy(update={"avatar_url": None})
+    return profile.model_copy(update={"avatar_url": build_avatar_url(user)})
 
 
 async def delete_avatar_blob_best_effort(
@@ -237,7 +261,7 @@ class AvatarService:
             size_bytes=len(data),
             storage_key=new_key,
         )
-        return await build_profile_response(user, store=st)
+        return await build_profile_response(user)
 
     @staticmethod
     async def delete_avatar(
@@ -258,4 +282,33 @@ class AvatarService:
             user.avatar_url = None
             await db.flush()
             log.info("avatar.delete.completed", user_id=str(user.id), storage_key=key)
-        return await build_profile_response(user, store=st)
+        return await build_profile_response(user)
+
+    @staticmethod
+    async def fetch_avatar_blob(
+        user: User,
+        *,
+        store: ObjectStore | None = None,
+    ) -> tuple[bytes, str]:
+        """Télécharge le blob avatar depuis MinIO pour le streamer via l'API.
+
+        C'est le cœur du proxy `GET /user/avatar` : le backend (dans le réseau
+        Docker) joint MinIO, l'API (TLS + Caddy) est joignable depuis le
+        téléphone. Résout le presigned `minio:9000` injoignable.
+
+        Retourne `(bytes, content_type)`. Lève :
+        - `ResourceNotFoundException` (404) si pas d'avatar OU blob introuvable
+          côté MinIO (anti-énumération : un user sans avatar et un blob purgé
+          renvoient le même 404).
+        - `ObjectStoreUnavailableException` (503) si MinIO est down (propagée
+          depuis `ObjectStore.download_bytes`).
+        """
+        key = user.avatar_storage_key
+        if not key:
+            raise ResourceNotFoundException("Avatar")
+        st = store if store is not None else get_object_store()
+        try:
+            data = await st.download_bytes(key)
+        except FileNotFoundError as exc:
+            raise ResourceNotFoundException("Avatar") from exc
+        return data, _mime_for_key(key)

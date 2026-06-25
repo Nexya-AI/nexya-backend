@@ -70,12 +70,13 @@ class Memory(Base, UUIDMixin):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
 
-    # pgvector colonne — SQLAlchemy délègue au type natif vector(1536).
+    # pgvector colonne — SQLAlchemy délègue au type natif vector(768).
     # `list[float]` côté Python, sérialisation transparente.
-    embedding: Mapped[list[float]] = mapped_column(Vector(1536), nullable=False)
+    # 768 dim = Gemini `gemini-embedding-001` (migration 031, 2026-06-25).
+    embedding: Mapped[list[float]] = mapped_column(Vector(768), nullable=False)
     embedding_model: Mapped[str] = mapped_column(String(64), nullable=False)
     embedding_dim: Mapped[int] = mapped_column(
-        SmallInteger, server_default="1536", default=1536, nullable=False
+        SmallInteger, server_default="768", default=768, nullable=False
     )
 
     source: Mapped[str] = mapped_column(
