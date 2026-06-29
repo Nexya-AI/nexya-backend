@@ -37,7 +37,7 @@ dependencies = [
     # ── Markdown → HTML (C4.7a PDF source + futur DOCX C4.7b) ──
     # markdown-it-py est safe par défaut sur raw HTML inline si on disable
     # `html: false` dans MarkdownIt options (anti-XSS strict côté template).
-    "markdown-it-py>=3.0,<4",
+    "markdown-it-py>=3.0,<5",
 
     # ── PDF generation (C4.7a — WeasyPrint pipeline) ───────────
     # weasyprint = HTML/CSS → PDF natif via cairo/pango système. Cap
