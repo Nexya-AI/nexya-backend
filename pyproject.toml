@@ -167,7 +167,7 @@ dev = [
     "pytest-asyncio>=1.0,<2",          # Bump audit 2026-05-01 (compat pytest 9.x)
     "ruff>=0.8,<1",                    # Linter + formatter
     # Session L1 — outils CI/CD locaux + GHub Actions
-    "mypy>=1.13,<2",                   # Typecheck statique (assoupli V1)
+    "mypy>=1.13,<3",                   # Typecheck statique (assoupli V1)
     "coverage[toml]>=7.6,<8",          # Coverage XML pour CI
     "pytest-cov>=5,<8",                # plugin pytest pour --cov=app (CI)
     "bandit>=1.8,<2",                  # Scan sécurité patterns dangereux
