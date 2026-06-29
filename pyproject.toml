@@ -48,7 +48,7 @@ dependencies = [
     "weasyprint>=69.0,<70",
     # pikepdf = manipulation post-render (compression streams + metadata
     # + cap pages). Évite ré-écriture brutale via PyPDF2 obsolète.
-    "pikepdf>=9.0,<10",
+    "pikepdf>=9.0,<11",
 
     # ── DOCX generation (C4.7b — Word natif pipeline) ──────────
     # python-docx = écriture .docx native (Office Open XML) sans LibreOffice
