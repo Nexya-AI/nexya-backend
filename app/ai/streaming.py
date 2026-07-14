@@ -111,9 +111,16 @@ def _coerce_uuid(value: str | uuid.UUID | None) -> uuid.UUID | None:
 
 
 def _sse(event: str, data: dict | str) -> str:
-    """Formate un événement SSE. Retour : `event: ... \\n data: ... \\n\\n`."""
+    """Formate un événement SSE. Retour : `event: ... \\n data: ... \\n\\n`.
+
+    `default=str` = filet de securite : un tool_result d'erreur peut embarquer un
+    objet NON serialisable (ex. une pydantic ValidationError dont `ctx.error`
+    contient une `ValueError` brute). Sans ce fallback, `json.dumps` levait un
+    `TypeError` qui CRASHAIT tout le flux `/chat/stream` en 500 (au lieu de juste
+    afficher l'echec du tool). On stringifie donc tout objet inconnu.
+    """
     if isinstance(data, dict):
-        payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+        payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"), default=str)
     else:
         payload = data
     return f"event: {event}\ndata: {payload}\n\n"

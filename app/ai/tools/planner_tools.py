@@ -301,7 +301,7 @@ async def create_task_handler(user, db, arguments: dict[str, Any]) -> ToolResult
             error={
                 "code": "VALIDATION_ERROR",
                 "message": "Arguments invalides pour create_task.",
-                "details": exc.errors()[:3],
+                "details": exc.errors(include_context=False)[:3],
             },
         )
     try:
@@ -349,7 +349,7 @@ async def update_task_handler(user, db, arguments: dict[str, Any]) -> ToolResult
             error={
                 "code": "VALIDATION_ERROR",
                 "message": "Arguments invalides pour update_task.",
-                "details": exc.errors()[:3],
+                "details": exc.errors(include_context=False)[:3],
             },
         )
     try:
