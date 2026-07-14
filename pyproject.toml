@@ -68,7 +68,7 @@ dependencies = [
     "mammoth>=1.8,<2",
 
     # ── Logging ────────────────────────────────────────────────
-    "structlog>=24.1,<25",
+    "structlog>=24.1,<27",
 
     # ── IA — Gemini (Vertex AI, déjà utilisé) ─────────────────
     "google-genai>=1.0,<2",
